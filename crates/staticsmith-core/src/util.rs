@@ -21,6 +21,17 @@ pub fn hash_bytes(input: &[u8]) -> String {
     hex16(&digest)
 }
 
+/// 完整的 SHA-256 十六进制串（64 字符）。
+///
+/// 资源去重用全长哈希：截断到 16 字节虽然足够做变更判定，但资源是内容寻址的存储键，
+/// 不值得为省几十字节承担额外碰撞面。
+pub fn hash_bytes_full(input: &[u8]) -> String {
+    Sha256::digest(input)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 fn hex16(digest: &[u8]) -> String {
     digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
 }

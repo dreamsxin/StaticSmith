@@ -17,8 +17,17 @@ output_dir = "./dist"
 content_dir = "./content"
 theme_dir = "./themes/default"
 template_dir = "./templates"
+static_dir = "./static"
 page_size = 10
 minify = true
+
+[assets]
+dir = "images"          # 相对 static_dir
+naming = "sha256"       # sha256 / md5 / original
+hash_length = 16
+shard = true
+max_size_mb = 32
+# url_prefix = "https://cdn.example.com/images"
 
 [deploy]
 type = "git"          # none / git / ftp
@@ -53,11 +62,23 @@ sftp = false
 - `content_dir`：Markdown 内容目录，默认 `./content`
 - `theme_dir`：主题目录，其 `static/` 子目录会被复制到产物根
 - `template_dir`：统一模板目录，默认 `./templates`
+- `static_dir`：站点静态资源目录，默认 `./static`，整体复制到产物根
+  （复制顺序在主题之后，因此同名文件由站点覆盖主题）
 - `page_size`：列表页每页条数，必须大于 0
 - `minify`：是否压缩输出 HTML。压缩只折叠标签间空白，`pre` / `code` / `script` /
   `style` / `textarea` 内部原样保留，不会破坏手写的 JS/CSS
 
 相对路径按站点根目录解析（`ProjectPaths`）；绝对路径原样使用。
+
+`[assets]` —— 编辑器插入的图片等媒体资源，详见 [媒体资源与目录结构](assets.md)
+
+- `dir`：相对 `static_dir` 的子目录，默认 `images`。不允许绝对路径或 `..`
+- `naming`：`sha256`（默认）/ `md5` / `original`
+- `hash_length`：哈希截断长度，8..=64，默认 16
+- `shard`：是否用哈希前两位做二级目录，默认开启
+- `max_size_mb`：单文件上限，默认 32，0 表示不限制
+- `url_prefix`：URL 前缀覆盖。留空时按 `dir` 推导（`images` → `/images/`），
+  填 CDN 地址可让页面直接引用 CDN
 
 `[deploy]`
 

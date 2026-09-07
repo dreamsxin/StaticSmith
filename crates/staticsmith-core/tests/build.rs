@@ -204,3 +204,90 @@ fn build_history_is_persisted_in_the_index() {
     assert_eq!(builds[1].mode, "full");
     assert!(dir.path().join(".staticsmith/index.db").exists());
 }
+
+/// 一张最小的合法 PNG 头部，足以让扩展名嗅探与哈希命名生效。
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n\x00pasted image bytes";
+
+#[test]
+fn pasted_image_lands_in_static_dir_and_gets_copied_to_dist() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+
+    let saved = builder.save_asset(PNG, "屏幕截图.png").unwrap();
+
+    // 落盘位置由 static_dir + assets.dir + 哈希分片决定。
+    assert!(saved.relative_path.starts_with("images/"));
+    assert_eq!(saved.url, format!("/{}", saved.relative_path));
+    let on_disk = saved
+        .relative_path
+        .split('/')
+        .fold(dir.path().join("static"), |acc, s| acc.join(s));
+    assert!(on_disk.is_file());
+
+    // 在文章里引用它，构建后资源与页面同时出现在产物中。
+    let article = dir.path().join("content/posts/with-image.md");
+    std::fs::write(
+        &article,
+        format!("+++\ntitle = \"带图\"\n+++\n\n![截图]({})\n", saved.url),
+    )
+    .unwrap();
+    builder.reload().unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let html = read(dir.path(), "posts/with-image/index.html");
+    assert!(html.contains(&saved.url), "页面应引用资源地址");
+    let copied = saved
+        .relative_path
+        .split('/')
+        .fold(dir.path().join("dist"), |acc, s| acc.join(s));
+    assert!(copied.is_file(), "资源应被复制到 {}", copied.display());
+}
+
+#[test]
+fn pasting_the_same_image_twice_stores_one_copy() {
+    let dir = new_project();
+    let builder = Builder::open(dir.path()).unwrap();
+
+    let first = builder.save_asset(PNG, "a.png").unwrap();
+    let second = builder.save_asset(PNG, "b.png").unwrap();
+
+    assert_eq!(first.url, second.url);
+    assert!(second.deduplicated);
+    assert_eq!(builder.assets().unwrap().len(), 1, "索引里只应有一条记录");
+}
+
+#[test]
+fn asset_directory_is_configurable() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config
+            .replace("static_dir = \"./static\"", "static_dir = \"./public\"")
+            .replace("dir = \"images\"", "dir = \"media/2026\"")
+            .replace("shard = true", "shard = false"),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let saved = builder.save_asset(PNG, "cover.png").unwrap();
+
+    assert_eq!(
+        saved.relative_path,
+        format!("media/2026/{}", saved.file_name)
+    );
+    assert_eq!(saved.url, format!("/media/2026/{}", saved.file_name));
+    assert!(dir
+        .path()
+        .join("public/media/2026")
+        .join(&saved.file_name)
+        .is_file());
+
+    builder.build(BuildMode::Full).unwrap();
+    assert!(dir
+        .path()
+        .join("dist/media/2026")
+        .join(&saved.file_name)
+        .is_file());
+}

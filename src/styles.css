@@ -295,6 +295,18 @@ h3 {
   color: var(--fg-muted);
 }
 
+.editor__area--dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.editor__foot {
+  padding: 0.35rem 0.5rem;
+  color: var(--fg-muted);
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
 .preview__frame {
   flex: 1;
   width: 100%;

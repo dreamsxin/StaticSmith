@@ -37,6 +37,17 @@ pub struct BuildRecord {
     pub duration_ms: u64,
 }
 
+/// 媒体资源在索引中的一行。主键是内容哈希，因此同一份内容只会有一条记录。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AssetRecord {
+    pub content_hash: String,
+    /// 相对 `static_dir` 的路径。
+    pub path: String,
+    pub url: String,
+    pub size: u64,
+    pub created_at: String,
+}
+
 impl Index {
     /// 打开（或创建）索引数据库。父目录会被自动创建。
     pub fn open(path: &Path) -> Result<Self> {
@@ -96,6 +107,15 @@ impl Index {
                 pages_written INTEGER NOT NULL,
                 duration_ms   INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS assets (
+                content_hash TEXT PRIMARY KEY,
+                path         TEXT NOT NULL,
+                url          TEXT NOT NULL,
+                size         INTEGER NOT NULL,
+                created_at   TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_assets_path ON assets(path);
             "#,
         )?;
         Ok(())
@@ -266,6 +286,51 @@ impl Index {
         })?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
+
+    /// 登记资源。内容哈希已存在时保留首次记录的 `created_at`，只刷新路径与 URL
+    /// （配置里的目录或 URL 前缀可能被改过）。
+    pub fn upsert_asset(&self, record: &AssetRecord) -> Result<()> {
+        self.conn.execute(
+            r#"
+            INSERT INTO assets (content_hash, path, url, size, created_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(content_hash) DO UPDATE SET
+                path = excluded.path,
+                url = excluded.url,
+                size = excluded.size
+            "#,
+            params![
+                record.content_hash,
+                record.path,
+                record.url,
+                record.size as i64,
+                record.created_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn asset(&self, content_hash: &str) -> Result<Option<AssetRecord>> {
+        let record = self
+            .conn
+            .query_row(
+                "SELECT content_hash, path, url, size, created_at FROM assets WHERE content_hash = ?1",
+                params![content_hash],
+                row_to_asset,
+            )
+            .optional()?;
+        Ok(record)
+    }
+
+    /// 全部资源，最近登记的在前，供界面做媒体库浏览。
+    pub fn assets(&self) -> Result<Vec<AssetRecord>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT content_hash, path, url, size, created_at FROM assets \
+             ORDER BY created_at DESC, path",
+        )?;
+        let rows = stmt.query_map([], row_to_asset)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
 }
 
 fn row_to_page(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
@@ -278,6 +343,16 @@ fn row_to_page(row: &rusqlite::Row<'_>) -> rusqlite::Result<PageRecord> {
         hash: row.get(5)?,
         template_hash: row.get(6)?,
         dirty: row.get::<_, i32>(7)? != 0,
+    })
+}
+
+fn row_to_asset(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetRecord> {
+    Ok(AssetRecord {
+        content_hash: row.get(0)?,
+        path: row.get(1)?,
+        url: row.get(2)?,
+        size: row.get::<_, i64>(3)? as u64,
+        created_at: row.get(4)?,
     })
 }
 
@@ -376,5 +451,50 @@ mod tests {
         assert_eq!(builds.len(), 2);
         assert_eq!(builds[0].mode, "incremental");
         assert_eq!(builds[0].pages_written, 2);
+    }
+
+    fn asset(hash: &str, path: &str) -> AssetRecord {
+        AssetRecord {
+            content_hash: hash.to_string(),
+            path: path.to_string(),
+            url: format!("/{path}"),
+            size: 128,
+            created_at: "2026-09-07T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn assets_are_keyed_by_content_hash() {
+        let index = Index::in_memory().unwrap();
+        index
+            .upsert_asset(&asset("h1", "images/ab/h1.png"))
+            .unwrap();
+        index
+            .upsert_asset(&asset("h2", "images/cd/h2.png"))
+            .unwrap();
+
+        assert_eq!(index.assets().unwrap().len(), 2);
+        assert_eq!(index.asset("h1").unwrap().unwrap().path, "images/ab/h1.png");
+        assert!(index.asset("missing").unwrap().is_none());
+    }
+
+    #[test]
+    fn reinserting_an_asset_refreshes_path_but_keeps_created_at() {
+        let index = Index::in_memory().unwrap();
+        index
+            .upsert_asset(&asset("h1", "images/ab/h1.png"))
+            .unwrap();
+
+        let mut moved = asset("h1", "media/ab/h1.png");
+        moved.created_at = "2027-01-01T00:00:00Z".to_string();
+        index.upsert_asset(&moved).unwrap();
+
+        let stored = index.asset("h1").unwrap().unwrap();
+        assert_eq!(stored.path, "media/ab/h1.png");
+        assert_eq!(
+            stored.created_at, "2026-09-07T00:00:00Z",
+            "首次登记时间应保留"
+        );
+        assert_eq!(index.assets().unwrap().len(), 1);
     }
 }

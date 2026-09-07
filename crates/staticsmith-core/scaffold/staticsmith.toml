@@ -10,9 +10,25 @@ content_dir = "./content"
 theme_dir = "./themes/default"
 # 统一模板目录
 template_dir = "./templates"
+# 站点静态资源目录，整体复制到输出目录根部
+static_dir = "./static"
 page_size = 10
 # 构建时是否压缩 HTML
 minify = true
+
+[assets]
+# 编辑器插入的图片存放位置，相对 static_dir
+dir = "images"
+# 文件命名：sha256（默认）/ md5 / original
+naming = "sha256"
+# 哈希截断长度（8..=64）
+hash_length = 16
+# 用哈希前两位做二级目录，避免单目录堆积上万文件
+shard = true
+# 单文件大小上限（MB），0 表示不限制
+max_size_mb = 32
+# URL 前缀留空时按 dir 推导，此处等价于 "/images/"
+# url_prefix = "https://cdn.example.com/images"
 
 [deploy]
 # 可选值：none / git / ftp

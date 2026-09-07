@@ -1,0 +1,9 @@
+# 统一以 LF 存储文本，检出时由各平台自行处理，避免跨平台协作时整文件 diff
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.webp binary
+*.pdf binary

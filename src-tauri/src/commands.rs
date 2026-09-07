@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::graph::TemplateNode;
-use staticsmith_core::index::BuildRecord;
+use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
-use staticsmith_core::{content, scaffold, SiteConfig};
+use staticsmith_core::{content, scaffold, SavedAsset, SiteConfig};
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use tauri::{AppHandle, Emitter, State};
 
@@ -173,6 +175,30 @@ pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<Buil
 #[tauri::command]
 pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<String> {
     state.with_session(|session| Ok(session.builder.preview(&source)?))
+}
+
+// ---------------------------------------------------------------- 媒体资源
+
+/// 保存编辑器粘贴或拖入的文件，返回可直接写进 Markdown 的地址。
+///
+/// 二进制经 base64 传输：Tauri 的 JSON IPC 传字节数组会膨胀数倍，
+/// base64 只有 4/3 的开销，且两端行为确定。
+#[tauri::command]
+pub fn save_asset(
+    state: State<'_, AppState>,
+    file_name: String,
+    data_base64: String,
+) -> Result<SavedAsset> {
+    let bytes = BASE64
+        .decode(data_base64.as_bytes())
+        .map_err(|e| AppError::Message(format!("资源数据不是合法的 base64: {e}")))?;
+    state.with_session(|session| Ok(session.builder.save_asset(&bytes, &file_name)?))
+}
+
+/// 已登记的媒体资源列表，供媒体库浏览。
+#[tauri::command]
+pub fn list_assets(state: State<'_, AppState>) -> Result<Vec<AssetRecord>> {
+    state.with_session(|session| Ok(session.builder.assets()?))
 }
 
 // ---------------------------------------------------------------- 模板与组件

@@ -10,6 +10,7 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 export type BuildMode = 'full' | 'incremental'
 export type TemplateKind = 'layout' | 'component' | 'page' | 'partial'
 export type DeployKind = 'none' | 'git' | 'ftp'
+export type AssetNaming = 'sha256' | 'md5' | 'original'
 
 export interface SiteConfig {
   site: {
@@ -24,8 +25,18 @@ export interface SiteConfig {
     content_dir: string
     theme_dir: string
     template_dir: string
+    static_dir: string
     page_size: number
     minify: boolean
+  }
+  assets: {
+    /** 相对 static_dir 的子目录 */
+    dir: string
+    naming: AssetNaming
+    hash_length: number
+    shard: boolean
+    max_size_mb: number
+    url_prefix?: string | null
   }
   deploy: {
     type: DeployKind
@@ -138,6 +149,26 @@ export interface ChangeSet {
   other: string[]
 }
 
+export interface SavedAsset {
+  content_hash: string
+  file_name: string
+  /** 相对 static_dir 的路径 */
+  relative_path: string
+  /** 可直接写进 Markdown 的站内地址 */
+  url: string
+  size: number
+  /** 命中已有文件，未实际写盘 */
+  deduplicated: boolean
+}
+
+export interface AssetRecord {
+  content_hash: string
+  path: string
+  url: string
+  size: number
+  created_at: string
+}
+
 // ---------------------------------------------------------------- 项目
 
 export const initProject = (path: string, title?: string) =>
@@ -169,6 +200,33 @@ export const saveContent = (source: string, raw: string) =>
 export const deleteContent = (source: string) => invoke<BuildPlan>('delete_content', { source })
 
 export const previewPage = (source: string) => invoke<string>('preview_page', { source })
+
+// ---------------------------------------------------------------- 媒体资源
+
+/**
+ * 保存粘贴或拖入的文件。
+ *
+ * 走 base64 而不是字节数组：JSON IPC 传 `number[]` 会把每个字节膨胀成 2-4 个字符，
+ * base64 只有 4/3 的开销。
+ */
+export async function saveAsset(fileName: string, bytes: Uint8Array): Promise<SavedAsset> {
+  return invoke<SavedAsset>('save_asset', {
+    fileName,
+    dataBase64: toBase64(bytes),
+  })
+}
+
+export const listAssets = () => invoke<AssetRecord[]>('list_assets')
+
+/** 分块转换，避免大文件时 `String.fromCharCode(...)` 参数过多导致栈溢出。 */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
 
 // ---------------------------------------------------------------- 模板
 

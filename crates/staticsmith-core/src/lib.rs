@@ -5,7 +5,8 @@
 //! - [`content`]：Markdown + TOML front matter 解析
 //! - [`templates`]：Tera 模板加载与依赖提取
 //! - [`graph`]：模板依赖图（级联更新的基础）
-//! - [`index`]：SQLite 索引（哈希、脏标记、构建历史）
+//! - [`index`]：SQLite 索引（哈希、脏标记、构建历史、资源登记）
+//! - [`assets`]：媒体资源的内容寻址存储
 //! - [`build`]：全量 / 增量构建引擎
 //! - [`watch`]：文件监听
 //!
@@ -22,6 +23,7 @@
 //! # Ok::<(), staticsmith_core::Error>(())
 //! ```
 
+pub mod assets;
 pub mod build;
 pub mod config;
 pub mod content;
@@ -34,8 +36,9 @@ pub mod templates;
 pub mod util;
 pub mod watch;
 
+pub use assets::{AssetStore, SavedAsset};
 pub use build::{BuildMode, BuildPlan, BuildReport, Builder, Pagination};
-pub use config::{ProjectPaths, SiteConfig, CONFIG_FILE_NAME};
+pub use config::{AssetNaming, Assets, ProjectPaths, SiteConfig, CONFIG_FILE_NAME};
 pub use content::Page;
 pub use error::{Error, Result};
 pub use graph::TemplateGraph;

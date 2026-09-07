@@ -1,12 +1,20 @@
 <script setup lang="ts">
 /** 站点设置：编辑 staticsmith.toml 的可视化表单。 */
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 
 import type { SiteConfig } from '../api'
 import { actions, store } from '../store'
 
 /** 表单持有一份可变副本，保存时才写回磁盘。 */
 const form = reactive<SiteConfig>(clone(store.project?.config))
+
+/** 与 Rust 侧 `Assets::url_prefix` 同样的推导规则，让用户改目录时能立刻看到效果。 */
+const assetUrlPrefix = computed(() => {
+  const override = form.assets.url_prefix?.trim()
+  if (override) return `${override.replace(/\/+$/, '')}/`
+  const dir = form.assets.dir.replace(/^\/+|\/+$/g, '')
+  return dir ? `/${dir}/` : '/'
+})
 
 watch(
   () => store.project?.config,
@@ -22,8 +30,17 @@ function clone(config: SiteConfig | null | undefined): SiteConfig {
       content_dir: './content',
       theme_dir: './themes/default',
       template_dir: './templates',
+      static_dir: './static',
       page_size: 10,
       minify: true,
+    },
+    assets: {
+      dir: 'images',
+      naming: 'sha256',
+      hash_length: 16,
+      shard: true,
+      max_size_mb: 32,
+      url_prefix: null,
     },
     deploy: { type: 'none', git: null, ftp: null },
   }
@@ -66,12 +83,40 @@ function onDeployKindChange() {
       <label>内容目录<input v-model="form.build.content_dir" type="text" /></label>
       <label>模板目录<input v-model="form.build.template_dir" type="text" /></label>
       <label>主题目录<input v-model="form.build.theme_dir" type="text" /></label>
+      <label>静态资源目录<input v-model="form.build.static_dir" type="text" /></label>
       <label>输出目录<input v-model="form.build.output_dir" type="text" /></label>
       <label>每页条数<input v-model.number="form.build.page_size" type="number" min="1" /></label>
       <label class="settings__checkbox">
         <input v-model="form.build.minify" type="checkbox" />
         压缩输出 HTML
       </label>
+
+      <h3>媒体资源</h3>
+      <label>
+        存放子目录（相对静态资源目录）
+        <input v-model="form.assets.dir" type="text" />
+      </label>
+      <label>
+        文件命名
+        <select v-model="form.assets.naming">
+          <option value="sha256">SHA-256 内容哈希</option>
+          <option value="md5">MD5 内容哈希</option>
+          <option value="original">保留原文件名</option>
+        </select>
+      </label>
+      <label>
+        哈希长度
+        <input v-model.number="form.assets.hash_length" type="number" min="8" max="64" />
+      </label>
+      <label>
+        单文件上限（MB，0 为不限）
+        <input v-model.number="form.assets.max_size_mb" type="number" min="0" />
+      </label>
+      <label class="settings__checkbox">
+        <input v-model="form.assets.shard" type="checkbox" />
+        用哈希前两位分片存放
+      </label>
+      <p class="build__muted">当前资源地址前缀：<code>{{ assetUrlPrefix }}</code></p>
     </div>
 
     <div class="settings__panel">

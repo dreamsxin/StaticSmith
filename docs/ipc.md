@@ -30,6 +30,20 @@
 
 `source` 是相对 `content/` 的正斜杠路径，如 `posts/hello.md`。
 
+## 媒体资源
+
+- `save_asset(fileName, dataBase64) -> SavedAsset`：保存粘贴或拖入的文件
+- `list_assets() -> AssetRecord[]`：已登记的资源清单
+
+二进制走 base64 而不是字节数组：JSON IPC 传 `number[]` 会把每个字节膨胀成 2-4 个字符，
+base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编码细节。
+
+`SavedAsset` 字段：`content_hash`（完整 SHA-256）、`file_name`、
+`relative_path`（相对 `static_dir`）、`url`（可直接写进 Markdown）、`size`、
+`deduplicated`（命中已有文件，未实际写盘）。
+
+命名与去重规则见 [媒体资源与目录结构](assets.md)。
+
 ## 模板
 
 - `list_templates() -> TemplateInfo[]`

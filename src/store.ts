@@ -132,6 +132,21 @@ export const actions = {
     if (html !== undefined) state.previewHtml = html
   },
 
+  /**
+   * 保存粘贴或拖入的文件，返回站内地址。
+   *
+   * 只负责落盘与登记；把地址插到正文哪个位置由编辑器组件决定（它才知道光标在哪）。
+   */
+  async saveAsset(file: File): Promise<string | undefined> {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    const asset = await run(() => api.saveAsset(file.name || 'pasted', bytes))
+    if (!asset) return undefined
+    state.progress = asset.deduplicated
+      ? `已复用相同内容的资源 ${asset.file_name}`
+      : `已保存资源 ${asset.file_name}`
+    return asset.url
+  },
+
   async openTemplate(template: TemplateInfo) {
     const source = await run(() => api.readTemplate(template.name))
     if (source !== undefined) {

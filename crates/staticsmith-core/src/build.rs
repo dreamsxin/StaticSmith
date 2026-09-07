@@ -6,10 +6,11 @@ use rayon::prelude::*;
 use serde::Serialize;
 use tera::Context;
 
+use crate::assets::{AssetStore, SavedAsset};
 use crate::config::{ProjectPaths, SiteConfig};
 use crate::content::{self, Page};
 use crate::error::{Error, Result};
-use crate::index::{Index, PageRecord};
+use crate::index::{AssetRecord, Index, PageRecord};
 use crate::templates::TemplateSet;
 use crate::util;
 
@@ -88,7 +89,7 @@ impl Builder {
         if !issues.is_empty() {
             return Err(Error::InvalidProject(issues.join("; ")));
         }
-        let paths = ProjectPaths::new(root, &config.build);
+        let paths = ProjectPaths::new(root, &config.build, &config.assets);
         let templates = TemplateSet::load(&paths.templates)?;
         let index = Index::open(&paths.index_db)?;
         let pages = content::load_all(&paths.content)?;
@@ -118,6 +119,27 @@ impl Builder {
 
     pub fn pages(&self) -> &[Page] {
         &self.pages
+    }
+
+    /// 保存编辑器插入的媒体资源，返回可直接写入 Markdown 的地址。
+    ///
+    /// 内容相同的文件只落盘一次；索引里也只有一条记录，因此重复粘贴同一张图不会让站点变大。
+    pub fn save_asset(&self, bytes: &[u8], original_name: &str) -> Result<SavedAsset> {
+        let store = AssetStore::new(&self.paths.static_dir, &self.config.assets);
+        let saved = store.save(bytes, original_name)?;
+        self.index.upsert_asset(&AssetRecord {
+            content_hash: saved.content_hash.clone(),
+            path: saved.relative_path.clone(),
+            url: saved.url.clone(),
+            size: saved.size,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        })?;
+        Ok(saved)
+    }
+
+    /// 已登记的媒体资源，供界面做媒体库浏览。
+    pub fn assets(&self) -> Result<Vec<AssetRecord>> {
+        self.index.assets()
     }
 
     /// 计算构建计划，不写任何文件。
@@ -314,12 +336,14 @@ impl Builder {
         std::fs::write(&path, html).map_err(|e| Error::io(&path, e))
     }
 
-    /// 复制 `themes/<theme>/static/` 与项目根 `static/` 到输出目录。
+    /// 复制主题静态资源与站点级 `static_dir`（含编辑器插入的媒体资源）到输出目录。
+    ///
+    /// 站点目录排在主题之后，因此同名文件由站点覆盖主题——这是用户覆盖主题资源的方式。
     fn copy_assets(&self) -> Result<usize> {
         let mut copied = 0;
         for dir in [
             self.paths.theme.join("static"),
-            self.paths.root.join("static"),
+            self.paths.static_dir.clone(),
         ] {
             if dir.exists() {
                 copied += copy_dir(&dir, &self.paths.output)?;

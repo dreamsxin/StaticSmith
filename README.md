@@ -19,6 +19,8 @@
 - SQLite 索引驱动的全量 / 增量构建，产物清理，构建历史
 - Markdown + TOML front matter 内容解析、pretty URL、草稿、栏目列表分页
 - Tera 渲染、主题静态资源复制、可选 HTML 压缩
+- 编辑器粘贴 / 拖入图片：按内容哈希（SHA-256 或 MD5）落盘到站点资源目录，自动去重
+- 站点目录结构全部可配置（内容 / 模板 / 主题 / 静态资源 / 输出 / 资源子目录与 URL 前缀）
 - Git 发布（`git2`，产物独立仓库 + 强制推送产物分支）
 - FTP / SFTP 差异同步（按大小与修改时间比对，只传变化文件）
 - 凭证写入操作系统凭据管理器（Windows Credential Manager / macOS Keychain / Secret Service）
@@ -57,8 +59,9 @@ StaticSmith/
 │   │   │   ├── content.rs        # Markdown + front matter 解析
 │   │   │   ├── templates.rs      # Tera 加载与依赖提取
 │   │   │   ├── graph.rs          # 模板依赖图（级联更新基础）
-│   │   │   ├── index.rs          # SQLite 索引
-│   │   │   ├── build.rs          # 全量 / 增量构建引擎
+│   │   │   ├── index.rs         # SQLite 索引
+│   │   │   ├── assets.rs        # 媒体资源内容寻址存储
+│   │   │   ├── build.rs         # 全量 / 增量构建引擎
 │   │   │   ├── watch.rs          # 文件监听
 │   │   │   ├── filters.rs        # 自定义 Tera 过滤器
 │   │   │   └── scaffold.rs       # 新建项目
@@ -95,15 +98,19 @@ my-site/
 │   ├── layouts/base.html     # 主布局
 │   ├── components/           # 全局共享组件：header / footer / sidebar / pagination
 │   └── pages/                # 页面模板：index / list / post
-├── themes/default/static/    # 静态资源，构建时复制到输出目录
+├── themes/default/static/    # 主题静态资源，构建时复制到输出目录
+├── static/                   # 站点静态资源（含编辑器插入的图片，默认在 static/images/）
 ├── dist/                     # 生成产物
 └── .staticsmith/index.db     # 本地索引（可安全删除，删除后退化为全量生成）
 ```
+
+目录名全部来自 `staticsmith.toml`，可以按需改动，见 [媒体资源与目录结构](docs/assets.md)。
 
 ## 文档
 
 - [架构说明](docs/architecture.md)
 - [统一模板与级联更新](docs/templates.md)
+- [媒体资源与目录结构](docs/assets.md)
 - [配置说明](docs/configuration.md)
 - [发布机制](docs/deploy.md)
 - [IPC 命令参考](docs/ipc.md)
