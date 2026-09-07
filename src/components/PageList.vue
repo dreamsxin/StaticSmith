@@ -9,18 +9,60 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
-import type { PageSummary } from '../api'
+import type { PageSummary, SeoSeverity } from '../api'
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
 
+/**
+ * 运营视角的筛选。
+ *
+ * 体检面板能告诉你「有 12 篇缺描述」，但补的时候还是要回到列表里一篇篇找。
+ * 这一排筛选把体检结论接回工作列表：选「待补 SEO」就只剩要动的那些。
+ */
+type Filter = 'all' | 'draft' | 'dirty' | 'seo'
+const filter = ref<Filter>('all')
+
 const normalized = computed(() => keyword.value.trim().toLowerCase())
+
+/** 每篇文章最严重的那条 SEO 问题。站点级问题没有 source，自然被排除。 */
+const seoBySource = computed(() => {
+  const worst = new Map<string, { severity: SeoSeverity; messages: string[] }>()
+  const rank: Record<SeoSeverity, number> = { error: 0, warn: 1, hint: 2 }
+  for (const issue of store.seo?.issues ?? []) {
+    if (!issue.source) continue
+    const current = worst.get(issue.source)
+    if (!current) {
+      worst.set(issue.source, { severity: issue.severity, messages: [issue.message] })
+      continue
+    }
+    current.messages.push(issue.message)
+    if (rank[issue.severity] < rank[current.severity]) current.severity = issue.severity
+  }
+  return worst
+})
+
+const dirtyPages = computed(() => new Set(store.plan?.pages ?? []))
+
+function matchesFilter(page: PageSummary): boolean {
+  switch (filter.value) {
+    case 'draft':
+      return page.draft
+    case 'dirty':
+      return dirtyPages.value.has(page.source)
+    case 'seo':
+      return seoBySource.value.has(page.source)
+    default:
+      return true
+  }
+}
 
 const groups = computed(() => {
   const map = new Map<string, PageSummary[]>()
   for (const page of store.project?.pages ?? []) {
     if (normalized.value && !`${page.title}\n${page.source}`.toLowerCase().includes(normalized.value))
       continue
+    if (!matchesFilter(page as PageSummary)) continue
     const key = page.section || '根目录'
     const list = map.get(key) ?? []
     list.push(page as PageSummary)
@@ -31,7 +73,26 @@ const groups = computed(() => {
 
 const total = computed(() => store.project?.pages.length ?? 0)
 const matched = computed(() => groups.value.reduce((sum, [, pages]) => sum + pages.length, 0))
-const dirtyPages = computed(() => new Set(store.plan?.pages ?? []))
+
+/** 筛选项自带计数：为空的筛选还摆在那里只会让人点一下才发现没有。 */
+const filters = computed<Array<{ id: Filter; label: string; count: number }>>(() => {
+  const pages = store.project?.pages ?? []
+  return [
+    { id: 'all', label: '全部', count: pages.length },
+    { id: 'draft', label: '草稿', count: pages.filter((p) => p.draft).length },
+    {
+      id: 'dirty',
+      label: '待生成',
+      count: pages.filter((p) => dirtyPages.value.has(p.source)).length,
+    },
+    {
+      id: 'seo',
+      label: '待补 SEO',
+      count: pages.filter((p) => seoBySource.value.has(p.source)).length,
+    },
+  ]
+})
+
 
 /**
  * 生成出来但没有源文件的页面：标签列表、标签页、分页页。
@@ -108,7 +169,7 @@ async function remove(page: PageSummary) {
     <header class="page-list__head">
       <h2>内容</h2>
       <span class="page-list__count">
-        {{ normalized ? `${matched} / ${total}` : total }}
+        {{ normalized || filter !== 'all' ? `${matched} / ${total}` : total }}
       </span>
       <button type="button" class="btn--primary" :disabled="store.busy" @click="openCreate">
         新建
@@ -133,6 +194,20 @@ async function remove(page: PageSummary) {
         @click="keyword = ''"
       >
         ×
+      </button>
+    </div>
+
+    <div class="page-list__filters">
+      <button
+        v-for="item in filters"
+        :key="item.id"
+        type="button"
+        class="page-list__chip"
+        :class="{ active: filter === item.id }"
+        :disabled="item.count === 0 && item.id !== 'all'"
+        @click="filter = item.id"
+      >
+        {{ item.label }} <span class="page-list__count">{{ item.count }}</span>
       </button>
     </div>
 
@@ -181,6 +256,13 @@ async function remove(page: PageSummary) {
             >
             <span v-else-if="page.draft" class="badge badge--draft">草稿</span>
             <span
+              v-if="seoBySource.get(page.source)"
+              class="badge"
+              :class="`badge--seo-${seoBySource.get(page.source)!.severity}`"
+              :title="seoBySource.get(page.source)!.messages.join('\n')"
+              >SEO</span
+            >
+            <span
               v-if="dirtyPages.has(page.source)"
               class="badge badge--dirty"
               title="待重新生成"
@@ -214,7 +296,7 @@ async function remove(page: PageSummary) {
       </ul>
     </div>
 
-    <div v-if="sitePages.length" class="page-list__group">
+    <div v-if="filter === 'all' && sitePages.length" class="page-list__group">
       <h3>站点页面（生成）<span class="page-list__count">{{ sitePages.length }}</span></h3>
       <ul>
         <li v-for="item in sitePages" :key="item.path">
@@ -235,6 +317,9 @@ async function remove(page: PageSummary) {
 
     <p v-if="normalized && matched === 0 && !sitePages.length" class="page-list__empty">
       没有匹配「{{ keyword }}」的内容
+    </p>
+    <p v-else-if="!normalized && filter !== 'all' && matched === 0" class="page-list__empty">
+      这一类现在是空的。
     </p>
     <p v-else-if="!total" class="page-list__empty">还没有内容，点右上角「新建」写第一篇。</p>
   </nav>

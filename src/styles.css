@@ -643,6 +643,39 @@ kbd {
   font-size: 0.85rem;
 }
 
+/*
+ * 运营视角的筛选条：把体检结论接回工作列表。
+ * 做成小圆角药丸而不是下拉框——四个选项一眼看完，还能顺带显示各自数量。
+ */
+.page-list__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__chip {
+  padding: 0.1rem 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.page-list__chip.active {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.page-list__chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+
 .page-list__search-icon {
   position: absolute;
   top: 50%;
@@ -816,6 +849,23 @@ kbd {
 .badge--dirty {
   color: var(--accent);
 }
+
+/* SEO 徽标按最严重的那条问题着色：必须修用危险色，其余用提示色 */
+.badge--seo-error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.badge--seo-warn {
+  color: var(--warn);
+  border: 1px solid var(--border);
+}
+
+.badge--seo-hint {
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+
 
 .badge--unsaved {
   color: var(--warn);
