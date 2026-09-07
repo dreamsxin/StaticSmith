@@ -418,7 +418,119 @@ h3 {
   background: var(--accent);
 }
 
+/* ---------------------------------------------------------------- 命令面板 */
+
+/*
+ * 全局唯一的浮层。项目里其他确认交互都做成就地元素，这里例外：
+ * 命令面板本身就是「暂时盖住一切、只回答一个问题」的东西。
+ * z-index 比 toast 低——执行命令后的结果提示必须压在面板之上。
+ */
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgb(0 0 0 / 35%);
+}
+
+.palette__box {
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, 90vw);
+  max-height: 60vh;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 25%);
+}
+
+.palette__input {
+  padding: 0.7rem 0.9rem;
+  font-size: 0.95rem;
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+.palette__input:focus {
+  outline: none;
+}
+
+.palette__list {
+  overflow-y: auto;
+}
+
+.palette__group {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.35rem 0.9rem 0.2rem;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  background: var(--bg-subtle);
+}
+
+.palette__more {
+  color: var(--fg-muted);
+}
+
+.palette__item {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.35rem 0.9rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.palette__item.active {
+  background: var(--bg-subtle);
+}
+
+.palette__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__hint {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__empty,
+.palette__foot {
+  padding: 0.5rem 0.9rem;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.palette__foot {
+  border-top: 1px solid var(--border);
+}
+
 /* ---------------------------------------------------------------- 通知 */
+
 
 .toasts {
   position: fixed;

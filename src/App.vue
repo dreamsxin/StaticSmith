@@ -3,6 +3,7 @@
 import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 
 import BuildPanel from './components/BuildPanel.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import ContentEditor from './components/ContentEditor.vue'
 import DeployPanel from './components/DeployPanel.vue'
 import LayoutManager from './components/LayoutManager.vue'
@@ -18,6 +19,7 @@ import { actions, isDirty, store } from './store'
 type Tab = 'content' | 'layouts' | 'build' | 'seo' | 'deploy' | 'settings'
 
 const tab = ref<Tab>('content')
+const paletteOpen = ref(false)
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'content', label: '内容' },
@@ -53,6 +55,12 @@ function onKeydown(event: KeyboardEvent) {
   if (!store.project || !(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
 
+  // Ctrl+P 而不是 Ctrl+K：后者在编辑器里是「插入链接」，抢走会更糟
+  if (key === 'p') {
+    event.preventDefault()
+    paletteOpen.value = !paletteOpen.value
+    return
+  }
   if (key === 'enter') {
     event.preventDefault()
     void actions.build(event.shiftKey ? 'full' : 'incremental')
@@ -79,6 +87,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <code class="app__root" :title="store.project.root">{{ store.project.root }}</code>
       </div>
       <span class="app__spacer" />
+      <button type="button" @click="paletteOpen = true">
+        命令面板 <kbd>Ctrl+P</kbd>
+      </button>
       <button
         type="button"
         class="btn--primary"
@@ -137,5 +148,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </footer>
   </div>
 
+  <CommandPalette
+    :open="paletteOpen"
+    @close="paletteOpen = false"
+    @navigate="(next) => (tab = next)"
+  />
   <ToastStack />
 </template>
