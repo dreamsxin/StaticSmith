@@ -153,6 +153,18 @@ impl Page {
     pub fn is_publishable(&self) -> bool {
         !self.draft
     }
+
+    /// 发布时间是否已到。
+    ///
+    /// `publish_future` 为 `true`（默认）时永远为真；为 `false` 时，`date` 晚于 `now`
+    /// 的文章算「排着队」，暂不进产物。没写日期的一律算已到——把「忘了写日期」
+    /// 当成「永不发布」只会让人莫名其妙地少一篇。
+    pub fn is_released_at(&self, now: DateTime<Utc>, publish_future: bool) -> bool {
+        if publish_future {
+            return true;
+        }
+        self.date.map(|date| date <= now).unwrap_or(true)
+    }
 }
 
 /// 从 front matter 里挑出各分类维度的词条。

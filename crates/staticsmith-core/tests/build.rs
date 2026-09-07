@@ -192,6 +192,63 @@ fn draft_pages_are_not_published() {
 }
 
 #[test]
+fn future_dated_posts_wait_until_their_date_when_scheduling_is_on() {
+    let dir = new_project();
+    // 脚手架里写着 publish_future = true（写什么日期都发），这里改成定时发布
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("publish_future = true", "publish_future = false"),
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("content/posts/scheduled.md"),
+        "+++\ntitle = \"排到下周\"\ndate = \"2099-01-01\"\n+++\n\n还没到点。\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("content/posts/released.md"),
+        "+++\ntitle = \"已经发了\"\ndate = \"2020-01-01\"\n+++\n\n早就发了。\n",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    assert!(
+        !dir.path().join("dist/posts/scheduled/index.html").exists(),
+        "未到日期的文章不该进产物"
+    );
+    assert!(dir.path().join("dist/posts/released/index.html").exists());
+
+    // 列表页也不该出现它，否则点进去是 404
+    let list = read(dir.path(), "posts/index.html");
+    assert!(!list.contains("排到下周"), "{list}");
+
+    // 界面与自动化用同一个判断
+    let published: Vec<&str> = builder
+        .published_pages()
+        .iter()
+        .map(|p| p.source.as_str())
+        .collect();
+    assert!(!published.contains(&"posts/scheduled.md"), "{published:?}");
+    assert!(published.contains(&"posts/released.md"));
+
+    // 关掉定时发布（回到默认）后立刻发布
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("publish_future = false", "publish_future = true"),
+    )
+    .unwrap();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+    assert!(dir.path().join("dist/posts/scheduled/index.html").exists());
+}
+
+#[test]
 fn build_history_is_persisted_in_the_index() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();

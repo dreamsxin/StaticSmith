@@ -132,6 +132,8 @@ staticsmith mcp --project ./my-site --allow-write
 - `sitemap.xml`、`feed.xml`：`[build] generate_sitemap` / `generate_feed` 控制，
   都需要 `base_url`
 - 标签页：`[taxonomy]` 控制，关掉后文章页也不会渲染标签链接（避免死链）
+- 定时发布：`[build] publish_future = false` 时，`date` 未到的文章不进产物，
+  也不参与体检与订阅——它们还没上线，报了只是噪音。见 [配置](configuration.md)
 - 产物清单：「生成」标签页可以逐个打开检查，包括标签页与分页页
 - 媒体资源体检：「SEO」标签页的「媒体资源」卡片列出没人引用的文件（可回收）
   与引用了却不存在的地址（页面上的破图）。删除需二次确认，且只能删资源目录内的文件；

@@ -23,6 +23,8 @@ minify = true
 generate_sitemap = true
 generate_feed = true
 feed_limit = 20
+publish_future = true  # false 即定时发布
+
 
 [assets]
 dir = "images"          # 相对 static_dir
@@ -80,6 +82,12 @@ sftp = false
 - `generate_sitemap` / `generate_feed`：是否生成 `sitemap.xml` 与 `feed.xml`（Atom）。
   两者都需要 `site.base_url`；为空时跳过并在构建报告里给出提示
 - `feed_limit`：订阅条目上限，默认 20，0 表示不限制
+- `publish_future`：默认 `true`，未来日期的文章照常发布。改成 `false` 就是定时发布：
+  `date` 晚于构建时刻的文章不进产物，也不出现在列表、标签页与订阅里；
+  等构建时刻越过那个日期才出现。配合定时 CI 构建（例如每天一次）即「排好队，到点上线」。
+  没写 `date` 的文章一律视为已到时间——把「忘了写日期」当成「永不发布」只会让人莫名少一篇。
+  桌面端在内容列表里给这类文章打「定时」徽标，并有同名筛选。
+
 
 相对路径按站点根目录解析（`ProjectPaths`）；绝对路径原样使用。
 

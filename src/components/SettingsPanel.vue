@@ -40,6 +40,7 @@ function clone(config: unknown): SiteConfig {
       generate_sitemap: true,
       generate_feed: true,
       feed_limit: 20,
+      publish_future: true,
     },
     assets: {
       dir: 'images',
@@ -169,6 +170,13 @@ function onDeployKindChange() {
         订阅条目上限（0 为不限）
         <input v-model.number="form.build.feed_limit" type="number" min="0" />
       </label>
+      <label class="settings__checkbox">
+        <input v-model="form.build.publish_future" type="checkbox" />
+        立即发布未来日期的文章
+      </label>
+      <p class="build__muted">
+        取消勾选就是定时发布：日期晚于构建时刻的文章先不进产物，等定时构建到点再上线。
+      </p>
       <p v-if="!form.site.base_url.trim()" class="build__muted">
         站点地址为空时会跳过 sitemap 与订阅——它们需要绝对地址。
       </p>

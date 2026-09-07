@@ -65,6 +65,13 @@ pub struct Build {
     /// 订阅条目数上限，0 表示不限制。
     #[serde(default = "default_feed_limit")]
     pub feed_limit: usize,
+    /// 是否发布 `date` 晚于构建时刻的文章。
+    ///
+    /// 默认 `true`，保持「写什么日期都会发出去」的直觉。改成 `false` 就得到定时发布：
+    /// 未来日期的文章暂不进产物，等构建时刻越过那个日期才出现——配合定时 CI 构建，
+    /// 就是「排好队，到点上线」。
+    #[serde(default = "default_true")]
+    pub publish_future: bool,
 }
 
 /// 编辑器插入的图片等媒体资源如何落盘。
@@ -182,6 +189,7 @@ impl Default for Build {
             generate_sitemap: true,
             generate_feed: true,
             feed_limit: default_feed_limit(),
+            publish_future: true,
         }
     }
 }

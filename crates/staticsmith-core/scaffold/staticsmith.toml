@@ -15,6 +15,10 @@ static_dir = "./static"
 page_size = 10
 # 构建时是否压缩 HTML
 minify = true
+# 未来日期的文章是否立刻发布。改成 false 就是定时发布：
+# date 晚于构建时刻的文章先不进产物，配合定时构建到点上线。
+publish_future = true
+
 
 [assets]
 # 编辑器插入的图片存放位置，相对 static_dir

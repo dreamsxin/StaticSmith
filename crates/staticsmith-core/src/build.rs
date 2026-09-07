@@ -149,6 +149,20 @@ impl Builder {
         self.index.assets()
     }
 
+    /// 会进产物的页面：非草稿，且发布时间已到。
+    ///
+    /// 「发布时间已到」只在 `[build] publish_future = false` 时才是真条件，
+    /// 默认所有非草稿都算。构建、增量计划、体检、单页预览必须用同一个判断，
+    /// 否则会出现「计划里有、产物里没有」这类对不上的状态。
+    pub fn published_pages(&self) -> Vec<&Page> {
+        let now = chrono::Utc::now();
+        let publish_future = self.config.build.publish_future;
+        self.pages
+            .iter()
+            .filter(|p| p.is_publishable() && p.is_released_at(now, publish_future))
+            .collect()
+    }
+
     /// 产物清单，按类型分组排序。
     ///
     /// 标签页、分页页、sitemap、feed 都不是内容文件，界面此前完全看不到它们；
@@ -224,7 +238,7 @@ impl Builder {
             .graph
             .affected_templates(changed_templates.iter().map(String::as_str));
 
-        let publishable: Vec<&Page> = self.pages.iter().filter(|p| p.is_publishable()).collect();
+        let publishable: Vec<&Page> = self.published_pages();
         let existing: Vec<String> = publishable.iter().map(|p| p.source.clone()).collect();
         let orphaned_pages: Vec<String> = self
             .index
@@ -287,7 +301,7 @@ impl Builder {
             .collect();
 
         let site_ctx = self.site_context();
-        let all_pages: Vec<&Page> = self.pages.iter().filter(|p| p.is_publishable()).collect();
+        let all_pages: Vec<&Page> = self.published_pages();
         let collected = self.collect_taxonomies(&all_pages);
         let renderer = Renderer {
             templates: &self.templates,
@@ -404,7 +418,8 @@ impl Builder {
             .iter()
             .find(|p| p.source == source)
             .ok_or_else(|| Error::Other(format!("内容不存在: {source}")))?;
-        let all_pages: Vec<&Page> = self.pages.iter().filter(|p| p.is_publishable()).collect();
+        // 预览用同一份「会进产物的页面」算标签链接：预览里能点开的标签，产物里也一定在
+        let all_pages: Vec<&Page> = self.published_pages();
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,

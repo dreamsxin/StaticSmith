@@ -31,6 +31,8 @@ export interface SiteConfig {
     generate_sitemap: boolean
     generate_feed: boolean
     feed_limit: number
+    /** false 表示定时发布：未来日期的文章暂不进产物 */
+    publish_future: boolean
   }
   assets: {
     /** 相对 static_dir 的子目录 */
@@ -95,6 +97,8 @@ export interface PageSummary {
   is_index: boolean
   draft: boolean
   date: string | null
+  /** 非草稿但这次不会进产物：日期还没到，且站点开了定时发布 */
+  scheduled: boolean
   tags: string[]
 }
 

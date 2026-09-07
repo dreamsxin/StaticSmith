@@ -20,7 +20,7 @@ const searchBox = ref<HTMLInputElement | null>(null)
  * 体检面板能告诉你「有 12 篇缺描述」，但补的时候还是要回到列表里一篇篇找。
  * 这一排筛选把体检结论接回工作列表：选「待补 SEO」就只剩要动的那些。
  */
-type Filter = 'all' | 'draft' | 'dirty' | 'seo'
+type Filter = 'all' | 'draft' | 'dirty' | 'seo' | 'scheduled'
 const filter = ref<Filter>('all')
 
 const normalized = computed(() => keyword.value.trim().toLowerCase())
@@ -52,6 +52,8 @@ function matchesFilter(page: PageSummary): boolean {
       return dirtyPages.value.has(page.source)
     case 'seo':
       return seoBySource.value.has(page.source)
+    case 'scheduled':
+      return page.scheduled
     default:
       return true
   }
@@ -90,6 +92,7 @@ const filters = computed<Array<{ id: Filter; label: string; count: number }>>(()
       label: '待补 SEO',
       count: pages.filter((p) => seoBySource.value.has(p.source)).length,
     },
+    { id: 'scheduled', label: '定时', count: pages.filter((p) => p.scheduled).length },
   ]
 })
 
@@ -255,6 +258,12 @@ async function remove(page: PageSummary) {
               >●</span
             >
             <span v-else-if="page.draft" class="badge badge--draft">草稿</span>
+            <span
+              v-else-if="page.scheduled"
+              class="badge badge--draft"
+              :title="`${page.date ?? ''} 到点后才进产物（站点开了定时发布）`"
+              >定时</span
+            >
             <span
               v-if="seoBySource.get(page.source)"
               class="badge"

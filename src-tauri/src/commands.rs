@@ -49,6 +49,8 @@ pub struct PageSummary {
     pub is_index: bool,
     pub draft: bool,
     pub date: Option<String>,
+    /// 非草稿但这次不会进产物：`date` 还没到，且站点关掉了 `publish_future`
+    pub scheduled: bool,
     /// 属性面板的标签建议来自这里，因此列表项也要带上
     pub tags: Vec<String>,
 }
@@ -122,7 +124,7 @@ pub fn project_summary(state: State<'_, AppState>) -> Result<ProjectSummary> {
         Ok(ProjectSummary {
             root: session.root.clone(),
             config: builder.config.clone(),
-            pages: builder.pages().iter().map(page_summary).collect(),
+            pages: page_summaries(builder),
             layouts: builder.templates().layouts().into_iter().cloned().collect(),
             components: builder
                 .templates()
@@ -162,7 +164,7 @@ pub fn save_config(state: State<'_, AppState>, config: SiteConfig) -> Result<Vec
 
 #[tauri::command]
 pub fn list_pages(state: State<'_, AppState>) -> Result<Vec<PageSummary>> {
-    state.with_session(|session| Ok(session.builder.pages().iter().map(page_summary).collect()))
+    state.with_session(|session| Ok(page_summaries(&session.builder)))
 }
 
 /// 读取内容源文件原文（含 front matter），供编辑器打开。
@@ -560,8 +562,30 @@ fn page_summary(page: &staticsmith_core::Page) -> PageSummary {
         is_index: page.is_index,
         draft: page.draft,
         date: page.date.map(|d| d.to_rfc3339()),
+        scheduled: false,
         tags: page.tags.clone(),
     }
+}
+
+/// 页面摘要列表。
+///
+/// `scheduled` 要知道「这次哪些页面不会进产物」，判断交给 `Builder::published_pages`——
+/// 界面不再自己比一遍日期，免得和构建给出两套结论。
+fn page_summaries(builder: &staticsmith_core::Builder) -> Vec<PageSummary> {
+    let published: std::collections::BTreeSet<&str> = builder
+        .published_pages()
+        .iter()
+        .map(|p| p.source.as_str())
+        .collect();
+    builder
+        .pages()
+        .iter()
+        .map(|page| {
+            let mut summary = page_summary(page);
+            summary.scheduled = !page.draft && !published.contains(page.source.as_str());
+            summary
+        })
+        .collect()
 }
 
 /// 事件只投给发起操作的窗口。

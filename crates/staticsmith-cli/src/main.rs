@@ -437,10 +437,15 @@ fn cmd_check(project: &PathBuf) -> Result<()> {
     let components = builder.templates().components().len();
     let pages = builder.pages().len();
     let drafts = builder.pages().iter().filter(|p| p.draft).count();
+    // 非草稿但这次不会进产物的，就是「排着队等日期」的
+    let scheduled = pages - drafts - builder.published_pages().len();
 
     println!("配置：{}", builder.paths.root.display());
     println!("模板 {templates} 个（其中全局组件 {components} 个）");
     println!("内容 {pages} 篇（草稿 {drafts} 篇）");
+    if scheduled > 0 {
+        println!("定时发布 {scheduled} 篇：日期未到，本次构建不会输出");
+    }
     println!("检查通过");
     Ok(())
 }

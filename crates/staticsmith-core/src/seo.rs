@@ -85,9 +85,13 @@ pub fn audit(pages: &[Page], config: &SiteConfig) -> Report {
     audit_with(pages, config, Thresholds::default())
 }
 
-/// 体检。草稿被跳过：它们不进产物，报了只会淹没真正要改的条目。
+/// 体检。草稿与未到发布时间的文章被跳过：它们不进产物，报了只会淹没真正要改的条目。
 pub fn audit_with(pages: &[Page], config: &SiteConfig, limits: Thresholds) -> Report {
-    let published: Vec<&Page> = pages.iter().filter(|p| p.is_publishable()).collect();
+    let now = chrono::Utc::now();
+    let published: Vec<&Page> = pages
+        .iter()
+        .filter(|p| p.is_publishable() && p.is_released_at(now, config.build.publish_future))
+        .collect();
     let mut issues = Vec::new();
 
     if config.site.base_url.trim().is_empty() {
