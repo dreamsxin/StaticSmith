@@ -149,6 +149,19 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 `note_self_tree`，避免界面在自己的操作之后弹「检测到外部修改」。
 `remove_section` 只删空栏目，里面还有文章时报错而不是连带删除。
 
+内容导入（与 `staticsmith import` 同一套判断）：
+
+- `scan_import(dir, section) -> ImportCandidate[]`：只读，逐篇给出会写到哪、
+  front matter 会变成什么样、有哪些需要人看一下的警告
+- `import_content(dir, section) -> ImportReport`：落盘，返回
+  `imported` / `skipped`（`{source, reason}`）/ `warnings`（`{source, message}`）
+
+`ImportCandidate`：`source`（来源文件的绝对路径）、`target`（相对 `content/`）、
+`front_matter`（转换后的 TOML 文本）、`warnings`、`importable`（目标已存在时为
+`false`——导入绝不覆盖）。界面必须先扫再导：一次迁移动几十上百篇，
+不给「点一下直接导」。`import_content` 会在写盘前对每个可导入目标
+`note_self_write`，避免导完弹「检测到外部修改」。
+
 
 
 

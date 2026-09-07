@@ -429,7 +429,36 @@ export interface LinkReport {
 /** 体检产物里的站内链接，需要先生成一次。 */
 export const auditLinks = () => invoke<LinkReport>('audit_links')
 
+// ---------------------------------------------------------------- 导入
+
+/** 一篇待导入的内容。`front_matter` 是转换后的围栏，供预览。 */
+export interface ImportCandidate {
+  source: string
+  target: string
+  front_matter: string
+  /** 需要人看一下的地方：转不了的字段、猜出来的日期等 */
+  warnings: string[]
+  /** 目标已存在时为假——导入不覆盖已有内容 */
+  importable: boolean
+}
+
+export interface ImportReport {
+  imported: string[]
+  skipped: { source: string; reason: string }[]
+  /** 汇总的警告，形如 `源文件: 说明` */
+  warnings: string[]
+}
+
+/** 扫描待导入目录，只读。 */
+export const scanImport = (dir: string, section: string) =>
+  invoke<ImportCandidate[]>('scan_import', { dir, section })
+
+/** 导入。目标已存在的跳过，不覆盖；正文原样保留。 */
+export const importContent = (dir: string, section: string) =>
+  invoke<ImportReport>('import_content', { dir, section })
+
 // ---------------------------------------------------------------- 批量动作
+
 
 /** 跳过的一篇及原因。批量动作逐篇独立，跳过要说清为什么。 */
 export interface BatchSkipped {

@@ -1524,6 +1524,50 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* 目录输入框吃掉剩余宽度，按钮跟在同一行 */
+.settings__import-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings__import-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 迁移清单可能上百条，给个高度上限，别把整页撑开 */
+.settings__import-list {
+  max-height: 16rem;
+  padding: 0.4rem 0.6rem;
+  margin: 0;
+  overflow: auto;
+  list-style: none;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.settings__import-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__import-list li:last-child {
+  border-bottom: none;
+}
+
+/* 会被跳过的条目压暗，扫一眼就知道哪些不会动 */
+.settings__import-list li.skip {
+  color: var(--fg-muted);
+}
+
+
 
 /* ---------------------------------------------------------------- SEO 体检 */
 

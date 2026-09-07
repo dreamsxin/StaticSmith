@@ -56,6 +56,8 @@ pub fn run() {
             commands::batch_move,
             commands::batch_delete,
             commands::batch_preview,
+            commands::scan_import,
+            commands::import_content,
             commands::remove_media,
             commands::list_templates,
             commands::template_tree,

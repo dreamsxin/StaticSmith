@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -10,6 +10,7 @@ use staticsmith_core::batch::{
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
+use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportReport};
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
@@ -290,6 +291,39 @@ pub fn stop_preview_server(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 pub fn preview_server_url(state: State<'_, AppState>) -> Result<Option<String>> {
     state.with_session(|session| Ok(session.preview.as_ref().map(|s| s.base_url())))
+}
+
+// ---------------------------------------------------------------- 导入
+
+/// 扫描待导入目录：每篇会写到哪、front matter 变成什么样、哪里需要人看一下。只读。
+#[tauri::command]
+pub fn scan_import(
+    state: State<'_, AppState>,
+    dir: String,
+    section: String,
+) -> Result<Vec<ImportCandidate>> {
+    state.with_session(|session| Ok(session.builder.scan_import(Path::new(&dir), &section)?))
+}
+
+/// 导入内容。目标已存在的跳过，不覆盖；正文原样保留。
+#[tauri::command]
+pub fn import_content(
+    state: State<'_, AppState>,
+    dir: String,
+    section: String,
+) -> Result<ImportReport> {
+    state.with_session_mut(|session| {
+        let from = Path::new(&dir);
+        // 先扫一遍拿到会写哪些文件，逐个登记自身写入：一次导入可能上百个文件，
+        // 不登记的话监听器会把它们当成外部改动，界面立刻弹横幅
+        let content_root = session.builder.paths.content.clone();
+        for candidate in session.builder.scan_import(from, &section)? {
+            if candidate.importable {
+                state.note_self_write(&content::resolve_source(&content_root, &candidate.target));
+            }
+        }
+        Ok(session.builder.import_content(from, &section)?)
+    })
 }
 
 // ---------------------------------------------------------------- 批量动作

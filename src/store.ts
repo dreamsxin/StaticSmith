@@ -197,6 +197,34 @@ export const actions = {
     if (sections) state.sections = sections
   },
 
+  /**
+   * 扫描待导入目录，只读。
+   *
+   * 迁移一次影响几十上百篇，所以界面也走「先看清再落盘」：这里返回逐篇的
+   * 「会写到哪、front matter 变成什么样、哪里需要人看一下」。
+   */
+  async scanImport(dir: string, section: string) {
+    return await run(() => api.scanImport(dir, section))
+  },
+
+  /** 导入内容。目标已存在的跳过，不覆盖。 */
+  async importContent(dir: string, section: string) {
+    const report = await run(() => api.importContent(dir, section))
+    if (!report) return undefined
+    const warned = report.warnings.length
+    notify(
+      warned > 0 ? 'info' : 'success',
+      warned > 0
+        ? `导入 ${report.imported.length} 篇，${warned} 处需要人看一下`
+        : `导入 ${report.imported.length} 篇`,
+    )
+    await this.refresh()
+    await this.loadSections()
+    await this.recomputePlan()
+    return report
+  },
+
+
   /** 新建栏目：建目录并写一张索引页，否则栏目列表页打不开。 */
   async createSection(path: string, title: string) {
     const created = await run(() => api.createSection(path, title))

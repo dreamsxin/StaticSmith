@@ -1,12 +1,56 @@
 <script setup lang="ts">
-/** 站点设置：编辑 staticsmith.toml 的可视化表单。 */
-import { computed, reactive, watch } from 'vue'
+/** 站点设置：编辑 staticsmith.toml 的可视化表单，外加一次性的内容导入。 */
+import { computed, reactive, ref, watch } from 'vue'
+import { open } from '@tauri-apps/plugin-dialog'
 
-import type { SiteConfig } from '../api'
+import type { ImportCandidate, SiteConfig } from '../api'
 import { actions, store } from '../store'
 
 /** 表单持有一份可变副本，保存时才写回磁盘。 */
 const form = reactive<SiteConfig>(clone(store.project?.config))
+
+// ---------------------------------------------------------------- 内容导入
+
+/**
+ * 导入向导。
+ *
+ * 与命令行 `staticsmith import` 同一套判断（`scan` / `import`），界面只负责
+ * 「选目录 → 看清单 → 确认」。迁移一次影响几十上百篇，所以扫描与落盘分成两步，
+ * 不做「点一下直接导」。
+ */
+const importDir = ref('')
+const importSection = ref('posts')
+const candidates = ref<ImportCandidate[] | null>(null)
+
+const importable = computed(
+  () => candidates.value?.filter((candidate) => candidate.importable).length ?? 0,
+)
+
+/** 栏目建议用自己的 datalist：内容页的同名列表不一定挂载着。 */
+const knownSections = computed(() =>
+  store.sections.map((section) => section.path).filter((path) => path !== ''),
+)
+
+async function pickImportDir() {
+  const selected = await open({ directory: true, multiple: false })
+  if (typeof selected === 'string') {
+    importDir.value = selected
+    candidates.value = null
+  }
+}
+
+async function scanImport() {
+  candidates.value =
+    (await actions.scanImport(importDir.value.trim(), importSection.value.trim())) ?? null
+}
+
+async function runImport() {
+  const report = await actions.importContent(importDir.value.trim(), importSection.value.trim())
+  if (!report) return
+  // 导完重扫一次：已经进来的会变成「已存在」，还剩什么一目了然
+  await scanImport()
+}
+
 
 /** 与 Rust 侧 `Assets::url_prefix` 同样的推导规则，让用户改目录时能立刻看到效果。 */
 const assetUrlPrefix = computed(() => {
@@ -280,5 +324,69 @@ function onDeployKindChange() {
 
       <button type="button" :disabled="store.busy" @click="save">保存设置</button>
     </div>
+
+    <div class="build__panel">
+      <h3>从别的站点导入内容</h3>
+      <p class="build__muted">
+        递归找 <code>.md</code> / <code>.markdown</code>，把 Hugo / Jekyll 的 YAML front matter
+        转成 TOML。<strong>正文一个字节都不动</strong>；转不了的字段会写成注释留在文件里，
+        并列进下面的提示，不会悄悄丢。命令行同样可用：<code>staticsmith import</code>。
+      </p>
+
+      <div class="settings__import-row">
+        <input
+          v-model="importDir"
+          type="text"
+          placeholder="待导入的目录"
+          aria-label="待导入的目录"
+        />
+        <button type="button" :disabled="store.busy" @click="pickImportDir">选择目录…</button>
+      </div>
+      <label>
+        导入到栏目（留空为根目录）
+        <input v-model="importSection" type="text" list="import-known-sections" />
+      </label>
+      <datalist id="import-known-sections">
+        <option v-for="section in knownSections" :key="section" :value="section" />
+      </datalist>
+      <button
+        type="button"
+        :disabled="store.busy || !importDir.trim()"
+        @click="scanImport"
+      >
+        扫描（不写文件）
+      </button>
+
+      <template v-if="candidates">
+        <p class="build__muted">
+          找到 {{ candidates.length }} 篇，可导入 {{ importable }} 篇；
+          目标已存在的会被跳过，不覆盖。
+        </p>
+        <ul class="settings__import-list">
+          <li v-for="candidate in candidates" :key="candidate.source" :class="{ skip: !candidate.importable }">
+            <span>
+              <code>{{ candidate.source }}</code> →
+              <code>{{ candidate.target }}</code>
+            </span>
+            <span v-if="!candidate.importable" class="badge badge--seo-warn">已存在</span>
+            <span v-for="warning in candidate.warnings" :key="warning" class="build__muted">
+              {{ warning }}
+            </span>
+          </li>
+        </ul>
+        <div class="settings__import-row">
+          <button
+            type="button"
+            class="btn--primary"
+            :disabled="store.busy || importable === 0"
+            @click="runImport"
+          >
+            导入 {{ importable }} 篇
+          </button>
+          <button type="button" @click="candidates = null">收起</button>
+        </div>
+      </template>
+    </div>
   </section>
 </template>
+
