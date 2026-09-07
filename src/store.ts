@@ -16,6 +16,7 @@ import type {
   DeployReport,
   FrontMatter,
   FrontMatterPatch,
+  LinkReport,
   MediaReport,
   OutputFile,
   PageSummary,
@@ -63,6 +64,8 @@ interface State {
   seo: SeoReport | null
   /** 媒体资源体检结论，按需刷新（要扫盘，不跟着每次保存跑） */
   media: MediaReport | null
+  /** 站内链接体检结论，按需刷新（读产物，需要先生成过） */
+  links: LinkReport | null
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -97,6 +100,7 @@ const state = reactive<State>({
   assets: [],
   seo: null,
   media: null,
+  links: null,
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -371,6 +375,18 @@ export const actions = {
     if (report) state.media = report
   },
 
+  /**
+   * 站内链接体检。
+   *
+   * 读产物而不是源文件——只有产物才知道分页页、标签页与 slug 覆盖后的真实
+   * 地址。所以没生成过时报告里 `built = false`，面板据此提示「先生成一次」。
+   */
+  async auditLinks() {
+    const report = await run(() => api.auditLinks())
+    if (report) state.links = report
+  },
+
+
   /** 删除未引用的媒体文件。不可撤销，调用前必须已在界面里确认过。 */
   async removeMedia(paths: string[]) {
     if (!paths.length) return
@@ -516,6 +532,8 @@ export const actions = {
       await this.recomputePlan()
       await this.refresh()
       await this.loadOutputs()
+      // 链接体检读产物，生成一次结论就过期了；只在用户已经看过时才重跑，避免白扫盘。
+      if (state.links) await this.auditLinks()
       // 服务器预览是 iframe 指向静态文件，产物变了不会自己重载，靠这个计数顶一下。
       state.previewNonce += 1
       if (!options.quiet) {

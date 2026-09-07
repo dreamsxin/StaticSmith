@@ -46,6 +46,7 @@ pub fn run() {
             commands::list_outputs,
             commands::audit_seo,
             commands::audit_media,
+            commands::audit_links,
             commands::remove_media,
             commands::list_templates,
             commands::template_tree,

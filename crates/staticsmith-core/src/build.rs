@@ -13,6 +13,7 @@ use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
 use crate::feeds;
 use crate::index::{AssetRecord, Index, PageRecord};
+use crate::links;
 use crate::media;
 use crate::outputs;
 use crate::seo;
@@ -175,6 +176,15 @@ impl Builder {
     /// 删除媒体文件。只允许删资源目录内的文件，越界报错。
     pub fn remove_media(&self, relative_paths: &[String]) -> Result<media::Removed> {
         media::remove(&self.paths, relative_paths)
+    }
+
+    /// 站内链接体检：点了会 404 的链接。
+    ///
+    /// 判定依据是产物目录——只有产物才知道分页页、标签页与 `slug` 覆盖后的
+    /// 真实地址。所以没生成过时返回 `built = false`，界面提示「先生成一次」，
+    /// 而不是谎报零死链。
+    pub fn audit_links(&self) -> Result<links::Report> {
+        links::audit(&self.paths.output, &self.config.site.base_url)
     }
 
     /// 新建内容文件，返回其相对 `content/` 的路径。

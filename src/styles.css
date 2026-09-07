@@ -1161,6 +1161,32 @@ kbd {
   white-space: nowrap;
 }
 
+/* 死链一行要装下目标、原文写法与多个出处，竖排才不会挤成一团 */
+.seo__link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.seo__link-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: baseline;
+  color: var(--fg-muted);
+}
+
+/* 出处是跳转而不是动作，用链接样式：一行里可能并排好几个 */
+.seo__ref {
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
 /* 删除媒体文件不可撤销，确认按钮必须一眼看出是危险动作 */
 .btn--danger {
   color: #fff;

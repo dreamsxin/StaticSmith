@@ -48,10 +48,12 @@ async function openIssue(issue: SeoIssue) {
 // ---------------------------------------------------------------- 媒体资源
 
 /**
- * 媒体体检要扫盘，打开面板时跑一次就够，之后由用户手动刷新。
+ * 媒体体检要扫盘、链接体检要读产物，都比 SEO 体检重：
+ * 打开面板时各跑一次，之后由用户手动刷新。
  */
 onMounted(() => {
   if (!store.media) void actions.auditMedia()
+  if (!store.links) void actions.auditLinks()
 })
 
 const media = computed(() => store.media)
@@ -82,7 +84,32 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+// ---------------------------------------------------------------- 站内链接
+
+const links = computed(() => store.links)
+
+/**
+ * 死链的出处可能是文章，也可能是模板生成的页面（标签页、分页）。
+ * 前者能直接跳去改，后者只能提示去改模板——所以先按 URL 找回内容文件。
+ */
+function pageForUrl(url: string): PageSummary | undefined {
+  return store.project?.pages.find((p) => p.url === url) as PageSummary | undefined
+}
+
+async function openReferrer(url: string) {
+  const page = pageForUrl(url)
+  if (page) {
+    await actions.requestOpenContent(page)
+    emit('open')
+    return
+  }
+  // 非内容页（标签页、分页、首页模板）没有源文件，退而看产物
+  await actions.previewOutput(url)
+  emit('open')
+}
+
 </script>
+
 
 <template>
   <section class="seo">
@@ -196,6 +223,56 @@ function formatSize(bytes: number): string {
       </template>
       <p v-else class="build__muted">正在扫描资源目录…</p>
     </div>
+
+    <div class="build__panel">
+      <div class="build__head">
+        <h3>站内链接</h3>
+        <button type="button" :disabled="store.busy" @click="actions.auditLinks()">重新扫描</button>
+      </div>
+
+      <template v-if="links">
+        <p v-if="!links.built" class="build__muted">
+          还没有产物。链接要按真实地址判定（分页页、标签页、slug 覆盖都只体现在产物里），
+          先去「生成」标签页构建一次。
+        </p>
+        <template v-else>
+          <p class="build__muted">
+            扫了 {{ links.pages }} 个页面、{{ links.internal }} 条站内链接，
+            站外 {{ links.external }} 条只计数不请求。
+          </p>
+
+          <template v-if="links.broken.length">
+            <h4>点了会 404（{{ links.broken.length }}）</h4>
+            <ul class="seo__media">
+              <li v-for="link in links.broken" :key="`${link.href}@${link.url}`">
+                <span class="seo__link">
+                  <code>{{ link.url }}</code>
+                  <span v-if="link.href !== link.url" class="build__muted">
+                    原文写作 <code>{{ link.href }}</code>
+                  </span>
+                  <span class="seo__link-refs">
+                    出处：
+                    <button
+                      v-for="ref in link.referenced_by"
+                      :key="ref"
+                      type="button"
+                      class="seo__ref"
+                      :title="pageForUrl(ref) ? '打开这篇文章' : '这是模板生成的页面，改模板'"
+                      @click="openReferrer(ref)"
+                    >
+                      {{ ref }}
+                    </button>
+                  </span>
+                </span>
+              </li>
+            </ul>
+          </template>
+          <p v-else class="build__muted">没有站内死链。</p>
+        </template>
+      </template>
+      <p v-else class="build__muted">正在扫描产物…</p>
+    </div>
   </section>
 </template>
+
 

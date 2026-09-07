@@ -398,6 +398,30 @@ export interface MediaRemoved {
 
 export const auditMedia = () => invoke<MediaReport>('audit_media')
 
+// ---------------------------------------------------------------- 站内链接体检
+
+export interface BrokenLink {
+  /** 页面里原样写着的地址，便于在源文件里搜到出处 */
+  href: string
+  /** 解析后实际找不到的站内地址 */
+  url: string
+  /** 引用它的页面地址 */
+  referenced_by: string[]
+}
+
+export interface LinkReport {
+  /** 产物目录是否存在。false 表示还没生成过，其余字段都是 0 */
+  built: boolean
+  pages: number
+  internal: number
+  /** 站外链接只计数，不发网络请求 */
+  external: number
+  broken: BrokenLink[]
+}
+
+/** 体检产物里的站内链接，需要先生成一次。 */
+export const auditLinks = () => invoke<LinkReport>('audit_links')
+
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
 export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })
 

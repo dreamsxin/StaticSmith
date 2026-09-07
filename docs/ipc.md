@@ -104,6 +104,13 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 `missing`（`{url, referenced_by}`）。`remove_media` 的 `paths` 是相对 `static_dir` 的路径，
 落在资源目录之外一律报错——这个接口不接受「顺手删点别的」。
 
+- `audit_links() -> LinkReport`：站内死链体检，读产物，不发网络请求
+
+`LinkReport`：`built`（产物目录是否存在）、`pages`、`internal`、`external`、
+`broken`（`{href, url, referenced_by}`）。`built` 为 `false` 时其余字段都是 0，
+说明还没生成过——界面要提示「先生成」，不能显示成「零死链」。
+
+
 
 
 `OutputFile`：`path`（相对产物目录）、`url`（站内地址）、`kind`、`size`。

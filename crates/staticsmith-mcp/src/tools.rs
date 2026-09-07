@@ -217,6 +217,13 @@ pub fn all() -> Vec<ToolDef> {
             schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         ToolDef {
+            name: "audit_links",
+            title: "站内链接体检",
+            description: "扫描已生成的产物，找出点了会 404 的站内链接（改过 slug、删过旧文、写错相对路径）。不发网络请求，站外链接只计数。需要先 build，没生成过时返回 built=false。",
+            access: Access::Read,
+            schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
             name: "patch_front_matter",
             title: "改写 front matter 字段",
             description: "只改指定字段（标题、描述、关键词、标签、日期、草稿开关），正文与未涉及的键、注释原样保留。给空串或空数组表示删除该键。补 SEO 字段用这个，不要用 write_content 整文覆盖。",
@@ -350,6 +357,7 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "build_plan" => build_plan(builder, args),
         "audit_seo" => audit_seo(builder, args),
         "audit_media" => audit_media(builder),
+        "audit_links" => audit_links(builder),
         "create_content" => create_content(builder, args),
         "write_content" => write_content(builder, args),
         "patch_front_matter" => patch_front_matter(builder, args),
@@ -577,6 +585,26 @@ fn audit_media(builder: &Builder) -> Result<String, String> {
         "unused": report.unused,
         "missing": report.missing,
         "next": "未引用文件请在桌面端「SEO」标签页里确认后删除；破图请改内容或模板里的地址"
+    }))
+}
+
+/// 站内链接体检。读产物，不发网络请求。
+fn audit_links(builder: &Builder) -> Result<String, String> {
+    let report = builder.audit_links().map_err(err)?;
+    let next = if !report.built {
+        "产物目录还不存在，先调用 build 再体检"
+    } else if report.broken.is_empty() {
+        "没有站内死链"
+    } else {
+        "逐条改引用它的页面（referenced_by）里的地址；若目标文章确实删了，把入口链接一起去掉"
+    };
+    pretty(&json!({
+        "built": report.built,
+        "pages": report.pages,
+        "internal": report.internal,
+        "external": report.external,
+        "broken": report.broken,
+        "next": next
     }))
 }
 
@@ -830,6 +858,54 @@ mod tests {
             &json!({ "source": source }),
         );
         assert_eq!(result["isError"], true);
+    }
+
+    #[test]
+    fn audit_links_asks_for_a_build_first_then_finds_dead_links() {
+        let (_dir, mut builder) = project();
+        let perms = Permissions {
+            write: true,
+            deploy: false,
+        };
+
+        // 还没生成过：不该谎报零死链，而要提示先 build
+        let before = call(&mut builder, perms, "audit_links", &json!({}));
+        let text = before["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(report["built"], false, "{report}");
+
+        // 写一篇指向不存在地址的文章，生成后应当报出来
+        let source = "posts/dead-link.md";
+        let written = call(
+            &mut builder,
+            perms,
+            "write_content",
+            &json!({
+                "source": source,
+                "raw": "+++\ntitle = \"死链\"\n+++\n\n[没了](/posts/nowhere/)\n"
+            }),
+        );
+        assert_eq!(written["isError"], false, "{written}");
+
+        let built = call(
+            &mut builder,
+            perms,
+            "build_site",
+            &json!({ "mode": "full" }),
+        );
+        assert_eq!(built["isError"], false, "{built}");
+
+        let after = call(&mut builder, perms, "audit_links", &json!({}));
+        let text = after["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(report["built"], true, "{report}");
+        let urls: Vec<&str> = report["broken"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["url"].as_str().unwrap())
+            .collect();
+        assert!(urls.contains(&"/posts/nowhere/"), "{report}");
     }
 
     #[test]

@@ -7,6 +7,7 @@ use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
+use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
@@ -303,6 +304,12 @@ pub fn audit_seo(state: State<'_, AppState>) -> Result<SeoReport> {
 #[tauri::command]
 pub fn audit_media(state: State<'_, AppState>) -> Result<MediaReport> {
     state.with_session(|session| Ok(session.builder.audit_media()?))
+}
+
+/// 站内链接体检：点了会 404 的链接。读产物，因此需要先生成一次。
+#[tauri::command]
+pub fn audit_links(state: State<'_, AppState>) -> Result<LinkReport> {
+    state.with_session(|session| Ok(session.builder.audit_links()?))
 }
 
 /// 删除媒体文件。不可撤销，界面需先二次确认。
