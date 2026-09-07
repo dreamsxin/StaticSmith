@@ -13,6 +13,7 @@ use crate::config::{ProjectPaths, SiteConfig, Taxonomy as TaxonomyConfig};
 use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
 use crate::feeds;
+use crate::import;
 use crate::index::{AssetRecord, Index, PageRecord};
 use crate::links;
 use crate::media;
@@ -254,6 +255,20 @@ impl Builder {
         action: &batch::Action,
     ) -> Result<batch::Preview> {
         batch::preview(&self.paths, sources, action)
+    }
+
+    /// 扫描待导入的内容：每篇会写到哪、front matter 变成什么样、哪里需要人看一下。
+    ///
+    /// 只读。迁移是一次性、影响面很大的动作，先看清再落盘。
+    pub fn scan_import(&self, from: &Path, section: &str) -> Result<Vec<import::Candidate>> {
+        import::scan(&self.paths, from, section)
+    }
+
+    /// 导入内容。目标已存在的跳过，不覆盖；正文原样保留。
+    pub fn import_content(&mut self, from: &Path, section: &str) -> Result<import::Report> {
+        let report = import::import(&self.paths, from, section)?;
+        self.reload()?;
+        Ok(report)
     }
 
     /// 新建栏目：建目录并写一张索引页，随后重新加载内容。

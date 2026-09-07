@@ -5,7 +5,7 @@
 //!
 //! 凭证策略与桌面端不同：CLI 不碰系统凭据管理器（CI 环境里没有），只读环境变量。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -95,6 +95,23 @@ pub enum Command {
     Plan {
         #[arg(long)]
         full: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 从别的站点导入内容（Hugo / Jekyll 的 YAML front matter → TOML）
+    Import {
+        /// 待导入的目录，递归找 .md / .markdown
+        dir: PathBuf,
+        /// 导入到哪个栏目，留空进根目录
+        #[arg(long, default_value = "posts")]
+        section: String,
+        /// 只看会变成什么样，不写文件
+        #[arg(long)]
+        dry_run: bool,
+        /// 输出 JSON
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         project: ProjectArgs,
     },
@@ -206,6 +223,13 @@ pub fn run(cli: Cli) -> Result<()> {
         }
         Command::Build { full, project } => cmd_build(&project.project, mode(full)).map(|_| ()),
         Command::Plan { full, project } => cmd_plan(&project.project, mode(full)).map(|_| ()),
+        Command::Import {
+            dir,
+            section,
+            dry_run,
+            json,
+            project,
+        } => cmd_import(&project.project, &dir, &section, dry_run, json),
         Command::Serve {
             port,
             build,
@@ -320,6 +344,66 @@ pub fn cmd_plan(project: &PathBuf, mode: BuildMode) -> Result<BuildPlan> {
         println!("  {source}");
     }
     Ok(plan)
+}
+
+/// 从别的站点导入内容。
+///
+/// 迁移是一次性、影响面很大的动作，所以默认也先把「每篇会写到哪、front matter
+/// 变成什么样、哪里需要人看一下」打出来；`--dry-run` 则只看不写。
+fn cmd_import(
+    project: &PathBuf,
+    dir: &Path,
+    section: &str,
+    dry_run: bool,
+    json: bool,
+) -> Result<()> {
+    let mut builder = open(project)?;
+
+    if dry_run {
+        let candidates = builder.scan_import(dir, section).context("扫描失败")?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&candidates)?);
+            return Ok(());
+        }
+        let ready = candidates.iter().filter(|c| c.importable).count();
+        println!("找到 {} 篇，可导入 {ready} 篇", candidates.len());
+        for candidate in &candidates {
+            let mark = if candidate.importable { "+" } else { "!" };
+            println!("{mark} {} → {}", candidate.source, candidate.target);
+            for warning in &candidate.warnings {
+                println!("    {warning}");
+            }
+            if !candidate.importable {
+                println!("    目标已存在，不会覆盖");
+            }
+        }
+        return Ok(());
+    }
+
+    let report = builder.import_content(dir, section).context("导入失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+    println!(
+        "导入 {} 篇，跳过 {} 篇",
+        report.imported.len(),
+        report.skipped.len()
+    );
+    for source in &report.imported {
+        println!("+ {source}");
+    }
+    for skipped in &report.skipped {
+        println!("! {}：{}", skipped.source, skipped.reason);
+    }
+    if !report.warnings.is_empty() {
+        println!("需要人看一下（{} 条）：", report.warnings.len());
+        for warning in &report.warnings {
+            println!("    {warning}");
+        }
+    }
+    println!("接下来：staticsmith check，再 staticsmith audit 看看 SEO 与死链");
+    Ok(())
 }
 
 fn cmd_serve(project: &PathBuf, port: u16, build_first: bool, watch: bool) -> Result<()> {
@@ -696,6 +780,48 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = cmd_build(&dir.path().to_path_buf(), BuildMode::Full).unwrap_err();
         assert!(err.to_string().contains("不是 StaticSmith 项目"));
+    }
+
+    #[test]
+    fn import_defaults_to_posts_and_writes_by_default() {
+        let cli = Cli::try_parse_from(["staticsmith", "import", "./old-site/content"]).unwrap();
+        match cli.command {
+            Command::Import {
+                dir,
+                section,
+                dry_run,
+                json,
+                ..
+            } => {
+                assert_eq!(dir, PathBuf::from("./old-site/content"));
+                assert_eq!(section, "posts");
+                assert!(!dry_run, "默认真导入，要干跑得显式 --dry-run");
+                assert!(!json);
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn import_can_target_the_root_section() {
+        let cli = Cli::try_parse_from([
+            "staticsmith",
+            "import",
+            "./in",
+            "--section",
+            "",
+            "--dry-run",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Import {
+                section, dry_run, ..
+            } => {
+                assert_eq!(section, "", "留空即根目录");
+                assert!(dry_run);
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
     }
 
     #[test]

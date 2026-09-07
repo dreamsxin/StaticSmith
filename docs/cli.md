@@ -19,6 +19,8 @@ staticsmith serve [--port 5321] [--no-watch]  # 本地预览，仅监听 127.0.0
 
 staticsmith deploy [--build] [--check-only]   # Git 或 FTP/SFTP 发布
 staticsmith check                             # 校验配置、模板与内容
+staticsmith import <目录> [--section posts] [--dry-run] [--json]
+                                              # 导入 Hugo / Jekyll 的内容（YAML → TOML）
 staticsmith audit [--seo] [--links] [--media] [--build] [--json] [--fail-on error|warn|hint|never]
                                               # SEO / 死链 / 媒体体检，可作 CI 门禁
 staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
@@ -45,10 +47,25 @@ staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
   把建议项也算失败会天天红，红久了就没人看了。想只看报告用 `--fail-on never`
 - `--json` 输出三份完整报告，便于脚本挑字段或存档对比
 
+`import` 用来接手别家的站点：
 
+```bash
+staticsmith import ../old-blog/content --dry-run   # 只看每篇会变成什么样
+staticsmith import ../old-blog/content --section posts
+```
 
+- 递归找 `.md` / `.markdown`，YAML front matter（`---`）转成 TOML（`+++`），
+  已经是 TOML 的原样留用；**正文一个字节都不动**
+- 转不了的字段（嵌套映射、`layout` 等）写成 TOML 注释留在文件里，并在报告里列成警告，
+  不会悄悄丢；`--dry-run` 时同样能看到
+- 目标已存在则跳过，绝不覆盖；`--section` 留空即导入到根目录，目录层级保留
+- 顺手处理 Jekyll 约定：`2026-03-05-标题.md` 的日期进 front matter、文件名去掉前缀，
+  `published: false` → `draft = true`，`2026-02-03 10:20:00 +0800` 归一成 RFC3339
+  （没写时区的按 UTC 并给出警告）
+- 导入完照例走一遍 `staticsmith check` 与 `staticsmith audit`
 
 ## 凭证：只读环境变量
+
 
 桌面端把凭证放在系统凭据管理器里，CI 环境没有那套东西，所以 CLI 只读环境变量：
 

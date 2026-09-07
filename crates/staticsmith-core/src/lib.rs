@@ -33,6 +33,7 @@ pub mod feeds;
 pub mod filters;
 pub mod frontmatter;
 pub mod graph;
+pub mod import;
 pub mod index;
 pub mod links;
 pub mod media;

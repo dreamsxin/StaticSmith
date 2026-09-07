@@ -86,7 +86,7 @@ URL 白名单为空，于是每次调用都被拒绝，前端如果没接错误�
 [站点运营手册](operations.md)，这里只留工程侧的摘要：
 
 - 批量动作的更多干跑覆盖（搬动与删除已先预览再落盘，可逆动作暂不加这一步）
-- 内容导入迁移（Hugo / Jekyll 的 YAML front matter → TOML）
+- 导入的界面入口与更多来源（命令行已支持 Hugo / Jekyll，WordPress XML 等还没认）
 - 导航菜单的可视化编辑（现在导航写在 `components/header.html` 里）
 - 栏目排序与元信息的编辑入口（索引页 front matter 已能写，界面还没有）
 - 块级拖拽富文本编辑（当前是 Markdown 源文编辑）
