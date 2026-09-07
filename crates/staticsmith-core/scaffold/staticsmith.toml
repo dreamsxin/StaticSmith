@@ -59,6 +59,26 @@ term_template = "pages/tag.html"
 # term_template = "pages/tag.html"
 
 
+# 导航菜单。模板遍历 menu 渲染，所以加栏目改这里就够了，不用动 header.html。
+# weight 小的在前，都不写就按书写顺序；blank = true 表示新窗口打开（站外链接常用）。
+# 分类维度（标签等）由模板自己按 taxonomies 列出，不必在这里重复登记。
+# 整段删掉也不会出错：菜单为空时脚手架模板退回内置的那几个链接。
+[[menu]]
+name = "首页"
+url = "/"
+weight = 1
+
+[[menu]]
+name = "文章"
+url = "/posts/"
+weight = 2
+
+[[menu]]
+name = "关于"
+url = "/about/"
+weight = 3
+
+
 [deploy]
 # 可选值：none / git / ftp
 type = "none"

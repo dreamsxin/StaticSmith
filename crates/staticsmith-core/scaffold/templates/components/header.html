@@ -2,11 +2,19 @@
 <header class="site-header">
   <a class="site-header__logo" href="/">{{ site.title }}</a>
   <nav class="site-header__nav">
-    <a href="/">首页</a>
-    <a href="/posts/">文章</a>
-    {# taxonomies 是配置里生效的全部分类维度（标签、分类…），加一个维度不用改这里 #}
+    {# menu 来自配置里的 [[menu]]，已按 weight 排好序：加栏目改配置，不用回来改模板。
+       没配菜单的老站点走 else 分支，导航保持原样。 #}
+    {% if menu %}
+      {# url 用 | safe：Tera 默认会把 `/` 转成 &#x2F;，浏览器能认但产物难看、体检也难读。
+         配置校验已经拦掉引号与尖括号，所以这里不会被写成属性逃逸。 #}
+      {% for item in menu %}<a href="{{ item.url | safe }}"{% if item.blank %} target="_blank" rel="noopener"{% endif %}>{{ item.name }}</a>{% endfor %}
+    {% else %}
+      <a href="/">首页</a>
+      <a href="/posts/">文章</a>
+      <a href="/about/">关于</a>
+    {% endif %}
+    {# taxonomies 是配置里生效的全部分类维度（标签、分类…），加一个维度不用改这里，
+       也不必往 [[menu]] 里重复登记一遍 #}
     {% for tax in taxonomies %}<a href="/{{ tax.slug }}/">{{ tax.title }}</a>{% endfor %}
-
-    <a href="/about/">关于</a>
   </nav>
 </header>

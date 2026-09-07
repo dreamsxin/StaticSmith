@@ -562,6 +562,23 @@ impl Builder {
             ctx.insert("taxonomy", first);
         }
         ctx.insert("taxonomies", &taxonomies);
+        // 导航菜单：配置驱动，模板只遍历。`external` 在这里算好——Tera 调不了方法，
+        // 让模板自己判断 `http` 前缀迟早会写出两套不一样的规则。
+        let menu: Vec<Value> = self
+            .config
+            .menu_items()
+            .into_iter()
+            .map(|item| {
+                json!({
+                    "name": item.name,
+                    "url": item.url,
+                    "weight": item.weight,
+                    "blank": item.blank,
+                    "external": item.is_external(),
+                })
+            })
+            .collect();
+        ctx.insert("menu", &menu);
         ctx.insert("generator", "StaticSmith 2.0");
         ctx
     }

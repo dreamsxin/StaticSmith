@@ -20,6 +20,9 @@ pub struct SiteConfig {
     /// 额外的分类维度。写了它就以它为准，`[taxonomy]` 退化为不生效的旧写法。
     #[serde(default)]
     pub taxonomies: Vec<Taxonomy>,
+    /// 导航菜单。空数组表示模板自己写死链接（老站点保持原样）。
+    #[serde(default)]
+    pub menu: Vec<MenuItem>,
     #[serde(default)]
     pub deploy: Deploy,
 }
@@ -266,6 +269,56 @@ impl Taxonomy {
     }
 }
 
+/// 导航菜单里的一项。
+///
+/// 菜单刻意做成**配置**而不是内容：它回答的是「这个站怎么被逛」，
+/// 与某一篇文章无关。放进 `staticsmith.toml`，模板只负责遍历，
+/// 于是加栏目不用再改 `components/header.html`。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MenuItem {
+    /// 菜单上显示的文字。
+    pub name: String,
+    /// 目标地址：站内写 `/posts/`，站外写完整 URL。
+    pub url: String,
+    /// 排序权重，小的在前；相同权重保持书写顺序。
+    #[serde(default)]
+    pub weight: i32,
+    /// 新窗口打开。站外链接常用，站内一般不需要。
+    #[serde(default)]
+    pub blank: bool,
+}
+
+impl MenuItem {
+    /// 是否指向站外。判断只看协议前缀，模板据此决定要不要加 `rel="noopener"`。
+    pub fn is_external(&self) -> bool {
+        let url = self.url.trim();
+        url.starts_with("http://")
+            || url.starts_with("https://")
+            || url.starts_with("//")
+            || url.starts_with("mailto:")
+    }
+
+    fn validate(&self, index: usize) -> Vec<String> {
+        let mut issues = Vec::new();
+        if self.name.trim().is_empty() {
+            issues.push(format!("menu[{index}].name 不能为空"));
+        }
+        let url = self.url.trim();
+        if url.is_empty() {
+            issues.push(format!("menu[{index}].url 不能为空"));
+        } else if !self.is_external() && !url.starts_with('/') && !url.starts_with('#') {
+            // 相对地址在不同深度的页面上会解析到不同目标，菜单是全站共用的，必须写绝对路径
+            issues.push(format!("menu[{index}].url 站内地址要以 `/` 开头"));
+        }
+        // 模板把地址原样写进 href（不转义，否则 `/` 会变成 &#x2F;），
+        // 所以这些字符必须在入口拦掉，不能让配置写出属性逃逸
+        if url.contains(['"', '\'', '<', '>']) {
+            issues.push(format!("menu[{index}].url 不能包含引号或尖括号"));
+        }
+        issues
+    }
+}
+
 impl Assets {
     /// 资源目录的规范化形式：去掉首尾斜杠，统一正斜杠。
     pub fn normalized_dir(&self) -> String {
@@ -340,6 +393,16 @@ impl SiteConfig {
             .collect()
     }
 
+    /// 排好序的导航菜单。
+    ///
+    /// 权重小的在前，权重相同保持书写顺序（`sort_by_key` 是稳定排序），
+    /// 于是「都不填 weight」等于「按写的顺序显示」——最符合直觉的默认。
+    pub fn menu_items(&self) -> Vec<MenuItem> {
+        let mut items = self.menu.clone();
+        items.sort_by_key(|item| item.weight);
+        items
+    }
+
     /// 校验必填项，返回人类可读的问题列表（空列表表示配置合法）。
     pub fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
@@ -362,6 +425,9 @@ impl SiteConfig {
         slugs.sort();
         if slugs.windows(2).any(|w| w[0] == w[1]) {
             issues.push("taxonomies 里出现了重复的 slug，产物会互相覆盖".to_string());
+        }
+        for (index, item) in self.menu.iter().enumerate() {
+            issues.extend(item.validate(index));
         }
         match self.deploy.r#type {
             DeployKind::Git if self.deploy.git.is_none() => {
@@ -537,6 +603,122 @@ auth_type = "token"
         let cfg: SiteConfig =
             toml::from_str("[site]\ntitle = \"t\"\n\n[deploy]\ntype = \"ftp\"\n").unwrap();
         assert_eq!(cfg.validate().len(), 1);
+    }
+
+    #[test]
+    fn menu_items_sort_by_weight_and_keep_written_order() {
+        let cfg: SiteConfig = toml::from_str(
+            r#"
+[site]
+title = "t"
+
+[[menu]]
+name = "关于"
+url = "/about/"
+weight = 9
+
+[[menu]]
+name = "文章"
+url = "/posts/"
+
+[[menu]]
+name = "首页"
+url = "/"
+"#,
+        )
+        .unwrap();
+        let names: Vec<String> = cfg.menu_items().into_iter().map(|item| item.name).collect();
+        // 都没写 weight 的按原顺序，写了大 weight 的沉到最后
+        assert_eq!(names, vec!["文章", "首页", "关于"]);
+        assert!(cfg.validate().is_empty());
+    }
+
+    #[test]
+    fn menu_rejects_empty_fields_and_relative_urls() {
+        let cfg = SiteConfig {
+            site: Site {
+                title: "t".into(),
+                ..Site::default()
+            },
+            menu: vec![
+                MenuItem {
+                    name: String::new(),
+                    url: "/ok/".into(),
+                    ..MenuItem::default()
+                },
+                MenuItem {
+                    name: "相对地址".into(),
+                    url: "posts/".into(),
+                    ..MenuItem::default()
+                },
+            ],
+            ..SiteConfig::default()
+        };
+        let issues = cfg.validate();
+        assert_eq!(issues.len(), 2, "{issues:?}");
+        assert!(issues[0].contains("menu[0].name"));
+        assert!(issues[1].contains("menu[1].url"));
+    }
+
+    #[test]
+    fn menu_external_detection_covers_protocols() {
+        let external = |url: &str| {
+            MenuItem {
+                name: "x".into(),
+                url: url.into(),
+                ..MenuItem::default()
+            }
+            .is_external()
+        };
+        assert!(external("https://example.com"));
+        assert!(external("//cdn.example.com/x"));
+        assert!(external("mailto:me@example.com"));
+        assert!(!external("/posts/"));
+        assert!(!external("#top"));
+    }
+
+    #[test]
+    fn menu_rejects_attribute_escaping_characters() {
+        // 模板不转义地址（否则 `/` 会变成 &#x2F;），配置就得拦下能逃出 href="" 的字符
+        let cfg = SiteConfig {
+            site: Site {
+                title: "t".into(),
+                ..Site::default()
+            },
+            menu: vec![MenuItem {
+                name: "坏地址".into(),
+                url: "/x\" onmouseover=\"alert(1)".into(),
+                ..MenuItem::default()
+            }],
+            ..SiteConfig::default()
+        };
+        let issues = cfg.validate();
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert!(issues[0].contains("引号"));
+    }
+
+    #[test]
+    fn saved_config_keeps_the_menu() {
+        // save() 是全量重写：菜单要是没进结构体，保存一次就没了
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = SiteConfig {
+            site: Site {
+                title: "t".into(),
+                ..Site::default()
+            },
+            menu: vec![MenuItem {
+                name: "文章".into(),
+                url: "/posts/".into(),
+                weight: 2,
+                blank: false,
+            }],
+            ..SiteConfig::default()
+        };
+        cfg.save(dir.path()).unwrap();
+        let loaded = SiteConfig::load(dir.path()).unwrap();
+        assert_eq!(loaded.menu.len(), 1);
+        assert_eq!(loaded.menu[0].url, "/posts/");
+        assert_eq!(loaded.menu[0].weight, 2);
     }
 
     #[test]

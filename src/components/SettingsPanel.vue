@@ -65,6 +65,7 @@ watch(
   (config) => {
     Object.assign(form, clone(config))
     normalizeTaxonomies()
+    normalizeMenu()
   },
 )
 
@@ -103,6 +104,7 @@ function clone(config: unknown): SiteConfig {
       term_template: 'pages/tag.html',
     },
     taxonomies: [],
+    menu: [],
     deploy: { type: 'none', git: null, ftp: null },
   }
 }
@@ -135,6 +137,34 @@ function removeTaxonomy(index: number) {
 }
 
 /**
+ * 导航菜单按顺序编辑。
+ *
+ * 界面不暴露 weight：让人填数字来排序是本末倒置的。读取时按 weight 排好，
+ * 保存时按行序重写成 1、2、3……手改配置的人照样能用 weight，两边看到的顺序一致。
+ */
+function normalizeMenu() {
+  form.menu.sort((a, b) => a.weight - b.weight)
+}
+
+function addMenuItem() {
+  form.menu.push({ name: '', url: '/', weight: form.menu.length + 1, blank: false })
+}
+
+function removeMenuItem(index: number) {
+  form.menu.splice(index, 1)
+}
+
+function moveMenuItem(index: number, delta: number) {
+  const target = index + delta
+  if (target < 0 || target >= form.menu.length) return
+  const [row] = form.menu.splice(index, 1)
+  form.menu.splice(target, 0, row)
+}
+
+// 首次挂载也要排一次：watch 只在配置对象变化时触发
+normalizeMenu()
+
+/**
  * 按维度数量决定写回哪种形状，然后保存。
  *
  * 不改 `form` 本身：保存可能被后端校验驳回（比如两个维度用了同一个 slug），
@@ -143,6 +173,13 @@ function removeTaxonomy(index: number) {
 function save() {
   const rows = form.taxonomies.map((row) => ({ ...row, enabled: true }))
   const payload = clone(form)
+  // 顺序即 weight：界面上的第几行就是第几项
+  payload.menu = form.menu.map((item, index) => ({
+    ...item,
+    name: item.name.trim(),
+    url: item.url.trim(),
+    weight: index + 1,
+  }))
   if (rows.length === 0) {
     payload.taxonomy = { ...form.taxonomy, enabled: false }
     payload.taxonomies = []
@@ -278,6 +315,43 @@ function onDeployKindChange() {
       </p>
       <div class="build__actions">
         <button type="button" @click="addTaxonomy">添加维度</button>
+      </div>
+
+      <h3>导航菜单</h3>
+      <p class="build__muted">
+        头部导航按这里的顺序渲染，加栏目不用改模板。分类维度（上面那些）由模板自己列出，
+        不必在这里重复登记。站内地址要以 <code>/</code> 开头。
+      </p>
+
+      <div v-for="(item, index) in form.menu" :key="index" class="settings__row">
+        <div class="settings__menu-row">
+          <input v-model="item.name" type="text" placeholder="名称" aria-label="菜单名称" />
+          <input v-model="item.url" type="text" placeholder="/posts/" aria-label="菜单地址" />
+        </div>
+        <label class="settings__checkbox">
+          <input v-model="item.blank" type="checkbox" />
+          新窗口打开
+        </label>
+        <div class="settings__menu-row">
+          <button type="button" :disabled="index === 0" @click="moveMenuItem(index, -1)">上移</button>
+          <button
+            type="button"
+            :disabled="index === form.menu.length - 1"
+            @click="moveMenuItem(index, 1)"
+          >
+            下移
+          </button>
+          <button type="button" class="page-list__danger" @click="removeMenuItem(index)">
+            移除
+          </button>
+        </div>
+      </div>
+
+      <p v-if="!form.menu.length" class="build__muted">
+        没有配置菜单，模板会用自己写死的那几个链接。
+      </p>
+      <div class="build__actions">
+        <button type="button" @click="addMenuItem">添加菜单项</button>
       </div>
     </div>
 

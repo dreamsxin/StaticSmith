@@ -51,6 +51,41 @@ fn full_build_renders_all_pages_through_the_layout() {
 }
 
 #[test]
+fn navigation_comes_from_the_config_menu() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    // 脚手架自带四项菜单；这里加一条站外链接，验证 blank 与排序都落到产物里
+    std::fs::write(
+        &config_path,
+        format!("{config}\n[[menu]]\nname = \"源码\"\nurl = \"https://example.com/repo\"\nweight = 0\nblank = true\n"),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let index = read(dir.path(), "index.html");
+    let nav_start = index.find("site-header__nav").expect("导航容器");
+    let nav = &index[nav_start..];
+    let source_at = nav.find("源码").expect("站外链接进了导航");
+    let home_at = nav.find("首页").expect("首页仍在导航里");
+    assert!(source_at < home_at, "weight = 0 应排在 weight = 1 之前");
+    assert!(nav.contains(r#"target="_blank" rel="noopener""#));
+
+    // 没有菜单的站点（升级上来的老站）退回模板内置链接，导航不会突然空掉
+    let menu_at = config.find("[[menu]]").expect("脚手架自带菜单");
+    let deploy_at = config.find("[deploy]").expect("脚手架自带发布段");
+    let without_menu = format!("{}{}", &config[..menu_at], &config[deploy_at..]);
+    std::fs::write(&config_path, without_menu).unwrap();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+    let index = read(dir.path(), "index.html");
+    assert!(index.contains(r#"href="/posts/""#), "内置链接应回来");
+    assert!(!index.contains("源码"), "配置里的菜单已删除");
+}
+
+#[test]
 fn second_incremental_build_is_a_no_op() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();
@@ -71,10 +106,14 @@ fn editing_a_global_component_cascades_to_every_page() {
     let mut builder = Builder::open(dir.path()).unwrap();
     builder.build(BuildMode::Full).unwrap();
 
-    // 模拟在可视化编辑器里改动导航菜单。
+    // 模拟在可视化编辑器里改动导航组件（菜单文案在配置里，这里改的是模板本身）。
     let header = dir.path().join("templates/components/header.html");
     let source = std::fs::read_to_string(&header).unwrap();
-    std::fs::write(&header, source.replace("首页", "回到首页")).unwrap();
+    std::fs::write(
+        &header,
+        source.replace("</nav>", r#"<a href="/">回到首页</a></nav>"#),
+    )
+    .unwrap();
 
     builder.reload().unwrap();
     let plan = builder.plan(BuildMode::Incremental).unwrap();

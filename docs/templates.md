@@ -54,6 +54,11 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
 - `taxonomies`：生效的全部分类维度（标签、分类…），用来渲染导航入口：
   `{% for tax in taxonomies %}<a href="/{{ tax.slug }}/">{{ tax.title }}</a>{% endfor %}`
 - `taxonomy`：其中第一个维度（标签页与词条页里指当前那一个）。旧模板的写法仍可用
+- `menu`：`[[menu]]` 配置里的导航项，已按 `weight` 升序排好，每项是
+  `{ name, url, weight, blank, external }`。`external` 由后端判断（`http(s)://`、`//`、
+  `mailto:`），模板不必自己认协议：
+  `{% for item in menu %}<a href="{{ item.url | safe }}">{{ item.name }}</a>{% endfor %}`。
+  地址要用 `| safe`，否则 Tera 会把 `/` 转成 `&#x2F;`；能逃出 `href=""` 的字符已在配置校验时拦掉
 - `page`：当前页面（`title` / `date` / `tags` / `keywords` / `taxonomies` / `url` / `content` / `section` / `extra` …）
 - `pages`：全站可发布页面数组
 - `generator`：`"StaticSmith 2.0"`

@@ -51,7 +51,9 @@ pub mod serve;
 
 pub use assets::{AssetStore, SavedAsset};
 pub use build::{BuildMode, BuildPlan, BuildReport, Builder, Pagination};
-pub use config::{AssetNaming, Assets, ProjectPaths, SiteConfig, Taxonomy, CONFIG_FILE_NAME};
+pub use config::{
+    AssetNaming, Assets, MenuItem, ProjectPaths, SiteConfig, Taxonomy, CONFIG_FILE_NAME,
+};
 pub use content::{NewContent, Page};
 pub use error::{Error, Result};
 pub use graph::TemplateGraph;

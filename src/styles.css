@@ -1524,6 +1524,18 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* 菜单一行两格：名称与地址并排，按钮另起一行 */
+.settings__menu-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.settings__menu-row input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* 目录输入框吃掉剩余宽度，按钮跟在同一行 */
 .settings__import-row {
   display: flex;

@@ -12,6 +12,17 @@ export type TemplateKind = 'layout' | 'component' | 'page' | 'partial'
 export type DeployKind = 'none' | 'git' | 'ftp'
 export type AssetNaming = 'sha256' | 'md5' | 'original'
 
+/** 导航菜单的一项，对应配置里的 `[[menu]]`。 */
+export interface MenuItem {
+  name: string
+  /** 站内以 `/` 开头，站外写完整 URL */
+  url: string
+  /** 小的在前；都为 0 时按数组顺序 */
+  weight: number
+  /** 新窗口打开 */
+  blank: boolean
+}
+
 export interface SiteConfig {
   site: {
     title: string
@@ -67,6 +78,9 @@ export interface SiteConfig {
     list_template: string
     term_template: string
   }>
+
+  /** 导航菜单。空数组表示模板用自己写死的链接。 */
+  menu: MenuItem[]
 
   deploy: {
     type: DeployKind
