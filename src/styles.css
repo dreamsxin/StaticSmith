@@ -1581,6 +1581,138 @@ kbd {
 
 
 
+/* ---------------------------------------------------------------- 发布节奏 */
+
+.calendar {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 1rem;
+  padding: 1rem;
+  align-content: start;
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+.calendar__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.calendar__month {
+  min-width: 8rem;
+  text-align: center;
+}
+
+.calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.calendar__weekday {
+  padding: 0.3rem 0.5rem;
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.calendar__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 5.5rem;
+  padding: 0.3rem;
+  background: var(--bg);
+}
+
+/* 跨月的格子压暗，但仍然显示条目——月初月末的稿子常常就在那几格 */
+.calendar__cell.outside {
+  background: var(--bg-subtle);
+}
+
+.calendar__cell.outside .calendar__day {
+  color: var(--fg-muted);
+}
+
+.calendar__cell.today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.calendar__day {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.calendar__entry {
+  display: block;
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: none;
+  border-left: 3px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg-subtle);
+  color: inherit;
+  font-size: 0.78rem;
+  text-align: left;
+  /* 一格里可能挤几篇，标题截断也比撑破格子好 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.calendar__entry:hover {
+  border-left-width: 5px;
+}
+
+/* 草稿与定时都还不在线上，用虚边与压暗区分「已经发出去的」 */
+.calendar__entry.draft,
+.calendar__entry.scheduled {
+  border-left-style: dashed;
+  color: var(--fg-muted);
+}
+
+.calendar__list {
+  display: grid;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendar__list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: baseline;
+}
+
+.calendar__date {
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.calendar__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+
 /* ---------------------------------------------------------------- SEO 体检 */
 
 .seo {

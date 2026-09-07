@@ -15,7 +15,14 @@ import { actions, isDirty, store } from '../store'
 import type { PageSummary, TemplateInfo } from '../api'
 
 /** 与 App.vue 的标签页一致。面板只负责发意图，切页仍归外框。 */
-export type PaletteTab = 'content' | 'layouts' | 'build' | 'seo' | 'deploy' | 'settings'
+export type PaletteTab =
+  | 'content'
+  | 'layouts'
+  | 'calendar'
+  | 'build'
+  | 'seo'
+  | 'deploy'
+  | 'settings'
 
 interface Item {
   id: string
@@ -44,6 +51,7 @@ const commands = computed<Item[]>(() => {
   const list: Item[] = [
     { id: 'go.content', group: '命令', label: '切换到 内容', run: () => go('content') },
     { id: 'go.layouts', group: '命令', label: '切换到 布局管理器', run: () => go('layouts') },
+    { id: 'go.calendar', group: '命令', label: '切换到 日历（发布节奏）', run: () => go('calendar') },
     { id: 'go.build', group: '命令', label: '切换到 生成', run: () => go('build') },
     { id: 'go.seo', group: '命令', label: '切换到 SEO 体检', run: () => go('seo') },
     { id: 'go.deploy', group: '命令', label: '切换到 发布', run: () => go('deploy') },

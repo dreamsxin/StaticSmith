@@ -3,6 +3,7 @@
 import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 
 import BuildPanel from './components/BuildPanel.vue'
+import CalendarPanel from './components/CalendarPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ContentEditor from './components/ContentEditor.vue'
 import DeployPanel from './components/DeployPanel.vue'
@@ -16,7 +17,7 @@ import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, store } from './store'
 
-type Tab = 'content' | 'layouts' | 'build' | 'seo' | 'deploy' | 'settings'
+type Tab = 'content' | 'layouts' | 'calendar' | 'build' | 'seo' | 'deploy' | 'settings'
 
 const tab = ref<Tab>('content')
 const paletteOpen = ref(false)
@@ -24,6 +25,7 @@ const paletteOpen = ref(false)
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'content', label: '内容' },
   { id: 'layouts', label: '布局管理器' },
+  { id: 'calendar', label: '日历' },
   { id: 'build', label: '生成' },
   { id: 'seo', label: 'SEO' },
   { id: 'deploy', label: '发布' },
@@ -129,6 +131,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <PreviewPane />
       </template>
       <LayoutManager v-else-if="tab === 'layouts'" />
+      <CalendarPanel v-else-if="tab === 'calendar'" @open="tab = 'content'" />
       <BuildPanel v-else-if="tab === 'build'" @preview="tab = 'content'" />
       <SeoPanel v-else-if="tab === 'seo'" @open="tab = 'content'" />
       <DeployPanel v-else-if="tab === 'deploy'" />
