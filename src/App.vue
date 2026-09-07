@@ -70,26 +70,37 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   <WelcomeScreen v-if="!store.project" />
 
   <div v-else class="app">
-    <header class="app__header">
-      <strong>{{ store.project.config.site.title }}</strong>
-      <code class="app__root">{{ store.project.root }}</code>
-      <nav class="app__tabs">
-        <button
-          v-for="item in tabs"
-          :key="item.id"
-          type="button"
-          :class="{ active: tab === item.id }"
-          @click="tab = item.id"
-        >
-          {{ item.label }}
-        </button>
-      </nav>
+    <header class="app__bar">
+      <span class="app__mark" aria-hidden="true">◆</span>
+      <div class="app__identity">
+        <strong class="app__title">{{ store.project.config.site.title }}</strong>
+        <code class="app__root" :title="store.project.root">{{ store.project.root }}</code>
+      </div>
       <span class="app__spacer" />
-      <button type="button" :disabled="store.busy" @click="actions.build('incremental')">
+      <button
+        type="button"
+        class="btn--primary"
+        :disabled="store.busy"
+        @click="actions.build('incremental')"
+      >
         生成 <kbd>Ctrl+Enter</kbd>
       </button>
       <button type="button" @click="actions.closeProject()">关闭项目</button>
     </header>
+
+    <nav class="app__tabs">
+      <button
+        v-for="item in tabs"
+        :key="item.id"
+        type="button"
+        class="app__tab"
+        :class="{ active: tab === item.id }"
+        @click="tab = item.id"
+      >
+        {{ item.label }}
+      </button>
+    </nav>
+
 
     <p v-if="store.externalChange" class="app__banner">
       检测到磁盘上的模板或内容被外部修改。
