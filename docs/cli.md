@@ -19,6 +19,8 @@ staticsmith serve [--port 5321] [--no-watch]  # 本地预览，仅监听 127.0.0
 
 staticsmith deploy [--build] [--check-only]   # Git 或 FTP/SFTP 发布
 staticsmith check                             # 校验配置、模板与内容
+staticsmith audit [--seo] [--links] [--media] [--build] [--json] [--fail-on error|warn|hint|never]
+                                              # SEO / 死链 / 媒体体检，可作 CI 门禁
 staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
                                               # MCP 服务端，见 docs/mcp.md
 ```
@@ -31,6 +33,14 @@ staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
 启动时也会先生成一次，因此首屏就有内容。重建失败（比如模板正在改、语法暂时不完整）只打印错误，
 服务器继续跑，改好后下一次保存就恢复。纯静态托管场景用 `--no-watch` 关掉监听，
 此时若想先生成一次再服务，额外加 `--build`。
+
+`audit` 与桌面端「SEO」标签页、MCP 的 `audit_*` 用同一份规则，不会出现「本地干净、CI 报错」：
+
+- 三个开关都不给就全跑；死链体检读产物，所以 CI 里通常写 `staticsmith audit --build`
+- `--fail-on` 默认 `error`：只有必须修的问题（含死链与破图）才让 CI 变红。
+  把建议项也算失败会天天红，红久了就没人看了。想只看报告用 `--fail-on never`
+- `--json` 输出三份完整报告，便于脚本挑字段或存档对比
+
 
 
 
@@ -63,6 +73,7 @@ jobs:
       - run: cargo install --path crates/staticsmith-cli
       - run: staticsmith check --project ./site
       - run: staticsmith build --project ./site --full
+      - run: staticsmith audit --project ./site
       - run: staticsmith deploy --project ./site
         env:
           STATICSMITH_GIT_TOKEN: ${{ secrets.DEPLOY_TOKEN }}

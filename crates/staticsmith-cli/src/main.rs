@@ -34,6 +34,22 @@ pub struct ProjectArgs {
     pub project: PathBuf,
 }
 
+/// `audit` 的门禁级别。
+///
+/// 默认只在「必须修」上失败：把建议项也算成失败，CI 会天天红，
+/// 红久了就没人看了。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum FailOn {
+    /// 有必须修的问题就失败（死链与破图算必须修）
+    Error,
+    /// 连建议修的问题也算失败
+    Warn,
+    /// 任何提示都算失败
+    Hint,
+    /// 只报告，永远返回 0
+    Never,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// 在目录中创建站点骨架（已存在的文件不会被覆盖）
@@ -116,6 +132,30 @@ pub enum Command {
         project: ProjectArgs,
     },
 
+    /// 体检：SEO 字段、站内死链、媒体资源。可作为 CI 门禁（按 --fail-on 决定退出码）
+    Audit {
+        /// 只查 SEO 字段
+        #[arg(long)]
+        seo: bool,
+        /// 只查站内死链（读产物，配合 --build）
+        #[arg(long)]
+        links: bool,
+        /// 只查媒体资源（未引用文件与破图）
+        #[arg(long)]
+        media: bool,
+        /// 体检前先生成一次——死链体检读的是产物
+        #[arg(long)]
+        build: bool,
+        /// 输出 JSON，便于脚本处理
+        #[arg(long)]
+        json: bool,
+        /// 达到该级别就以非零码退出
+        #[arg(long, value_enum, default_value_t = FailOn::Error)]
+        fail_on: FailOn,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
     /// 启动 MCP 服务端，供 AI Agent 操作站点
     Mcp {
         /// 走 HTTP（POST /mcp 与 GET /sse）而不是 stdio
@@ -178,6 +218,25 @@ pub fn run(cli: Cli) -> Result<()> {
             project,
         } => cmd_deploy(&project.project, check_only, build),
         Command::Check { project } => cmd_check(&project.project),
+        Command::Audit {
+            seo,
+            links,
+            media,
+            build,
+            json,
+            fail_on,
+            project,
+        } => cmd_audit(
+            &project.project,
+            AuditOptions {
+                seo,
+                links,
+                media,
+                build,
+                json,
+                fail_on,
+            },
+        ),
         Command::Mcp {
             sse,
             port,
@@ -383,6 +442,129 @@ fn cmd_check(project: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// `audit` 的选项集合。参数比较多，单独成结构体免得函数签名读不出来。
+#[derive(Debug, Clone, Copy)]
+pub struct AuditOptions {
+    pub seo: bool,
+    pub links: bool,
+    pub media: bool,
+    pub build: bool,
+    pub json: bool,
+    pub fail_on: FailOn,
+}
+
+/// 体检：SEO 字段、站内死链、媒体资源。
+///
+/// 规则与桌面端「SEO」标签页、MCP 的 `audit_*` 完全同源——CI 里挡下来的问题，
+/// 在界面里能看到一模一样的结论，不会出现「本地干净、CI 报错」。
+///
+/// 三项都不指定时全跑。死链体检读产物，所以给了 `--build` 让 CI 一步到位。
+fn cmd_audit(project: &PathBuf, options: AuditOptions) -> Result<()> {
+    let mut builder = open(project)?;
+    if options.build {
+        builder.build(BuildMode::Full).context("生成失败")?;
+    }
+
+    // 一个都没指定就是「全都要」，而不是「什么都不做」
+    let all = !(options.seo || options.links || options.media);
+    let seo = (all || options.seo).then(|| builder.audit_seo());
+    let links = if all || options.links {
+        Some(builder.audit_links().context("站内链接体检失败")?)
+    } else {
+        None
+    };
+    let media = if all || options.media {
+        Some(builder.audit_media().context("媒体资源体检失败")?)
+    } else {
+        None
+    };
+
+    if options.json {
+        let payload = serde_json::json!({
+            "seo": seo,
+            "links": links,
+            "media": media,
+        });
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        print_audit(seo.as_ref(), links.as_ref(), media.as_ref());
+    }
+
+    // 死链与破图归到「必须修」：它们是读者直接撞到的 404，不是风格建议。
+    let broken = links.as_ref().map(|r| r.broken.len()).unwrap_or_default();
+    let missing = media.as_ref().map(|r| r.missing.len()).unwrap_or_default();
+    let unused = media.as_ref().map(|r| r.unused.len()).unwrap_or_default();
+    let errors = seo.as_ref().map(|r| r.errors).unwrap_or_default() + broken + missing;
+    let warnings = seo.as_ref().map(|r| r.warnings).unwrap_or_default();
+    let hints = seo.as_ref().map(|r| r.hints).unwrap_or_default() + unused;
+
+    let failed = match options.fail_on {
+        FailOn::Never => 0,
+        FailOn::Error => errors,
+        FailOn::Warn => errors + warnings,
+        FailOn::Hint => errors + warnings + hints,
+    };
+    if failed > 0 {
+        bail!("体检未通过：{failed} 个问题达到 {:?} 门禁", options.fail_on);
+    }
+    if !options.json {
+        println!("体检通过");
+    }
+    Ok(())
+}
+
+/// 人读的报告。JSON 留给脚本，这里只挑「拿到就能动手」的信息。
+fn print_audit(
+    seo: Option<&staticsmith_core::SeoReport>,
+    links: Option<&staticsmith_core::LinkReport>,
+    media: Option<&staticsmith_core::media::Report>,
+) {
+    if let Some(report) = seo {
+        println!(
+            "SEO：{} 分，检查 {} 页，必须修 {} / 建议修 {} / 可优化 {}",
+            report.score, report.checked, report.errors, report.warnings, report.hints
+        );
+        for issue in &report.issues {
+            let who = if issue.source.is_empty() {
+                "站点"
+            } else {
+                &issue.source
+            };
+            println!("  [{}] {who} {}", issue.code, issue.message);
+        }
+    }
+
+    if let Some(report) = links {
+        if !report.built {
+            println!("站内链接：还没有产物，先 staticsmith build（或加 --build）");
+        } else {
+            println!(
+                "站内链接：{} 页 / 站内 {} 条 / 站外 {} 条，死链 {} 条",
+                report.pages,
+                report.internal,
+                report.external,
+                report.broken.len()
+            );
+            for link in &report.broken {
+                println!("  {} ← {}", link.url, link.referenced_by.join("、"));
+            }
+        }
+    }
+
+    if let Some(report) = media {
+        println!(
+            "媒体资源：{} 个文件，未引用 {} 个（可回收 {} KB），破图 {} 处",
+            report.total,
+            report.unused.len(),
+            report.reclaimable / 1024,
+            report.missing.len()
+        );
+        for missing in &report.missing {
+            println!("  {} ← {}", missing.url, missing.referenced_by.join("、"));
+        }
+    }
+}
+
 /// 启动 MCP 服务端。
 ///
 /// stdio 是默认传输：客户端把本进程当子进程拉起，最省配置。
@@ -506,6 +688,60 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = cmd_build(&dir.path().to_path_buf(), BuildMode::Full).unwrap_err();
         assert!(err.to_string().contains("不是 StaticSmith 项目"));
+    }
+
+    #[test]
+    fn audit_defaults_to_all_checks_and_error_gate() {
+        let cli = Cli::try_parse_from(["staticsmith", "audit"]).unwrap();
+        match cli.command {
+            Command::Audit {
+                seo,
+                links,
+                media,
+                build,
+                json,
+                fail_on,
+                ..
+            } => {
+                assert!(!seo && !links && !media, "都不指定表示全跑");
+                assert!(!build && !json);
+                assert_eq!(fail_on, FailOn::Error, "默认只在必须修的问题上失败");
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn audit_fails_on_dead_links_and_can_be_told_not_to() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        cmd_init(&root, Some("门禁测试站")).unwrap();
+
+        std::fs::write(
+            root.join("content/posts/dead.md"),
+            "+++\ntitle = \"有死链的文章\"\n+++\n\n[没了](/posts/nowhere/)\n",
+        )
+        .unwrap();
+
+        // --build 让 CI 一步到位：死链体检读的是产物
+        let options = AuditOptions {
+            seo: false,
+            links: true,
+            media: false,
+            build: true,
+            json: false,
+            fail_on: FailOn::Error,
+        };
+        let err = cmd_audit(&root, options).unwrap_err();
+        assert!(err.to_string().contains("体检未通过"), "{err}");
+
+        // --fail-on never 只报告，退出码仍是 0
+        let report_only = AuditOptions {
+            fail_on: FailOn::Never,
+            build: false,
+            ..options
+        };
+        cmd_audit(&root, report_only).unwrap();
     }
 
     #[test]

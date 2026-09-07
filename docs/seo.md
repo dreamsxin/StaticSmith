@@ -82,6 +82,20 @@ SEO 体检看「字段填全了没」，死链体检看「链接点得开吗」�
 报告里每条死链都带上原文写法与全部出处。出处是文章时可以直接点开去改；
 出处是标签页、分页这类模板生成的页面时，要改的是模板。
 
+## 在 CI 里当门禁
+
+同一份规则也能在流水线里跑：
+
+```bash
+staticsmith audit --project ./site --build            # 全跑，有死链或必须修的 SEO 问题就非零退出
+staticsmith audit --project ./site --seo --fail-on warn
+staticsmith audit --project ./site --json > audit.json
+```
+
+`--fail-on` 默认 `error`，只有必须修的问题（含死链与破图）才让流水线变红——
+把建议项也算失败会天天红，红久了就没人看了。细节见 [命令行与 CI](cli.md)。
+
+
 ## 让 AI Agent 批量补齐
 
 
