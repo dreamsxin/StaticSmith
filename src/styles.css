@@ -493,8 +493,42 @@ kbd {
   border-color: var(--accent);
 }
 
+.editor__props {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.4rem 0.6rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.editor__prop {
+  gap: 0.15rem;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.editor__prop input[type='text'] {
+  font-size: 0.85rem;
+}
+
+/* 标题、描述、标签值都长，占满整行才不至于处处截断 */
+.editor__prop--wide {
+  grid-column: 1 / -1;
+}
+
+.editor__prop--check {
+  flex-direction: row;
+  gap: 0.35rem;
+  align-items: center;
+  grid-column: 1 / -1;
+}
+
 .editor__assets {
   display: flex;
+
+
   gap: 0.4rem;
   align-items: center;
   overflow-x: auto;

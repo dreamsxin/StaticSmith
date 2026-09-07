@@ -78,7 +78,9 @@ export interface PageSummary {
   is_index: boolean
   draft: boolean
   date: string | null
+  tags: string[]
 }
+
 
 export interface TemplateInfo {
   name: string
@@ -223,6 +225,41 @@ export const saveContent = (source: string, raw: string) =>
 export const deleteContent = (source: string) => invoke<BuildPlan>('delete_content', { source })
 
 export const previewPage = (source: string) => invoke<string>('preview_page', { source })
+
+/** front matter 字段，与 Rust 的 `FrontMatter` 对应。 */
+export interface FrontMatter {
+  title: string
+  date: string | null
+  template: string | null
+  slug: string | null
+  description: string
+  tags: string[]
+  draft: boolean
+  weight: number
+  extra: Record<string, unknown>
+}
+
+/**
+ * 属性面板的改动。省略的字段保持不动，空串与空数组表示删掉这个键。
+ */
+export interface FrontMatterPatch {
+  title?: string
+  description?: string
+  date?: string
+  template?: string
+  slug?: string
+  tags?: string[]
+  draft?: boolean
+  weight?: number
+}
+
+/** 读 front matter：传的是编辑器缓冲区里的文本，未保存也能读。 */
+export const readFrontMatter = (raw: string) => invoke<FrontMatter>('read_front_matter', { raw })
+
+/** 把属性改动折算成新的源文，正文与其他键原样保留。 */
+export const applyFrontMatter = (raw: string, patch: FrontMatterPatch) =>
+  invoke<string>('apply_front_matter', { raw, patch })
+
 
 /** 新建内容的请求体，字段名与 Rust 的 `NewContent` 一致。 */
 export interface NewContentRequest {

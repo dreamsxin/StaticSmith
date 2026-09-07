@@ -30,6 +30,7 @@ pub mod content;
 pub mod error;
 pub mod feeds;
 pub mod filters;
+pub mod frontmatter;
 pub mod graph;
 pub mod index;
 pub mod outputs;

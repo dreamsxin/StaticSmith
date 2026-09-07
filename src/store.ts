@@ -14,6 +14,8 @@ import type {
   BuildPlan,
   BuildReport,
   DeployReport,
+  FrontMatter,
+  FrontMatterPatch,
   OutputFile,
   PageSummary,
   ProjectSummary,
@@ -39,6 +41,8 @@ interface State {
   currentRaw: string
   /** 上次保存时的正文快照，用来判断是否有未保存改动 */
   savedRaw: string
+  /** 当前源文的 front matter 字段，属性面板用 */
+  frontMatter: FrontMatter | null
   /** 有未保存改动时被拦下的待打开页面 */
   pendingPage: PageSummary | null
   /** 当前编辑的模板名 */
@@ -76,6 +80,7 @@ const state = reactive<State>({
   currentSource: null,
   currentRaw: '',
   savedRaw: '',
+  frontMatter: null,
   pendingPage: null,
   currentTemplate: null,
   currentTemplateSource: '',
@@ -211,6 +216,7 @@ export const actions = {
     state.currentSource = null
     state.currentRaw = ''
     state.savedRaw = ''
+    state.frontMatter = null
     state.pendingPage = null
     state.previewHtml = ''
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
@@ -254,9 +260,44 @@ export const actions = {
       state.currentTemplate = null
       // 打开文章即回到文章预览，否则预览还停在上次点开的标签页上。
       state.previewTarget = null
+      await this.loadFrontMatter()
       await this.refreshPreview()
     }
   },
+
+  /**
+   * 读出当前缓冲区的 front matter，属性面板据此回填。
+   *
+   * 读的是编辑器里的文本而不是磁盘：用户可能刚在源文里手改了标题还没保存，
+   * 表单必须跟着那份文本，否则一改属性就会把手改的内容覆盖回去。
+   */
+  async loadFrontMatter() {
+    if (state.currentSource === null) {
+      state.frontMatter = null
+      return
+    }
+    try {
+      state.frontMatter = await api.readFrontMatter(state.currentRaw)
+    } catch {
+      // front matter 暂时写坏了（正在手改）不该弹错，面板自己会提示不可用
+      state.frontMatter = null
+    }
+  },
+
+  /**
+   * 用表单改动折算出新的源文。
+   *
+   * 折算在 Rust 侧做：TOML 的转义与保序只该有一份实现，
+   * 而且正文、注释、未知键都得原样保留。结果写回编辑器缓冲区，仍需用户保存。
+   */
+  async patchFrontMatter(patch: FrontMatterPatch) {
+    if (state.currentSource === null) return
+    const raw = await run(() => api.applyFrontMatter(state.currentRaw, patch))
+    if (raw === undefined) return
+    state.currentRaw = raw
+    await this.loadFrontMatter()
+  },
+
 
   /** 新建内容并立即打开编辑。 */
   async createContent(title: string, section: string) {
@@ -282,6 +323,7 @@ export const actions = {
       state.currentSource = null
       state.currentRaw = ''
       state.savedRaw = ''
+      state.frontMatter = null
       state.previewHtml = ''
     }
     if (state.pendingPage?.source === page.source) state.pendingPage = null
@@ -354,6 +396,7 @@ export const actions = {
       state.savedRaw = raw
       state.plan = plan
       await this.refresh()
+      await this.loadFrontMatter()
       await this.refreshPreview()
       notify('success', `已保存，待生成 ${plan.pages.length} 个页面`)
       if (state.autoBuild) await this.build('incremental', { quiet: true })

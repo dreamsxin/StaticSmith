@@ -35,6 +35,8 @@ pub fn run() {
             commands::save_content,
             commands::delete_content,
             commands::preview_page,
+            commands::read_front_matter,
+            commands::apply_front_matter,
             commands::create_content,
             commands::start_preview_server,
             commands::stop_preview_server,

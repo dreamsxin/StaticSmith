@@ -4,11 +4,12 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
+use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
-    content, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SiteConfig,
+    content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SiteConfig,
 };
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -45,6 +46,8 @@ pub struct PageSummary {
     pub is_index: bool,
     pub draft: bool,
     pub date: Option<String>,
+    /// 属性面板的标签建议来自这里，因此列表项也要带上
+    pub tags: Vec<String>,
 }
 
 /// 构建进度事件载荷。
@@ -201,6 +204,19 @@ pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<String
     state.with_session(|session| Ok(session.builder.preview(&source)?))
 }
 
+/// 读出源文里的 front matter 字段，供属性面板回填。
+///
+/// 不落盘、不看会话：编辑器缓冲区里的文本才是当前真相，可能还没保存。
+#[tauri::command]
+pub fn read_front_matter(raw: String) -> Result<FrontMatter> {
+    Ok(frontmatter::read(&raw)?)
+}
+
+/// 把属性面板的改动折算成新的源文，正文与未涉及的键原样保留。
+#[tauri::command]
+pub fn apply_front_matter(raw: String, patch: frontmatter::Patch) -> Result<String> {
+    Ok(frontmatter::apply(&raw, &patch)?)
+}
 /// 新建内容，返回其相对 `content/` 的路径。
 #[tauri::command]
 pub fn create_content(state: State<'_, AppState>, request: NewContent) -> Result<String> {
@@ -511,6 +527,7 @@ fn page_summary(page: &staticsmith_core::Page) -> PageSummary {
         is_index: page.is_index,
         draft: page.draft,
         date: page.date.map(|d| d.to_rfc3339()),
+        tags: page.tags.clone(),
     }
 }
 

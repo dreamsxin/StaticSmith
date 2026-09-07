@@ -21,6 +21,48 @@ const filePicker = ref<HTMLInputElement | null>(null)
 const affected = computed(() => store.plan?.pages.length ?? 0)
 const total = computed(() => store.plan?.total_pages ?? 0)
 
+// ---------------------------------------------------------------- 属性面板
+
+/**
+ * front matter 表单。
+ *
+ * 源文仍是唯一真相：表单的每次提交都换算成新的源文（换算在 Rust 侧，
+ * 保留正文、注释与未知键），而不是维护一份平行的字段状态。
+ * 因此手改源文与用表单改不会互相打架。
+ */
+const PROPS_KEY = 'staticsmith.showProps'
+const showProps = ref(localStorage.getItem(PROPS_KEY) !== '0')
+
+function toggleProps() {
+  showProps.value = !showProps.value
+  localStorage.setItem(PROPS_KEY, showProps.value ? '1' : '0')
+  if (showProps.value) void actions.loadFrontMatter()
+}
+
+const fm = computed(() => store.frontMatter)
+
+/** 标签在源文里是数组，表单里用逗号分隔——中文逗号也认。 */
+const tagText = computed(() => (fm.value?.tags ?? []).join(', '))
+
+function parseTags(text: string): string[] {
+  return text
+    .split(/[,，]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+}
+
+/** 全站已用过的标签，给输入框做候选，避免同义标签越写越多。 */
+const knownTags = computed(() => {
+  const set = new Set<string>()
+  for (const page of store.project?.pages ?? []) for (const tag of page.tags) set.add(tag)
+  return [...set].sort()
+})
+
+function fieldValue(event: Event): string {
+  return (event.target as HTMLInputElement).value
+}
+
+
 // ---------------------------------------------------------------- 选区编辑
 
 /** 用新文本替换选区，并把光标落在 `cursor` 指定的绝对位置。 */
@@ -157,7 +199,21 @@ function insertAsset(url: string) {
 
 // ---------------------------------------------------------------- 快捷键
 
+/** 正文字数（不含 front matter）。中文按字算，西文按词算。 */
+const wordCount = computed(() => {
+  const raw = store.currentRaw
+  let body = raw
+  if (raw.startsWith('+++')) {
+    const end = raw.indexOf('+++', 3)
+    if (end !== -1) body = raw.slice(end + 3)
+  }
+  const cjk = (body.match(/[\u3400-\u9fff\u3040-\u30ff]/g) ?? []).length
+  const words = (body.match(/[A-Za-z0-9_'-]+/g) ?? []).length
+  return cjk + words
+})
+
 function onKeydown(event: KeyboardEvent) {
+
   if (!(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
   const handlers: Record<string, () => void> = {
@@ -180,6 +236,9 @@ function onKeydown(event: KeyboardEvent) {
       <span v-if="isDirty" class="editor__dirty" title="有未保存改动">●</span>
       <span class="editor__spacer" />
       <span class="editor__hint">保存后将重新生成 {{ affected }} / {{ total }} 个页面</span>
+      <button type="button" :class="{ active: showProps }" title="编辑标题、日期、标签等属性" @click="toggleProps">
+        属性
+      </button>
       <button type="button" :disabled="store.busy || !isDirty" @click="actions.saveContent()">
         保存 <kbd>Ctrl+S</kbd>
       </button>
@@ -187,6 +246,65 @@ function onKeydown(event: KeyboardEvent) {
         刷新预览
       </button>
     </header>
+
+    <div v-if="showProps" class="editor__props">
+      <template v-if="fm">
+        <label class="editor__prop editor__prop--wide">
+          标题
+          <input
+            type="text"
+            :value="fm.title"
+            placeholder="留空则取正文第一个 # 标题"
+            @change="actions.patchFrontMatter({ title: fieldValue($event) })"
+          />
+        </label>
+        <label class="editor__prop">
+          日期
+          <input
+            type="text"
+            :value="fm.date ?? ''"
+            placeholder="2026-09-07"
+            @change="actions.patchFrontMatter({ date: fieldValue($event) })"
+          />
+        </label>
+        <label class="editor__prop editor__prop--wide">
+          描述
+          <input
+            type="text"
+            :value="fm.description"
+            placeholder="用于列表摘要与订阅源"
+            @change="actions.patchFrontMatter({ description: fieldValue($event) })"
+          />
+        </label>
+        <label class="editor__prop editor__prop--wide">
+          标签
+          <input
+            type="text"
+            list="known-tags"
+            :value="tagText"
+            placeholder="逗号分隔，如：模板, 增量构建"
+            @change="actions.patchFrontMatter({ tags: parseTags(fieldValue($event)) })"
+          />
+        </label>
+        <datalist id="known-tags">
+          <option v-for="tag in knownTags" :key="tag" :value="tag" />
+        </datalist>
+        <label class="editor__prop editor__prop--check">
+          <input
+            type="checkbox"
+            :checked="fm.draft"
+            @change="
+              actions.patchFrontMatter({ draft: ($event.target as HTMLInputElement).checked })
+            "
+          />
+          草稿（不进产物）
+        </label>
+      </template>
+      <p v-else class="build__muted">
+        front matter 暂时读不出来（可能正手改到一半）。修好 `+++` 之间的内容后即可用表单编辑。
+      </p>
+    </div>
+
 
     <p v-if="store.pendingPage" class="editor__pending">
       <span>当前文章有未保存改动，切换到「{{ store.pendingPage.title }}」前要怎么处理？</span>
@@ -265,7 +383,7 @@ function onKeydown(event: KeyboardEvent) {
     />
 
     <footer class="editor__foot">
-      <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
+      {{ wordCount }} 字 · <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
       <kbd>Ctrl+K</kbd> 链接 · <kbd>Ctrl+Enter</kbd> 增量生成 · 粘贴或拖入图片即插入
     </footer>
   </section>

@@ -34,6 +34,16 @@
 - `save_content({ source, raw }) -> BuildPlan`：写盘 + 重新解析 + 返回增量计划
 - `delete_content(source) -> BuildPlan`
 - `preview_page(source) -> string`：在父级布局下渲染完整 HTML，不写盘
+- `read_front_matter(raw) -> FrontMatter`：读出字段供属性面板回填
+- `apply_front_matter(raw, patch) -> string`：把属性改动折算成新的源文
+
+后两个命令不看会话、不碰磁盘，传的是编辑器缓冲区里的文本——未保存的改动也能改属性。
+`patch` 里省略的字段保持不动，空串与空数组表示删掉这个键（`description = ""` 与不写等价，
+留着只会让源文变长）；`draft = false` 同理不写。正文、注释与未知键原样保留
+（`crates/staticsmith-core/src/frontmatter.rs` 用 `toml_edit` 保序改写）。
+
+`PageSummary.tags` 带上了页面标签，属性面板据此给出全站已用过的标签候选。
+
 
 `create_content` 的 `request` 字段：`section`、`title`、`slug?`、`template?`、
 `description?`、`tags?`、`draft?`（缺省 true）。文件名由 slug 或标题推导，
