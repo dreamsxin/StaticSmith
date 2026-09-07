@@ -32,6 +32,7 @@ regex.workspace = true
 notify.workspace = true
 tracing.workspace = true
 slug.workspace = true
+zip.workspace = true
 tiny_http = { workspace = true, optional = true }
 
 [dev-dependencies]

@@ -43,6 +43,7 @@ pub mod sections;
 pub mod seo;
 pub mod taxonomy;
 pub mod templates;
+pub mod theme;
 pub mod util;
 pub mod watch;
 

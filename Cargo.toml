@@ -40,6 +40,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 slug = "0.1"
 base64 = "0.22"
+# 主题包是 zip：只开 deflate，不引 aes / bzip2 / zstd——多一个压缩后端就多一份攻击面
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 tempfile = "3.12"
 
 [profile.release]

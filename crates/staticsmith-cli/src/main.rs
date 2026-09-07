@@ -173,6 +173,12 @@ pub enum Command {
         project: ProjectArgs,
     },
 
+    /// 主题包：把外观（模板 + 主题静态资源）打包带走，或装到另一个站点
+    Theme {
+        #[command(subcommand)]
+        action: ThemeAction,
+    },
+
     /// 启动 MCP 服务端，供 AI Agent 操作站点
     Mcp {
         /// 走 HTTP（POST /mcp 与 GET /sse）而不是 stdio
@@ -187,6 +193,47 @@ pub enum Command {
         /// 允许 Agent 执行发布（会影响线上站点）
         #[arg(long)]
         allow_deploy: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+}
+
+/// `theme` 的两个方向。
+///
+/// 拆成子命令而不是 `--export` / `--import` 开关：一个是打包读、一个是写盘装，
+/// 参数也不一样，混在一条命令里只会互相干扰。
+#[derive(Debug, Subcommand)]
+pub enum ThemeAction {
+    /// 打包当前站点的外观成 zip（不含 content/ 与 static/）
+    Export {
+        /// 输出的 zip 路径
+        out: PathBuf,
+        /// 主题名，默认取站点标题
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long, default_value = "")]
+        version: String,
+        #[arg(long, default_value = "")]
+        author: String,
+        #[arg(long, default_value = "")]
+        description: String,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 装一个主题包。默认跳过已存在的文件
+    Import {
+        /// 主题包 zip
+        archive: PathBuf,
+        /// 只看会写哪些文件、哪些会被覆盖
+        #[arg(long)]
+        dry_run: bool,
+        /// 覆盖已存在的模板与资源（自己改过的文件会被替换）
+        #[arg(long)]
+        overwrite: bool,
+        /// 输出 JSON
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         project: ProjectArgs,
     },
@@ -261,6 +308,30 @@ pub fn run(cli: Cli) -> Result<()> {
                 fail_on,
             },
         ),
+        Command::Theme { action } => match action {
+            ThemeAction::Export {
+                out,
+                name,
+                version,
+                author,
+                description,
+                project,
+            } => cmd_theme_export(
+                &project.project,
+                &out,
+                name.as_deref(),
+                &version,
+                &author,
+                &description,
+            ),
+            ThemeAction::Import {
+                archive,
+                dry_run,
+                overwrite,
+                json,
+                project,
+            } => cmd_theme_import(&project.project, &archive, dry_run, overwrite, json),
+        },
         Command::Mcp {
             sse,
             port,
@@ -403,6 +474,107 @@ fn cmd_import(
         }
     }
     println!("接下来：staticsmith check，再 staticsmith audit 看看 SEO 与死链");
+    Ok(())
+}
+
+/// 打包外观。
+///
+/// 只装模板与主题静态资源：`content/` 与 `static/` 是站点的东西，
+/// 打进包里就意味着「装个主题顺手覆盖别人的文章」。
+fn cmd_theme_export(
+    project: &PathBuf,
+    out: &Path,
+    name: Option<&str>,
+    version: &str,
+    author: &str,
+    description: &str,
+) -> Result<()> {
+    let builder = open(project)?;
+    let manifest = staticsmith_core::theme::Manifest {
+        name: name
+            .unwrap_or(&builder.config.site.title)
+            .trim()
+            .to_string(),
+        version: version.trim().to_string(),
+        author: author.trim().to_string(),
+        description: description.trim().to_string(),
+    };
+    let report = builder.export_theme(out, &manifest).context("打包失败")?;
+    println!(
+        "已打包 {}：模板 {} 个，主题资源 {} 个 → {}",
+        manifest.name,
+        report.templates,
+        report.assets,
+        report.archive.display()
+    );
+    println!("包里不含 content/ 与 static/，装到别的站点不会覆盖内容");
+    Ok(())
+}
+
+/// 装主题包。默认跳过已存在的文件，`--overwrite` 才替换。
+fn cmd_theme_import(
+    project: &PathBuf,
+    archive: &Path,
+    dry_run: bool,
+    overwrite: bool,
+    json: bool,
+) -> Result<()> {
+    let mut builder = open(project)?;
+
+    if dry_run {
+        let preview = builder.scan_theme(archive).context("读取主题包失败")?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&preview)?);
+            return Ok(());
+        }
+        println!(
+            "{}{}：{} 个文件，其中 {} 个会覆盖现有文件",
+            preview.manifest.name,
+            if preview.manifest.version.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", preview.manifest.version)
+            },
+            preview.files.len(),
+            preview.conflicts.len()
+        );
+        for file in &preview.files {
+            let mark = if preview.conflicts.contains(file) {
+                "!"
+            } else {
+                "+"
+            };
+            println!("{mark} {file}");
+        }
+        for rejected in &preview.rejected {
+            println!("x {}：{}", rejected.entry, rejected.reason);
+        }
+        if !preview.conflicts.is_empty() && !overwrite {
+            println!("带 ! 的会被跳过；要替换请加 --overwrite");
+        }
+        return Ok(());
+    }
+
+    let report = builder
+        .import_theme(archive, overwrite)
+        .context("装主题失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+    println!(
+        "已装 {}：写入 {} 个文件，跳过 {} 个",
+        report.manifest.name,
+        report.written.len(),
+        report.skipped.len()
+    );
+    for file in &report.skipped {
+        println!("! {file}（已存在，未覆盖）");
+    }
+    for rejected in &report.rejected {
+        println!("x {}：{}", rejected.entry, rejected.reason);
+    }
+    println!("接下来：staticsmith build --full——换外观要整站重新生成");
     Ok(())
 }
 
@@ -797,6 +969,41 @@ mod tests {
                 assert_eq!(section, "posts");
                 assert!(!dry_run, "默认真导入，要干跑得显式 --dry-run");
                 assert!(!json);
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn theme_import_defaults_to_skipping_existing_files() {
+        let cli = Cli::try_parse_from(["staticsmith", "theme", "import", "./minimal.zip"]).unwrap();
+        match cli.command {
+            Command::Theme {
+                action:
+                    ThemeAction::Import {
+                        archive,
+                        dry_run,
+                        overwrite,
+                        ..
+                    },
+            } => {
+                assert_eq!(archive, PathBuf::from("./minimal.zip"));
+                assert!(!dry_run);
+                assert!(!overwrite, "默认不覆盖：自己改过的模板不该被主题包吃掉");
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn theme_export_takes_the_site_title_when_no_name_is_given() {
+        let cli = Cli::try_parse_from(["staticsmith", "theme", "export", "out/x.zip"]).unwrap();
+        match cli.command {
+            Command::Theme {
+                action: ThemeAction::Export { out, name, .. },
+            } => {
+                assert_eq!(out, PathBuf::from("out/x.zip"));
+                assert!(name.is_none(), "留空时由命令去取站点标题");
             }
             other => panic!("解析到了 {other:?}"),
         }

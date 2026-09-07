@@ -23,6 +23,9 @@ staticsmith import <目录> [--section posts] [--dry-run] [--json]
                                               # 导入 Hugo / Jekyll 的内容（YAML → TOML）
 staticsmith audit [--seo] [--links] [--media] [--build] [--json] [--fail-on error|warn|hint|never]
                                               # SEO / 死链 / 媒体体检，可作 CI 门禁
+staticsmith theme export <out.zip> [--name 名字] [--version 1.0.0] [--author 谁] [--description 一句话]
+staticsmith theme import <包.zip> [--dry-run] [--overwrite] [--json]
+                                              # 主题包：打包外观 / 装到别的站点
 staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
                                               # MCP 服务端，见 docs/mcp.md
 ```
@@ -63,6 +66,31 @@ staticsmith import ../old-blog/content --section posts
   `published: false` → `draft = true`，`2026-02-03 10:20:00 +0800` 归一成 RFC3339
   （没写时区的按 UTC 并给出警告）
 - 导入完照例走一遍 `staticsmith check` 与 `staticsmith audit`
+
+## 主题包
+
+换外观此前只能手动拷目录，`templates/` 一份、`themes/<主题>/` 一份，漏一个就渲染失败。
+`theme` 把两者收进一个 zip：
+
+```bash
+staticsmith theme export ../minimal.zip --name 极简 --version 1.0.0
+staticsmith theme import ../minimal.zip --dry-run     # 会写哪些文件、哪些会被覆盖
+staticsmith theme import ../minimal.zip --overwrite   # 替换自己改过的模板
+```
+
+包的结构固定为三块：`theme.toml`（名字、版本、作者、一句话说明）、
+`templates/`、`theme/`（对应站点配置里的 `theme_dir`，装包时落到当前站点自己的目录名下）。
+
+三条约定：
+
+- **只碰外观**：`content/` 与 `static/` 不进包、也不会被写。文章与上传的图片是站点的，
+  不是主题的；打进包里就意味着「装个主题顺手覆盖别人的文章」
+- **默认不覆盖**：已存在的文件一律跳过并列出来，`--overwrite` 才替换。
+  `--dry-run` 先看清单，带 `!` 的就是会被覆盖的那些
+- **不信任包里的路径**：`..`、绝对路径、盘符、以及 `templates/` 与 `theme/`
+  之外的条目一律拒绝（zip slip），拒绝原因会打印出来
+
+装完要 `staticsmith build --full`：换外观等于所有页面的模板都变了。
 
 ## 凭证：只读环境变量
 

@@ -22,6 +22,7 @@ use crate::sections;
 use crate::seo;
 use crate::taxonomy;
 use crate::templates::TemplateSet;
+use crate::theme;
 use crate::util;
 
 /// 生成策略。
@@ -267,6 +268,27 @@ impl Builder {
     /// 导入内容。目标已存在的跳过，不覆盖；正文原样保留。
     pub fn import_content(&mut self, from: &Path, section: &str) -> Result<import::Report> {
         let report = import::import(&self.paths, from, section)?;
+        self.reload()?;
+        Ok(report)
+    }
+
+    /// 打包当前站点的外观（模板 + 主题静态资源）成一个 zip。
+    pub fn export_theme(
+        &self,
+        archive: &Path,
+        manifest: &theme::Manifest,
+    ) -> Result<theme::Exported> {
+        theme::export(&self.paths, archive, manifest)
+    }
+
+    /// 读出主题包会写哪些文件、其中哪些会覆盖现有文件。只读。
+    pub fn scan_theme(&self, archive: &Path) -> Result<theme::Preview> {
+        theme::scan(&self.paths, archive)
+    }
+
+    /// 装主题包。`overwrite` 为假时已存在的文件一律跳过；内容目录不受影响。
+    pub fn import_theme(&mut self, archive: &Path, overwrite: bool) -> Result<theme::Imported> {
+        let report = theme::import(&self.paths, archive, overwrite)?;
         self.reload()?;
         Ok(report)
     }
