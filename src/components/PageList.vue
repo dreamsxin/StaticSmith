@@ -23,6 +23,21 @@ const groups = computed(() => {
 const matched = computed(() => groups.value.reduce((sum, [, pages]) => sum + pages.length, 0))
 const dirtyPages = computed(() => new Set(store.plan?.pages ?? []))
 
+/**
+ * 生成出来但没有源文件的页面：标签列表、标签页、分页页。
+ *
+ * 它们只存在于产物目录里，内容树按源文件组织，因此之前完全没有入口——
+ * 用户配了标签也看不到标签页。这里单独列一组，点击走服务器预览。
+ */
+const sitePages = computed(() => {
+  const keyword = filter.value.trim().toLowerCase()
+  return store.outputs.filter(
+    (o) =>
+      (o.kind === 'taxonomy' || o.kind === 'pagination') &&
+      (!keyword || o.url.toLowerCase().includes(keyword)),
+  )
+})
+
 const creating = ref(false)
 const newTitle = ref('')
 const newSection = ref('posts')
@@ -84,6 +99,26 @@ async function create() {
       </ul>
     </div>
 
+    <div v-if="sitePages.length" class="page-list__group">
+      <h3>站点页面（生成）</h3>
+      <ul>
+        <li v-for="item in sitePages" :key="item.path">
+          <button
+            type="button"
+            :class="{ active: store.previewTarget === item.url }"
+            :title="`${item.path} · 点击用本地服务器预览`"
+            @click="actions.previewOutput(item.url)"
+          >
+            <span class="page-list__title">{{ item.url }}</span>
+            <span class="badge badge--draft">{{
+              item.kind === 'taxonomy' ? '标签' : '分页'
+            }}</span>
+          </button>
+        </li>
+      </ul>
+    </div>
+
     <p v-if="filter && matched === 0" class="page-list__empty">没有匹配的内容</p>
+
   </nav>
 </template>

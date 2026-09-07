@@ -588,6 +588,77 @@ kbd {
   border-bottom: 1px solid var(--border);
 }
 
+.build__head {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.build__head h3 {
+  flex: 1;
+}
+
+.build__outputs h4 {
+  margin: 0.75rem 0 0.25rem;
+  color: var(--fg-muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.build__outputs ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.build__outputs li {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.build__output {
+  display: flex;
+  flex: 1;
+  gap: 0.5rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.2rem 0.35rem;
+  overflow: hidden;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.build__output-url {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build__output.active {
+  background: var(--accent-soft, rgba(127, 127, 127, 0.18));
+  border-radius: 4px;
+}
+
+.build__output-open {
+  padding: 0.2rem 0.4rem;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+}
+
+.preview__target {
+  overflow: hidden;
+  max-width: 16rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
 .settings__checkbox {
   flex-direction: row;
   gap: 0.4rem;

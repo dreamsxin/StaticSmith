@@ -79,6 +79,13 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `build_plan(mode) -> BuildPlan`：只计算不写盘。`mode` 为 `"full"` 或 `"incremental"`
 - `run_build(mode) -> BuildReport`
 - `output_dir() -> PathBuf`：供前端用 opener 插件在文件管理器中打开
+- `list_outputs() -> OutputFile[]`：扫描产物目录，还没生成过时返回空数组
+
+`OutputFile`：`path`（相对产物目录）、`url`（站内地址）、`kind`、`size`。
+`kind` 取 `page` / `pagination` / `taxonomy` / `sitemap` / `feed` / `asset`。
+标签页与分页页没有源文件，内容树列不出来，界面只能靠这个清单给出入口；
+它们也没法走内存预览，点击时前端会自动拉起本地预览服务器。
+
 
 `BuildPlan` 关键字段：`pages`（待渲染源路径）、`changed_templates`、
 `affected_templates`、`total_pages`、`orphaned_pages`（将被清理的产物）。

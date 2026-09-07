@@ -41,6 +41,7 @@ pub fn run() {
             commands::preview_server_url,
             commands::save_asset,
             commands::list_assets,
+            commands::list_outputs,
             commands::list_templates,
             commands::template_tree,
             commands::read_template,

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use staticsmith_core::{build::BuildMode, scaffold, Builder, NewContent};
+use staticsmith_core::{build::BuildMode, scaffold, Builder, NewContent, OutputKind};
 
 /// 新建一个临时项目并返回其根目录。
 fn new_project() -> tempfile::TempDir {
@@ -355,6 +355,42 @@ fn full_build_emits_tag_pages_and_links_them_from_posts() {
         post.contains("href=\"/tags/模板/\""),
         "文章页应链接到标签页"
     );
+}
+
+#[test]
+fn outputs_list_exposes_generated_pages_that_have_no_source_file() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+
+    // 还没生成时不应报错，只是空清单——界面据此提示「先生成一次」。
+    assert!(builder.outputs().unwrap().is_empty());
+
+    builder.build(BuildMode::Full).unwrap();
+    let outputs = builder.outputs().unwrap();
+
+    let url_of = |kind: OutputKind| -> Vec<&str> {
+        outputs
+            .iter()
+            .filter(|o| o.kind == kind)
+            .map(|o| o.url.as_str())
+            .collect()
+    };
+
+    // 标签页只存在于产物里，内容树看不到，这是它进入界面的唯一入口。
+    let taxonomy = url_of(OutputKind::Taxonomy);
+    assert!(taxonomy.contains(&"/tags/"), "缺少标签总览：{taxonomy:?}");
+    assert!(
+        taxonomy.contains(&"/tags/模板/"),
+        "缺少标签页：{taxonomy:?}"
+    );
+
+    assert!(url_of(OutputKind::Sitemap).contains(&"/sitemap.xml"));
+    assert!(url_of(OutputKind::Feed).contains(&"/feed.xml"));
+    assert!(url_of(OutputKind::Page).contains(&"/"));
+    // CSS 归到静态资源，不该混进页面列表
+    assert!(url_of(OutputKind::Asset)
+        .iter()
+        .any(|u| u.ends_with(".css")));
 }
 
 #[test]

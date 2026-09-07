@@ -7,7 +7,9 @@ use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
-use staticsmith_core::{content, scaffold, NewContent, PreviewServer, SavedAsset, SiteConfig};
+use staticsmith_core::{
+    content, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SiteConfig,
+};
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
@@ -258,6 +260,15 @@ pub fn save_asset(
 #[tauri::command]
 pub fn list_assets(state: State<'_, AppState>) -> Result<Vec<AssetRecord>> {
     state.with_session(|session| Ok(session.builder.assets()?))
+}
+
+/// 产物清单（页面 / 标签页 / 分页 / sitemap / 订阅 / 静态资源）。
+///
+/// 内容列表只反映 `content/` 下的 Markdown，而标签页、分页页这些「非内容页」
+/// 之前在界面里没有任何入口。还没生成过时返回空列表。
+#[tauri::command]
+pub fn list_outputs(state: State<'_, AppState>) -> Result<Vec<OutputFile>> {
+    state.with_session(|session| Ok(session.builder.outputs()?))
 }
 
 // ---------------------------------------------------------------- 模板与组件

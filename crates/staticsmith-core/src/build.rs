@@ -13,6 +13,7 @@ use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
 use crate::feeds;
 use crate::index::{AssetRecord, Index, PageRecord};
+use crate::outputs;
 use crate::taxonomy;
 use crate::templates::TemplateSet;
 use crate::util;
@@ -143,6 +144,14 @@ impl Builder {
     /// 已登记的媒体资源，供界面做媒体库浏览。
     pub fn assets(&self) -> Result<Vec<AssetRecord>> {
         self.index.assets()
+    }
+
+    /// 产物清单，按类型分组排序。
+    ///
+    /// 标签页、分页页、sitemap、feed 都不是内容文件，界面此前完全看不到它们；
+    /// 这里把输出目录的实际内容暴露出来，改完标签能立刻确认结果。
+    pub fn outputs(&self) -> Result<Vec<outputs::OutputFile>> {
+        outputs::scan(&self.paths.output, &self.config.taxonomy)
     }
 
     /// 新建内容文件，返回其相对 `content/` 的路径。

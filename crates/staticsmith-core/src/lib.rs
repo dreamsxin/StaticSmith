@@ -32,6 +32,7 @@ pub mod feeds;
 pub mod filters;
 pub mod graph;
 pub mod index;
+pub mod outputs;
 pub mod scaffold;
 pub mod taxonomy;
 pub mod templates;
@@ -48,6 +49,7 @@ pub use content::{NewContent, Page};
 pub use error::{Error, Result};
 pub use graph::TemplateGraph;
 pub use index::Index;
+pub use outputs::{OutputFile, OutputKind};
 pub use templates::{TemplateKind, TemplateSet};
 
 #[cfg(feature = "serve")]

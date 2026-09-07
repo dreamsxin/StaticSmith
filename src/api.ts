@@ -265,6 +265,21 @@ export async function saveAsset(fileName: string, bytes: Uint8Array): Promise<Sa
 
 export const listAssets = () => invoke<AssetRecord[]>('list_assets')
 
+/** 产物类型，与 Rust 的 `OutputKind` 对应。 */
+export type OutputKind = 'page' | 'pagination' | 'taxonomy' | 'sitemap' | 'feed' | 'asset'
+
+export interface OutputFile {
+  /** 相对输出目录的路径 */
+  path: string
+  /** 站内地址，可直接拼到预览服务器后面 */
+  url: string
+  kind: OutputKind
+  size: number
+}
+
+/** 产物清单。还没生成过时返回空数组。 */
+export const listOutputs = () => invoke<OutputFile[]>('list_outputs')
+
 /** 分块转换，避免大文件时 `String.fromCharCode(...)` 参数过多导致栈溢出。 */
 function toBase64(bytes: Uint8Array): string {
   const CHUNK = 0x8000

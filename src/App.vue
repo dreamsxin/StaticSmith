@@ -105,7 +105,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <PreviewPane />
       </template>
       <LayoutManager v-else-if="tab === 'layouts'" />
-      <BuildPanel v-else-if="tab === 'build'" />
+      <BuildPanel v-else-if="tab === 'build'" @preview="tab = 'content'" />
       <DeployPanel v-else-if="tab === 'deploy'" />
       <SettingsPanel v-else />
     </main>

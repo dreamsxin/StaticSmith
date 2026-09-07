@@ -13,6 +13,7 @@ import type {
   BuildPlan,
   BuildReport,
   DeployReport,
+  OutputFile,
   PageSummary,
   ProjectSummary,
   RecentEntry,
@@ -45,6 +46,10 @@ interface State {
   previewHtml: string
   /** 本地预览服务器地址，未启动时为 null */
   previewServer: string | null
+  /** 正在预览的产物地址（标签页、分页页等非内容页），null 表示预览当前文章 */
+  previewTarget: string | null
+  /** 产物清单，生成后刷新 */
+  outputs: OutputFile[]
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -67,6 +72,8 @@ const state = reactive<State>({
   currentTemplateSource: '',
   previewHtml: '',
   previewServer: null,
+  previewTarget: null,
+  outputs: [],
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -141,8 +148,35 @@ export const actions = {
       state.project = summary
       state.externalChange = false
       await this.recomputePlan()
+      await this.loadOutputs()
       notify('success', `已打开 ${summary.config.site.title}`)
     }
+  },
+
+  /** 刷新产物清单。标签页、分页页这些非内容页只在这里能看到。 */
+  async loadOutputs() {
+    const files = await run(() => api.listOutputs())
+    if (files) state.outputs = files
+  },
+
+  /**
+   * 预览某个产物（标签页、分页页、sitemap…）。
+   *
+   * 这些页面不是内容文件，没法走内存预览，只能由本地服务器提供；
+   * 因此未启动时先自动起一个，不用用户先去点「启动本地服务器」。
+   */
+  async previewOutput(url: string) {
+    if (!state.previewServer) {
+      const base = await run(() => api.startPreviewServer())
+      if (!base) return
+      state.previewServer = base
+    }
+    state.previewTarget = url
+  },
+
+  /** 回到「预览当前文章」。 */
+  clearPreviewTarget() {
+    state.previewTarget = null
   },
 
   async initProject(path: string, title: string) {
@@ -169,6 +203,8 @@ export const actions = {
     state.previewHtml = ''
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
     state.previewServer = null
+    state.previewTarget = null
+    state.outputs = []
     state.plan = null
     // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
     void this.loadRecent()
@@ -203,6 +239,8 @@ export const actions = {
       state.currentRaw = raw
       state.savedRaw = raw
       state.currentTemplate = null
+      // 打开文章即回到文章预览，否则预览还停在上次点开的标签页上。
+      state.previewTarget = null
       await this.refreshPreview()
     }
   },
@@ -325,6 +363,7 @@ export const actions = {
       state.lastBuild = report
       await this.recomputePlan()
       await this.refresh()
+      await this.loadOutputs()
       notify(
         'success',
         `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
