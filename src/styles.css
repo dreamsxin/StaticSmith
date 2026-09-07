@@ -1017,6 +1017,112 @@ kbd {
   resize: none;
 }
 
+/*
+ * 语法着色：textarea 文字透明、只留光标，背后垫一层同字体同行高的高亮镜像。
+ * 两层的字体、字号、行高、内边距、换行规则必须逐项一致，差一点就会错位，
+ * 所以共用一组声明而不是各写一遍。
+ */
+.editor__code {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 20rem;
+  overflow: hidden;
+}
+
+.editor__code .editor__area,
+.editor__mirror {
+  min-height: 0;
+  margin: 0;
+  padding: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.editor__code .editor__area {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  color: transparent;
+  background: transparent;
+  caret-color: var(--fg);
+}
+
+/* 选区仍要看得见：文字透明时靠背景色标出范围 */
+.editor__code .editor__area::selection {
+  color: transparent;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.editor__mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+.tok-heading {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tok-fence,
+.tok-marker {
+  color: var(--fg-muted);
+}
+
+.tok-code {
+  color: #0a7d6b;
+}
+
+.tok-quote {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.tok-strong {
+  font-weight: 700;
+}
+
+.tok-em {
+  font-style: italic;
+}
+
+.tok-link {
+  color: var(--accent);
+}
+
+.tok-url {
+  color: var(--fg-muted);
+  text-decoration: underline;
+}
+
+.tok-fm,
+.tok-fm-value {
+  color: #8a6d1f;
+}
+
+.tok-fm-key {
+  color: var(--fg-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  .tok-code {
+    color: #6ed7c0;
+  }
+
+  .tok-fm,
+  .tok-fm-value {
+    color: #d9bd6a;
+  }
+}
+
+
 .editor--empty,
 .preview__empty {
   padding: 1rem;

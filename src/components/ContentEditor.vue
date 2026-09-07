@@ -13,10 +13,31 @@
 import { computed, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
+import { highlight } from '../markdown-highlight'
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
+const mirror = ref<HTMLElement | null>(null)
 const dragging = ref(false)
 const filePicker = ref<HTMLInputElement | null>(null)
+
+/**
+ * 语法着色。
+ *
+ * `textarea` 的文字设为透明、只留光标，背后垫一层同字体同行高的高亮镜像。
+ * 这样既看得清结构，改的又还是纯文本——不引入富文本模型，也就不存在
+ * 「界面里的样式与源文不一致」这类问题。
+ */
+const highlighted = computed(() => highlight(store.currentRaw))
+
+/** 镜像不参与滚动，只能跟着 textarea 走。 */
+function syncScroll() {
+  const el = textarea.value
+  const box = mirror.value
+  if (!el || !box) return
+  box.scrollTop = el.scrollTop
+  box.scrollLeft = el.scrollLeft
+}
+
 
 const affected = computed(() => store.plan?.pages.length ?? 0)
 const total = computed(() => store.plan?.total_pages ?? 0)
@@ -389,20 +410,25 @@ function onKeydown(event: KeyboardEvent) {
     </div>
 
 
-    <textarea
-      ref="textarea"
-      class="editor__area"
-      :class="{ 'editor__area--dragging': dragging }"
-      spellcheck="false"
-      :value="store.currentRaw"
-      aria-label="内容源文"
-      @input="actions.setRaw(($event.target as HTMLTextAreaElement).value)"
-      @keydown="onKeydown"
-      @paste="onPaste"
-      @dragover.prevent="dragging = true"
-      @dragleave="dragging = false"
-      @drop="onDrop"
-    />
+    <div class="editor__code">
+      <pre ref="mirror" class="editor__mirror" aria-hidden="true"><code v-html="highlighted" /></pre>
+      <textarea
+        ref="textarea"
+        class="editor__area"
+        :class="{ 'editor__area--dragging': dragging }"
+        spellcheck="false"
+        :value="store.currentRaw"
+        aria-label="内容源文"
+        @input="actions.setRaw(($event.target as HTMLTextAreaElement).value)"
+        @scroll="syncScroll"
+        @keydown="onKeydown"
+        @paste="onPaste"
+        @dragover.prevent="dragging = true"
+        @dragleave="dragging = false"
+        @drop="onDrop"
+      />
+    </div>
+
 
     <footer class="editor__foot">
       {{ wordCount }} 字 · <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
