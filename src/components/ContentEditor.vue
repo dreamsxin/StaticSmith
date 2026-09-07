@@ -44,6 +44,10 @@ const fm = computed(() => store.frontMatter)
 /** 标签在源文里是数组，表单里用逗号分隔——中文逗号也认。 */
 const tagText = computed(() => (fm.value?.tags ?? []).join(', '))
 
+/** 关键词同理。它与标签分开：标签会生成标签页，关键词只进 meta。 */
+const keywordText = computed(() => (fm.value?.keywords ?? []).join(', '))
+
+
 function parseTags(text: string): string[] {
   return text
     .split(/[,，]/)
@@ -57,6 +61,10 @@ const knownTags = computed(() => {
   for (const page of store.project?.pages ?? []) for (const tag of page.tags) set.add(tag)
   return [...set].sort()
 })
+
+/** 关键词候选沿用标签集合：站内既有的词就是最该复用的词。 */
+const knownKeywords = knownTags
+
 
 function fieldValue(event: Event): string {
   return (event.target as HTMLInputElement).value
@@ -286,9 +294,23 @@ function onKeydown(event: KeyboardEvent) {
             @change="actions.patchFrontMatter({ tags: parseTags(fieldValue($event)) })"
           />
         </label>
+        <label class="editor__prop editor__prop--wide">
+          关键词（SEO）
+          <input
+            type="text"
+            list="known-keywords"
+            :value="keywordText"
+            placeholder="留空则用标签"
+            @change="actions.patchFrontMatter({ keywords: parseTags(fieldValue($event)) })"
+          />
+        </label>
         <datalist id="known-tags">
           <option v-for="tag in knownTags" :key="tag" :value="tag" />
         </datalist>
+        <datalist id="known-keywords">
+          <option v-for="word in knownKeywords" :key="word" :value="word" />
+        </datalist>
+
         <label class="editor__prop editor__prop--check">
           <input
             type="checkbox"

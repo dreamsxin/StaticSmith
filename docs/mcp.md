@@ -36,14 +36,19 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `list_templates`：模板及其角色与直接依赖
 - `read_template`：读模板源码
 - `build_plan`：待生成范围与级联影响，**改模板前先看它**
+- `audit_seo`：SEO 体检清单，可按 `severity`（error/warn/hint）或 `source` 过滤。
+  与桌面端「SEO」标签页同源，见 [SEO 与内容运营](seo.md)
 
 需要 `--allow-write`：
 
 - `create_content`：按标题生成 front matter 骨架，默认草稿
 - `write_content`：整文件覆盖写入，返回增量计划
+- `patch_front_matter`：只改指定字段（标题、描述、关键词、标签、日期、草稿…），
+  正文与其他键原样保留。**补 SEO 字段用这个**，比整文覆盖安全
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物
+
 
 需要 `--allow-deploy`：
 

@@ -44,6 +44,7 @@ pub fn run() {
             commands::save_asset,
             commands::list_assets,
             commands::list_outputs,
+            commands::audit_seo,
             commands::list_templates,
             commands::template_tree,
             commands::read_template,

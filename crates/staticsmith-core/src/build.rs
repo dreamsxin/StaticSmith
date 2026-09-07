@@ -14,6 +14,7 @@ use crate::error::{Error, Result};
 use crate::feeds;
 use crate::index::{AssetRecord, Index, PageRecord};
 use crate::outputs;
+use crate::seo;
 use crate::taxonomy;
 use crate::templates::TemplateSet;
 use crate::util;
@@ -152,6 +153,14 @@ impl Builder {
     /// 这里把输出目录的实际内容暴露出来，改完标签能立刻确认结果。
     pub fn outputs(&self) -> Result<Vec<outputs::OutputFile>> {
         outputs::scan(&self.paths.output, &self.config.taxonomy)
+    }
+
+    /// SEO 体检：标题、描述、关键词、重复内容与站点级配置。
+    ///
+    /// 只看内存里已解析的页面，不读产物、不写盘，因此保存后立刻可用；
+    /// AI Agent 也用同一份规则（MCP 的 `audit_seo`），界面与自动化不会给出两套结论。
+    pub fn audit_seo(&self) -> seo::Report {
+        seo::audit(&self.pages, &self.config)
     }
 
     /// 新建内容文件，返回其相对 `content/` 的路径。
@@ -549,6 +558,7 @@ impl Renderer<'_> {
                 "description": "",
                 "content": "",
                 "tags": Vec::<String>::new(),
+                "keywords": Vec::<String>::new(),
             }),
         );
         // 布局与侧边栏依赖全站列表，标签页也必须提供，否则渲染直接失败。
@@ -590,6 +600,7 @@ impl Renderer<'_> {
                     "description": "",
                     "content": "",
                     "tags": Vec::<String>::new(),
+                    "keywords": Vec::<String>::new(),
                 }),
             );
             ctx.insert("term", &entry.term);

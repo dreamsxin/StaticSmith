@@ -9,7 +9,8 @@ use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
-    content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SiteConfig,
+    content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
+    SiteConfig,
 };
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use tauri::{AppHandle, Emitter, Manager, State, Window};
@@ -287,6 +288,14 @@ pub fn save_asset(
 #[tauri::command]
 pub fn list_assets(state: State<'_, AppState>) -> Result<Vec<AssetRecord>> {
     state.with_session(|session| Ok(session.builder.assets()?))
+}
+
+/// SEO 体检：标题、描述、关键词、重复内容与站点级配置。
+///
+/// 与 MCP 的 `audit_seo` 同源，界面与 AI Agent 看到的是同一份结论。
+#[tauri::command]
+pub fn audit_seo(state: State<'_, AppState>) -> Result<SeoReport> {
+    state.with_session(|session| Ok(session.builder.audit_seo()))
 }
 
 /// 产物清单（页面 / 标签页 / 分页 / sitemap / 订阅 / 静态资源）。

@@ -90,6 +90,13 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `run_build(mode) -> BuildReport`
 - `output_dir() -> PathBuf`：供前端用 opener 插件在文件管理器中打开
 - `list_outputs() -> OutputFile[]`：扫描产物目录，还没生成过时返回空数组
+- `audit_seo() -> SeoReport`：SEO 体检，读内存里的页面，不依赖产物
+
+`SeoReport`：`checked`、`errors`、`warnings`、`hints`、`score`（0-100）与 `issues`。
+每条 `issue` 带 `source`（站点级问题为空串）、`url`、`title`、`severity`
+（`error` / `warn` / `hint`）、`code`（如 `description.missing`）与中文 `message`。
+规则与阈值见 [SEO 与内容运营](seo.md)，与 MCP 的 `audit_seo` 同源。
+
 
 `OutputFile`：`path`（相对产物目录）、`url`（站内地址）、`kind`、`size`。
 `kind` 取 `page` / `pagination` / `taxonomy` / `sitemap` / `feed` / `asset`。

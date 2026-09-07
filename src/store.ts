@@ -20,6 +20,7 @@ import type {
   PageSummary,
   ProjectSummary,
   RecentEntry,
+  SeoReport,
   SiteConfig,
   TemplateInfo,
 } from './api'
@@ -57,6 +58,8 @@ interface State {
   outputs: OutputFile[]
   /** 已登记的媒体资源，编辑器复用时用 */
   assets: AssetRecord[]
+  /** SEO 体检结论，保存或生成后刷新 */
+  seo: SeoReport | null
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -89,6 +92,7 @@ const state = reactive<State>({
   previewTarget: null,
   outputs: [],
   assets: [],
+  seo: null,
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -166,6 +170,7 @@ export const actions = {
       state.externalChange = false
       await this.recomputePlan()
       await this.loadOutputs()
+      await this.auditSeo()
       notify('success', `已打开 ${summary.config.site.title}`)
     }
   },
@@ -224,6 +229,7 @@ export const actions = {
     state.previewTarget = null
     state.outputs = []
     state.assets = []
+    state.seo = null
     state.plan = null
     // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
     void this.loadRecent()
@@ -338,6 +344,18 @@ export const actions = {
     if (items) state.assets = items
   },
 
+  /**
+   * SEO 体检。
+   *
+   * 读的是内存里的页面，不看产物，所以保存后立刻反映；
+   * 与 MCP 的 `audit_seo` 同源，界面结论和 AI Agent 拿到的完全一致。
+   */
+  async auditSeo() {
+    const report = await run(() => api.auditSeo())
+    if (report) state.seo = report
+  },
+
+
   /** 凭证是否已存在系统凭据管理器里。查询失败按「没有」处理。 */
   async hasSecret(account: string): Promise<boolean> {
     try {
@@ -398,6 +416,7 @@ export const actions = {
       await this.refresh()
       await this.loadFrontMatter()
       await this.refreshPreview()
+      await this.auditSeo()
       notify('success', `已保存，待生成 ${plan.pages.length} 个页面`)
       if (state.autoBuild) await this.build('incremental', { quiet: true })
     }

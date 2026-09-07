@@ -35,6 +35,7 @@ pub mod graph;
 pub mod index;
 pub mod outputs;
 pub mod scaffold;
+pub mod seo;
 pub mod taxonomy;
 pub mod templates;
 pub mod util;
@@ -51,6 +52,7 @@ pub use error::{Error, Result};
 pub use graph::TemplateGraph;
 pub use index::Index;
 pub use outputs::{OutputFile, OutputKind};
+pub use seo::{Issue as SeoIssue, Report as SeoReport, Severity as SeoSeverity};
 pub use templates::{TemplateKind, TemplateSet};
 
 #[cfg(feature = "serve")]

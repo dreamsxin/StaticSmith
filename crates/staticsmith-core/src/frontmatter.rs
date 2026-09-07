@@ -28,6 +28,8 @@ pub struct Patch {
     pub template: Option<String>,
     pub slug: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// SEO 关键词。留空数组即删键，页面随之回退到用 tags 当关键词。
+    pub keywords: Option<Vec<String>>,
     pub draft: Option<bool>,
     pub weight: Option<i64>,
 }
@@ -65,14 +67,10 @@ pub fn apply(raw: &str, patch: &Patch) -> Result<String> {
         set_or_remove(table, "slug", slug.is_empty(), || value(slug));
     }
     if let Some(tags) = &patch.tags {
-        let cleaned: Vec<&String> = tags.iter().filter(|t| !t.trim().is_empty()).collect();
-        set_or_remove(table, "tags", cleaned.is_empty(), || {
-            let mut array = Array::new();
-            for tag in &cleaned {
-                array.push(tag.trim());
-            }
-            Item::Value(Value::Array(array))
-        });
+        set_string_array(table, "tags", tags);
+    }
+    if let Some(keywords) = &patch.keywords {
+        set_string_array(table, "keywords", keywords);
     }
     if let Some(draft) = patch.draft {
         // draft = false 与不写等价，删掉更干净（新建内容的骨架也是这个约定）。
@@ -97,6 +95,22 @@ fn set_or_remove(
     } else {
         table[key] = make();
     }
+}
+
+/// 写入字符串数组：逐项去空白、丢掉空项，全空即删键。
+fn set_string_array(table: &mut toml_edit::Table, key: &str, values: &[String]) {
+    let cleaned: Vec<&str> = values
+        .iter()
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .collect();
+    set_or_remove(table, key, cleaned.is_empty(), || {
+        let mut array = Array::new();
+        for item in &cleaned {
+            array.push(*item);
+        }
+        Item::Value(Value::Array(array))
+    });
 }
 
 /// 拆出 front matter 文本与正文。没有围栏时 front matter 为空串。
@@ -208,6 +222,25 @@ mod tests {
         );
         // 空白项被丢掉，不会生成 tags = ["", ...] 这种脏数据
         assert_eq!(read(&updated).unwrap().tags.len(), 2);
+    }
+
+    #[test]
+    fn keywords_are_written_next_to_tags() {
+        let updated = apply(
+            SAMPLE,
+            &Patch {
+                keywords: Some(vec!["静态站点".into(), " 增量构建 ".into()]),
+                ..Patch::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            updated.contains("keywords = [\"静态站点\", \"增量构建\"]"),
+            "{updated}"
+        );
+        // 标签没被动过
+        assert!(updated.contains("tags = [\"模板\"]"));
+        assert_eq!(read(&updated).unwrap().keywords.len(), 2);
     }
 
     #[test]

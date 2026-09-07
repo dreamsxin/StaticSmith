@@ -190,6 +190,51 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "audit_seo",
+            title: "SEO 体检",
+            description: "检查标题、描述、关键词、重复内容与站点级配置，返回按严重程度排序的问题清单。与桌面端「SEO 体检」用同一份规则。草稿不参与。",
+            access: Access::Read,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "severity": {
+                            "type": "string",
+                            "enum": ["error", "warn", "hint"],
+                            "description": "只看不低于该级别的问题"
+                        },
+                        "source": { "type": "string", "description": "只看某一篇内容" }
+                    },
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
+            name: "patch_front_matter",
+            title: "改写 front matter 字段",
+            description: "只改指定字段（标题、描述、关键词、标签、日期、草稿开关），正文与未涉及的键、注释原样保留。给空串或空数组表示删除该键。补 SEO 字段用这个，不要用 write_content 整文覆盖。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string" },
+                        "title": { "type": "string" },
+                        "description": { "type": "string" },
+                        "keywords": { "type": "array", "items": { "type": "string" } },
+                        "tags": { "type": "array", "items": { "type": "string" } },
+                        "date": { "type": "string", "description": "YYYY-MM-DD 或 RFC3339" },
+                        "slug": { "type": "string" },
+                        "template": { "type": "string" },
+                        "draft": { "type": "boolean" },
+                        "weight": { "type": "integer" }
+                    },
+                    "required": ["source"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
             name: "delete_content",
             title: "删除内容",
             description: "删除内容文件。下次生成时会清理它的产物。不可撤销。",
@@ -296,8 +341,10 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "list_templates" => list_templates(builder),
         "read_template" => read_template(builder, args),
         "build_plan" => build_plan(builder, args),
+        "audit_seo" => audit_seo(builder, args),
         "create_content" => create_content(builder, args),
         "write_content" => write_content(builder, args),
+        "patch_front_matter" => patch_front_matter(builder, args),
         "delete_content" => delete_content(builder, args),
         "write_template" => write_template(builder, args),
         "build_site" => build_site(builder, args),
@@ -479,6 +526,39 @@ fn create_content(builder: &mut Builder, args: &Value) -> Result<String, String>
     pretty(&json!({ "created": source, "draft": request.draft }))
 }
 
+/// SEO 体检。可按严重程度或单篇过滤——Agent 通常一次只修一批同类问题。
+fn audit_seo(builder: &Builder, args: &Value) -> Result<String, String> {
+    use staticsmith_core::seo::Severity;
+
+    let report = builder.audit_seo();
+    let floor = match args.get("severity").and_then(Value::as_str) {
+        None => None,
+        Some("error") => Some(Severity::Error),
+        Some("warn") => Some(Severity::Warn),
+        Some("hint") => Some(Severity::Hint),
+        Some(other) => return Err(format!("severity 只能是 error / warn / hint，收到 {other}")),
+    };
+    let source = args.get("source").and_then(Value::as_str);
+
+    let issues: Vec<&staticsmith_core::SeoIssue> = report
+        .issues
+        .iter()
+        // Severity 的排序是「越严重越小」，因此过滤条件是 <=
+        .filter(|i| floor.is_none_or(|f| i.severity <= f))
+        .filter(|i| source.is_none_or(|s| i.source == s))
+        .collect();
+
+    pretty(&json!({
+        "checked": report.checked,
+        "errors": report.errors,
+        "warnings": report.warnings,
+        "hints": report.hints,
+        "score": report.score,
+        "issues": issues,
+        "next": "用 patch_front_matter 逐篇补齐字段；描述建议 40-160 字，标题不超过 60 字"
+    }))
+}
+
 fn write_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?.to_string();
     let raw = require_str(args, "raw")?;
@@ -491,6 +571,87 @@ fn write_content(builder: &mut Builder, args: &Value) -> Result<String, String> 
 
     let plan = builder.plan(BuildMode::Incremental).map_err(err)?;
     pretty(&json!({ "written": source, "plan": plan }))
+}
+
+/// 只改 front matter 的指定字段，正文与其他键原样保留。
+///
+/// SEO 补字段的正路：`write_content` 整文覆盖要求 Agent 先读全文再原样吐回来，
+/// 一旦它顺手「优化」了正文，改动就超出了预期范围。
+fn patch_front_matter(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    use staticsmith_core::frontmatter;
+
+    let source = require_str(args, "source")?.to_string();
+    let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+    let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 {source} 失败: {e}"))?;
+
+    let mut patch = frontmatter::Patch::default();
+    let mut touched: Vec<&str> = Vec::new();
+    if let Some(value) = args.get("title").and_then(Value::as_str) {
+        patch.title = Some(value.to_string());
+        touched.push("title");
+    }
+    if let Some(value) = args.get("description").and_then(Value::as_str) {
+        patch.description = Some(value.to_string());
+        touched.push("description");
+    }
+    if let Some(value) = args.get("date").and_then(Value::as_str) {
+        patch.date = Some(value.to_string());
+        touched.push("date");
+    }
+    if let Some(value) = args.get("slug").and_then(Value::as_str) {
+        patch.slug = Some(value.to_string());
+        touched.push("slug");
+    }
+    if let Some(value) = args.get("template").and_then(Value::as_str) {
+        patch.template = Some(value.to_string());
+        touched.push("template");
+    }
+    if let Some(value) = args.get("keywords") {
+        patch.keywords = Some(string_list(value, "keywords")?);
+        touched.push("keywords");
+    }
+    if let Some(value) = args.get("tags") {
+        patch.tags = Some(string_list(value, "tags")?);
+        touched.push("tags");
+    }
+    if let Some(value) = args.get("draft").and_then(Value::as_bool) {
+        patch.draft = Some(value);
+        touched.push("draft");
+    }
+    if let Some(value) = args.get("weight").and_then(Value::as_i64) {
+        patch.weight = Some(value);
+        touched.push("weight");
+    }
+    if touched.is_empty() {
+        return Err("没有给出任何要改的字段".to_string());
+    }
+
+    let updated = frontmatter::apply(&raw, &patch).map_err(err)?;
+    std::fs::write(&path, &updated).map_err(|e| format!("写入 {source} 失败: {e}"))?;
+    builder.reload().map_err(err)?;
+
+    let plan = builder.plan(BuildMode::Incremental).map_err(err)?;
+    pretty(&json!({
+        "patched": source,
+        "fields": touched,
+        "front_matter": frontmatter::read(&updated).map_err(err)?,
+        "plan": plan
+    }))
+}
+
+/// JSON 数组 → 字符串数组。混进非字符串时明确报错，而不是静默丢掉。
+fn string_list(value: &Value, field: &str) -> Result<Vec<String>, String> {
+    let array = value
+        .as_array()
+        .ok_or_else(|| format!("{field} 需要字符串数组"))?;
+    array
+        .iter()
+        .map(|v| {
+            v.as_str()
+                .map(str::to_string)
+                .ok_or_else(|| format!("{field} 里出现了非字符串项"))
+        })
+        .collect()
 }
 
 fn delete_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
@@ -570,6 +731,98 @@ fn err(e: staticsmith_core::Error) -> String {
 mod tests {
     use super::*;
 
+    /// 脚手架出一个真项目，用来跑「体检 → 补字段 → 再体检」这条运营主链路。
+    fn project() -> (tempfile::TempDir, Builder) {
+        let dir = tempfile::tempdir().unwrap();
+        staticsmith_core::scaffold::init_project(dir.path(), Some("测试站")).unwrap();
+        let builder = Builder::open(dir.path()).unwrap();
+        (dir, builder)
+    }
+
+    #[test]
+    fn audit_then_patch_closes_the_issue() {
+        let (_dir, mut builder) = project();
+        let perms = Permissions {
+            write: true,
+            deploy: false,
+        };
+
+        // 找一篇缺描述的内容
+        let before = call(&mut builder, perms, "audit_seo", &json!({}));
+        let text = before["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        let missing = report["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["code"] == "description.missing")
+            .map(|i| i["source"].as_str().unwrap().to_string());
+
+        let Some(source) = missing else {
+            // 脚手架内容已经写全了描述，这条链路无需再测
+            return;
+        };
+
+        let patched = call(
+            &mut builder,
+            perms,
+            "patch_front_matter",
+            &json!({
+                "source": source,
+                "description": "由 Agent 补写的描述，长度落在建议区间内，说明这篇文章讲了什么。",
+                "keywords": ["静态站点", "内容运营"]
+            }),
+        );
+        assert_eq!(patched["isError"], false, "{patched}");
+
+        let after = call(
+            &mut builder,
+            perms,
+            "audit_seo",
+            &json!({ "source": source }),
+        );
+        let text = after["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        let codes: Vec<&str> = report["issues"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|i| i["code"].as_str().unwrap())
+            .collect();
+        assert!(
+            !codes.contains(&"description.missing"),
+            "补完描述后不该再报缺失：{codes:?}"
+        );
+    }
+
+    #[test]
+    fn patch_front_matter_needs_at_least_one_field() {
+        let (_dir, mut builder) = project();
+        let source = builder.pages()[0].source.clone();
+        let result = call(
+            &mut builder,
+            Permissions {
+                write: true,
+                deploy: false,
+            },
+            "patch_front_matter",
+            &json!({ "source": source }),
+        );
+        assert_eq!(result["isError"], true);
+    }
+
+    #[test]
+    fn audit_seo_rejects_an_unknown_severity() {
+        let (_dir, mut builder) = project();
+        let result = call(
+            &mut builder,
+            Permissions::read_only(),
+            "audit_seo",
+            &json!({ "severity": "critical" }),
+        );
+        assert_eq!(result["isError"], true);
+    }
+
     #[test]
     fn read_only_permissions_hide_write_tools() {
         let list = list_json(Permissions::read_only());
@@ -582,7 +835,10 @@ mod tests {
 
         assert!(names.contains(&"list_pages"));
         assert!(names.contains(&"build_plan"));
+        // 体检是只读的：运营先看清单，再决定要不要给写权限
+        assert!(names.contains(&"audit_seo"));
         assert!(!names.contains(&"write_content"));
+        assert!(!names.contains(&"patch_front_matter"));
         assert!(!names.contains(&"build_site"));
         assert!(!names.contains(&"deploy_site"));
     }

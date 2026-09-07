@@ -234,6 +234,8 @@ export interface FrontMatter {
   slug: string | null
   description: string
   tags: string[]
+  /** SEO 关键词，未写时页面会回退到 tags */
+  keywords: string[]
   draft: boolean
   weight: number
   extra: Record<string, unknown>
@@ -249,6 +251,7 @@ export interface FrontMatterPatch {
   template?: string
   slug?: string
   tags?: string[]
+  keywords?: string[]
   draft?: boolean
   weight?: number
 }
@@ -316,6 +319,35 @@ export interface OutputFile {
 
 /** 产物清单。还没生成过时返回空数组。 */
 export const listOutputs = () => invoke<OutputFile[]>('list_outputs')
+
+// ---------------------------------------------------------------- SEO 体检
+
+export type SeoSeverity = 'error' | 'warn' | 'hint'
+
+export interface SeoIssue {
+  /** 相对 content/ 的源路径；站点级问题为空串 */
+  source: string
+  url: string
+  title: string
+  severity: SeoSeverity
+  /** 稳定的规则标识，如 description.missing */
+  code: string
+  message: string
+}
+
+export interface SeoReport {
+  checked: number
+  errors: number
+  warnings: number
+  hints: number
+  /** 0-100 的粗略健康度，只用于趋势对比 */
+  score: number
+  issues: SeoIssue[]
+}
+
+/** 体检当前内存里的页面，不依赖产物，保存后立刻可用。 */
+export const auditSeo = () => invoke<SeoReport>('audit_seo')
+
 
 /** 分块转换，避免大文件时 `String.fromCharCode(...)` 参数过多导致栈溢出。 */
 function toBase64(bytes: Uint8Array): string {

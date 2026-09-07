@@ -358,6 +358,41 @@ fn full_build_emits_tag_pages_and_links_them_from_posts() {
 }
 
 #[test]
+fn built_pages_carry_seo_meta_and_audit_sees_the_same_data() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(
+        post.contains(
+            r#"<link rel="canonical" href="https://example.com/posts/hello-staticsmith/""#
+        ),
+        "缺少 canonical，或地址被 Tera 转义：{post}"
+    );
+    assert!(post.contains(r#"<meta name="keywords""#), "缺少 keywords");
+    assert!(
+        post.contains(r#"property="og:title""#),
+        "缺少 Open Graph 标题"
+    );
+    assert!(
+        post.contains(r#"rel="alternate" type="application/atom+xml""#),
+        "缺少订阅源声明"
+    );
+
+    // 体检读的是同一批已解析页面，不依赖产物，因此保存后立刻可用
+    let report = builder.audit_seo();
+    assert!(report.checked > 0);
+    assert!(
+        report
+            .issues
+            .iter()
+            .all(|i| i.code != "site.base_url_missing"),
+        "脚手架配了 base_url，不该报缺失"
+    );
+}
+
+#[test]
 fn outputs_list_exposes_generated_pages_that_have_no_source_file() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();

@@ -8,13 +8,14 @@ import DeployPanel from './components/DeployPanel.vue'
 import LayoutManager from './components/LayoutManager.vue'
 import PageList from './components/PageList.vue'
 import PreviewPane from './components/PreviewPane.vue'
+import SeoPanel from './components/SeoPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, store } from './store'
 
-type Tab = 'content' | 'layouts' | 'build' | 'deploy' | 'settings'
+type Tab = 'content' | 'layouts' | 'build' | 'seo' | 'deploy' | 'settings'
 
 const tab = ref<Tab>('content')
 
@@ -22,6 +23,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: 'content', label: '内容' },
   { id: 'layouts', label: '布局管理器' },
   { id: 'build', label: '生成' },
+  { id: 'seo', label: 'SEO' },
   { id: 'deploy', label: '发布' },
   { id: 'settings', label: '设置' },
 ]
@@ -117,6 +119,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       </template>
       <LayoutManager v-else-if="tab === 'layouts'" />
       <BuildPanel v-else-if="tab === 'build'" @preview="tab = 'content'" />
+      <SeoPanel v-else-if="tab === 'seo'" @open="tab = 'content'" />
       <DeployPanel v-else-if="tab === 'deploy'" />
       <SettingsPanel v-else />
     </main>

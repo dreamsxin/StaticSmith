@@ -25,6 +25,10 @@ pub struct FrontMatter {
     pub description: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// SEO 关键词。留空时回退到 `tags`——运营上两者往往是同一批词，
+    /// 但仍分开存放：标签是站内导航（会生成标签页），关键词只进 meta。
+    #[serde(default)]
+    pub keywords: Vec<String>,
     #[serde(default)]
     pub draft: bool,
     /// 列表页排序权重，数值越小越靠前（同 `date` 降序互补）。
@@ -48,6 +52,8 @@ pub struct Page {
     pub description: String,
     pub date: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
+    /// SEO 关键词，未写时等于 `tags`。
+    pub keywords: Vec<String>,
     pub draft: bool,
     pub weight: i64,
     /// 所在栏目（相对 content 的目录，根目录为空串）。
@@ -106,6 +112,13 @@ impl Page {
             fm.title.clone()
         };
 
+        // 关键词没写就用标签：运营上多数文章两者一致，逼用户写两遍只会漏。
+        let keywords = if fm.keywords.is_empty() {
+            fm.tags.clone()
+        } else {
+            fm.keywords.clone()
+        };
+
         Ok(Self {
             source,
             output,
@@ -115,6 +128,7 @@ impl Page {
             description: fm.description.clone(),
             date: fm.date.as_deref().and_then(parse_date),
             tags: fm.tags.clone(),
+            keywords,
             draft: fm.draft,
             weight: fm.weight,
             section: dir,

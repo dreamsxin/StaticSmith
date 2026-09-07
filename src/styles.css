@@ -1059,3 +1059,65 @@ kbd {
   gap: 0.4rem;
   align-items: center;
 }
+
+/* ---------------------------------------------------------------- SEO 体检 */
+
+.seo {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 1rem;
+  padding: 1rem;
+  align-content: start;
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+.seo__score strong {
+  font-size: 1.6rem;
+}
+
+.seo__issues {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.seo__issue {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.3rem 0.35rem;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  text-align: left;
+}
+
+.seo__issue:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+/* 站点级问题不能点开某一篇，弱化提示 */
+.seo__issue--site {
+  cursor: default;
+  color: var(--fg-muted);
+}
+
+.seo__issue-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seo__issue-message {
+  min-width: 0;
+}
+
+.seo__issue-code {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+

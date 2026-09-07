@@ -131,6 +131,7 @@ my-site/
 - [界面布局与交互约定](docs/ui.md)
 - [统一模板与级联更新](docs/templates.md)
 - [媒体资源与目录结构](docs/assets.md)
+- [SEO 与内容运营](docs/seo.md)
 - [配置说明](docs/configuration.md)
 - [命令行工具](docs/cli.md)
 - [MCP：AI Agent 接入](docs/mcp.md)
