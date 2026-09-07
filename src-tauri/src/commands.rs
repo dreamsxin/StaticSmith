@@ -7,6 +7,7 @@ use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
+use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
     content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
@@ -296,6 +297,18 @@ pub fn list_assets(state: State<'_, AppState>) -> Result<Vec<AssetRecord>> {
 #[tauri::command]
 pub fn audit_seo(state: State<'_, AppState>) -> Result<SeoReport> {
     state.with_session(|session| Ok(session.builder.audit_seo()))
+}
+
+/// 媒体资源体检：没人引用的文件与引用了却不存在的地址。
+#[tauri::command]
+pub fn audit_media(state: State<'_, AppState>) -> Result<MediaReport> {
+    state.with_session(|session| Ok(session.builder.audit_media()?))
+}
+
+/// 删除媒体文件。不可撤销，界面需先二次确认。
+#[tauri::command]
+pub fn remove_media(state: State<'_, AppState>, paths: Vec<String>) -> Result<MediaRemoved> {
+    state.with_session(|session| Ok(session.builder.remove_media(&paths)?))
 }
 
 /// 产物清单（页面 / 标签页 / 分页 / sitemap / 订阅 / 静态资源）。

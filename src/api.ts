@@ -348,6 +348,43 @@ export interface SeoReport {
 /** 体检当前内存里的页面，不依赖产物，保存后立刻可用。 */
 export const auditSeo = () => invoke<SeoReport>('audit_seo')
 
+// ---------------------------------------------------------------- 媒体资源体检
+
+export interface MediaFile {
+  /** 相对 static_dir 的路径 */
+  path: string
+  url: string
+  size: number
+}
+
+export interface MissingRef {
+  url: string
+  /** 引用它的文件，相对站点根 */
+  referenced_by: string[]
+}
+
+export interface MediaReport {
+  total: number
+  total_size: number
+  /** 没有任何内容、模板或主题引用的文件 */
+  unused: MediaFile[]
+  /** 删掉 unused 能回收的字节数 */
+  reclaimable: number
+  /** 引用了却不存在的地址 */
+  missing: MissingRef[]
+}
+
+export interface MediaRemoved {
+  removed: string[]
+  freed: number
+}
+
+export const auditMedia = () => invoke<MediaReport>('audit_media')
+
+/** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
+export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })
+
+
 
 /** 分块转换，避免大文件时 `String.fromCharCode(...)` 参数过多导致栈溢出。 */
 function toBase64(bytes: Uint8Array): string {

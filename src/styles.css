@@ -1121,3 +1121,36 @@ kbd {
   font-size: 0.7rem;
 }
 
+.seo__media {
+  padding: 0;
+  margin: 0.25rem 0 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.seo__media li {
+  padding: 0.15rem 0;
+}
+
+.seo__media label {
+  flex-direction: row;
+  gap: 0.4rem;
+  align-items: baseline;
+  margin: 0;
+}
+
+.seo__media code {
+  overflow: hidden;
+  max-width: 32rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 删除媒体文件不可撤销，确认按钮必须一眼看出是危险动作 */
+.btn--danger {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+

@@ -210,6 +210,13 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "audit_media",
+            title: "媒体资源体检",
+            description: "列出没人引用的媒体文件（可回收空间）与引用了却不存在的地址（破图）。引用范围含内容、模板与主题。只读：删除文件交给人在界面里确认。",
+            access: Access::Read,
+            schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
             name: "patch_front_matter",
             title: "改写 front matter 字段",
             description: "只改指定字段（标题、描述、关键词、标签、日期、草稿开关），正文与未涉及的键、注释原样保留。给空串或空数组表示删除该键。补 SEO 字段用这个，不要用 write_content 整文覆盖。",
@@ -342,6 +349,7 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "read_template" => read_template(builder, args),
         "build_plan" => build_plan(builder, args),
         "audit_seo" => audit_seo(builder, args),
+        "audit_media" => audit_media(builder),
         "create_content" => create_content(builder, args),
         "write_content" => write_content(builder, args),
         "patch_front_matter" => patch_front_matter(builder, args),
@@ -556,6 +564,19 @@ fn audit_seo(builder: &Builder, args: &Value) -> Result<String, String> {
         "score": report.score,
         "issues": issues,
         "next": "用 patch_front_matter 逐篇补齐字段；描述建议 40-160 字，标题不超过 60 字"
+    }))
+}
+
+/// 媒体资源体检。只读——删文件这种不可逆操作不开给 Agent。
+fn audit_media(builder: &Builder) -> Result<String, String> {
+    let report = builder.audit_media().map_err(err)?;
+    pretty(&json!({
+        "total": report.total,
+        "total_size": report.total_size,
+        "reclaimable": report.reclaimable,
+        "unused": report.unused,
+        "missing": report.missing,
+        "next": "未引用文件请在桌面端「SEO」标签页里确认后删除；破图请改内容或模板里的地址"
     }))
 }
 

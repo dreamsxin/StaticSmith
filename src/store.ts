@@ -16,6 +16,7 @@ import type {
   DeployReport,
   FrontMatter,
   FrontMatterPatch,
+  MediaReport,
   OutputFile,
   PageSummary,
   ProjectSummary,
@@ -60,6 +61,8 @@ interface State {
   assets: AssetRecord[]
   /** SEO 体检结论，保存或生成后刷新 */
   seo: SeoReport | null
+  /** 媒体资源体检结论，按需刷新（要扫盘，不跟着每次保存跑） */
+  media: MediaReport | null
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -93,6 +96,7 @@ const state = reactive<State>({
   outputs: [],
   assets: [],
   seo: null,
+  media: null,
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -230,6 +234,7 @@ export const actions = {
     state.outputs = []
     state.assets = []
     state.seo = null
+    state.media = null
     state.plan = null
     // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
     void this.loadRecent()
@@ -354,6 +359,31 @@ export const actions = {
     const report = await run(() => api.auditSeo())
     if (report) state.seo = report
   },
+
+  /**
+   * 媒体资源体检。
+   *
+   * 要遍历资源目录与全部内容/模板文本，比 SEO 体检重，所以只在打开面板或
+   * 手动刷新时跑，不挂在每次保存上。
+   */
+  async auditMedia() {
+    const report = await run(() => api.auditMedia())
+    if (report) state.media = report
+  },
+
+  /** 删除未引用的媒体文件。不可撤销，调用前必须已在界面里确认过。 */
+  async removeMedia(paths: string[]) {
+    if (!paths.length) return
+    const result = await run(() => api.removeMedia(paths))
+    if (!result) return
+    notify(
+      'success',
+      `已删除 ${result.removed.length} 个文件，回收 ${(result.freed / 1024).toFixed(1)} KB`,
+    )
+    await this.auditMedia()
+    await this.loadAssets()
+  },
+
 
 
   /** 凭证是否已存在系统凭据管理器里。查询失败按「没有」处理。 */

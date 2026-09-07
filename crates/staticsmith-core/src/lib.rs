@@ -33,6 +33,7 @@ pub mod filters;
 pub mod frontmatter;
 pub mod graph;
 pub mod index;
+pub mod media;
 pub mod outputs;
 pub mod scaffold;
 pub mod seo;

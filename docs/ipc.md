@@ -97,6 +97,14 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 （`error` / `warn` / `hint`）、`code`（如 `description.missing`）与中文 `message`。
 规则与阈值见 [SEO 与内容运营](seo.md)，与 MCP 的 `audit_seo` 同源。
 
+- `audit_media() -> MediaReport`：媒体资源体检（未被引用 / 引用了却不存在）
+- `remove_media(paths) -> MediaRemoved`：删除媒体文件，**不可撤销**，界面必须先二次确认
+
+`MediaReport`：`total`、`total_size`、`unused`（`{path, url, size}`）、`reclaimable`、
+`missing`（`{url, referenced_by}`）。`remove_media` 的 `paths` 是相对 `static_dir` 的路径，
+落在资源目录之外一律报错——这个接口不接受「顺手删点别的」。
+
+
 
 `OutputFile`：`path`（相对产物目录）、`url`（站内地址）、`kind`、`size`。
 `kind` 取 `page` / `pagination` / `taxonomy` / `sitemap` / `feed` / `asset`。

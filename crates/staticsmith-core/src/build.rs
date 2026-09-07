@@ -13,6 +13,7 @@ use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
 use crate::feeds;
 use crate::index::{AssetRecord, Index, PageRecord};
+use crate::media;
 use crate::outputs;
 use crate::seo;
 use crate::taxonomy;
@@ -161,6 +162,19 @@ impl Builder {
     /// AI Agent 也用同一份规则（MCP 的 `audit_seo`），界面与自动化不会给出两套结论。
     pub fn audit_seo(&self) -> seo::Report {
         seo::audit(&self.pages, &self.config)
+    }
+
+    /// 媒体资源体检：没人引用的文件与引用了却不存在的地址。
+    ///
+    /// 引用范围含内容、模板与主题——`logo.png` 往往只被组件模板或主题 CSS 引用，
+    /// 只扫内容会把它误判成垃圾。
+    pub fn audit_media(&self) -> Result<media::Report> {
+        media::audit(&self.paths, &self.config.assets)
+    }
+
+    /// 删除媒体文件。只允许删资源目录内的文件，越界报错。
+    pub fn remove_media(&self, relative_paths: &[String]) -> Result<media::Removed> {
+        media::remove(&self.paths, relative_paths)
     }
 
     /// 新建内容文件，返回其相对 `content/` 的路径。
