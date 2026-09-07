@@ -257,6 +257,8 @@ export interface FrontMatter {
   tags: string[]
   /** SEO 关键词，未写时页面会回退到 tags */
   keywords: string[]
+  /** 旧地址，构建会为每个生成重定向页 */
+  aliases: string[]
   draft: boolean
   weight: number
   extra: Record<string, unknown>
@@ -273,6 +275,7 @@ export interface FrontMatterPatch {
   slug?: string
   tags?: string[]
   keywords?: string[]
+  aliases?: string[]
   draft?: boolean
   weight?: number
 }

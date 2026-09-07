@@ -741,6 +741,14 @@ impl Renderer<'_> {
             });
         }
 
+        // 旧地址：每个 alias 写一张重定向页，改过 slug 的老链接才不会 404
+        for alias in &page.aliases {
+            files.push(RenderedFile {
+                path: alias_output_path(alias),
+                html: self.finish(redirect_html(&page.url, &page.title)),
+            });
+        }
+
         Ok(RenderedPage {
             source: page.source.clone(),
             primary_output: page.output.clone(),
@@ -774,6 +782,41 @@ struct RenderedPage {
 struct RenderedFile {
     path: String,
     html: String,
+}
+
+/// 旧地址 → 产物路径。`/old/` 落到 `old/index.html`，`/old.html` 原样。
+fn alias_output_path(alias: &str) -> String {
+    let trimmed = alias.trim_start_matches('/');
+    if alias.ends_with('/') || trimmed.is_empty() {
+        format!("{trimmed}index.html")
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// 旧地址的重定向页。
+///
+/// 静态托管没有服务端重写，能做的就是一张极小的 HTML：`meta refresh` 立刻跳走，
+/// `canonical` 指向新地址好让搜索引擎把权重并过去，`noindex` 拦住旧地址本身被收录，
+/// 再留一条手点的链接兜住禁用了跳转的环境。
+fn redirect_html(target: &str, title: &str) -> String {
+    let url = escape_attribute(target);
+    let text = escape_attribute(title);
+    format!(
+        "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\" />\n\
+         <title>已移动：{text}</title>\n<meta name=\"robots\" content=\"noindex\" />\n\
+         <link rel=\"canonical\" href=\"{url}\" />\n\
+         <meta http-equiv=\"refresh\" content=\"0; url={url}\" />\n</head>\n<body>\n\
+         <p>本页已移动到 <a href=\"{url}\">{url}</a>。</p>\n</body>\n</html>\n"
+    )
+}
+
+fn escape_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// 传给 `components/pagination.html` 的上下文。

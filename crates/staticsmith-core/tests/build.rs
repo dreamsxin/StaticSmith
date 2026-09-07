@@ -249,6 +249,43 @@ fn future_dated_posts_wait_until_their_date_when_scheduling_is_on() {
 }
 
 #[test]
+fn aliases_emit_redirect_pages_so_old_links_keep_working() {
+    let dir = new_project();
+    std::fs::write(
+        dir.path().join("content/posts/renamed.md"),
+        "+++\ntitle = \"换过地址的文章\"\nslug = \"new-slug\"\naliases = [\"/posts/old-slug/\", \"legacy.html\"]\n+++\n\n正文。\n",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    // 新地址正常生成
+    assert!(dir.path().join("dist/posts/new-slug/index.html").is_file());
+
+    // 旧地址变成重定向页：立刻跳走、canonical 指向新地址、自己不被收录
+    let stub = read(dir.path(), "posts/old-slug/index.html");
+    assert!(
+        stub.contains(r#"content="0; url=/posts/new-slug/""#),
+        "{stub}"
+    );
+    assert!(stub.contains(r#"<link rel="canonical" href="/posts/new-slug/""#));
+    assert!(stub.contains(r#"content="noindex""#));
+    assert!(
+        stub.contains(r#"<a href="/posts/new-slug/""#),
+        "要留一条手点的链接"
+    );
+
+    // 带扩展名的旧地址原样落成文件
+    assert!(dir.path().join("dist/legacy.html").is_file());
+
+    // 死链体检因此看不到问题：旧地址在产物里是真实存在的
+    let links = builder.audit_links().unwrap();
+    assert!(links.built);
+    assert!(links.broken.is_empty(), "{:?}", links.broken);
+}
+
+#[test]
 fn build_history_is_persisted_in_the_index() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();

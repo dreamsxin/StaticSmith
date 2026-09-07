@@ -68,6 +68,10 @@ const tagText = computed(() => (fm.value?.tags ?? []).join(', '))
 /** 关键词同理。它与标签分开：标签会生成标签页，关键词只进 meta。 */
 const keywordText = computed(() => (fm.value?.keywords ?? []).join(', '))
 
+/** 旧地址同样是数组。改过 slug 的文章靠它把老链接接回来。 */
+const aliasText = computed(() => (fm.value?.aliases ?? []).join(', '))
+
+
 
 function parseTags(text: string): string[] {
   return text
@@ -323,6 +327,15 @@ function onKeydown(event: KeyboardEvent) {
             :value="keywordText"
             placeholder="留空则用标签"
             @change="actions.patchFrontMatter({ keywords: parseTags(fieldValue($event)) })"
+          />
+        </label>
+        <label class="editor__prop editor__prop--wide">
+          旧地址（重定向）
+          <input
+            type="text"
+            :value="aliasText"
+            placeholder="改过地址时填老地址，如 /posts/old-slug/"
+            @change="actions.patchFrontMatter({ aliases: parseTags(fieldValue($event)) })"
           />
         </label>
         <datalist id="known-tags">

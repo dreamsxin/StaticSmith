@@ -31,6 +31,9 @@ pub struct FrontMatter {
     pub keywords: Vec<String>,
     #[serde(default)]
     pub draft: bool,
+    /// 旧地址列表。改过 slug 或搬过栏目时把老地址写在这里，构建会生成重定向页。
+    #[serde(default)]
+    pub aliases: Vec<String>,
     /// 列表页排序权重，数值越小越靠前（同 `date` 降序互补）。
     #[serde(default)]
     pub weight: i64,
@@ -60,6 +63,8 @@ pub struct Page {
     pub keywords: Vec<String>,
     /// 各分类维度的词条：`tags`、`categories` 或任意自定义字段。
     pub taxonomies: std::collections::BTreeMap<String, Vec<String>>,
+    /// 这篇文章的旧地址。构建会为每个旧地址写一张重定向页，避免改 slug 后老链接 404。
+    pub aliases: Vec<String>,
     pub draft: bool,
     pub weight: i64,
     /// 所在栏目（相对 content 的目录，根目录为空串）。
@@ -126,6 +131,7 @@ impl Page {
         };
 
         let taxonomies = collect_taxonomy_fields(&fm);
+        let aliases = normalize_aliases(&fm.aliases, &url);
 
         Ok(Self {
             source,
@@ -138,6 +144,7 @@ impl Page {
             tags: fm.tags.clone(),
             keywords,
             taxonomies,
+            aliases,
             draft: fm.draft,
             weight: fm.weight,
             section: dir,
@@ -165,6 +172,35 @@ impl Page {
         }
         self.date.map(|date| date <= now).unwrap_or(true)
     }
+}
+
+/// 规范化旧地址。
+///
+/// 统一成「以 `/` 开头、以 `/` 结尾」的站内地址，与页面 URL 的形状一致；
+/// 写成 `old.html` 这类带扩展名的照原样留着——那本来就是个文件。
+/// 与自身 URL 相同的项被丢掉：给自己写重定向只会覆盖掉真页面。
+fn normalize_aliases(raw: &[String], url: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for alias in raw {
+        let trimmed = alias.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut normalized = if trimmed.starts_with('/') {
+            trimmed.to_string()
+        } else {
+            format!("/{trimmed}")
+        };
+        let last = normalized.rsplit('/').next().unwrap_or_default();
+        if !normalized.ends_with('/') && !last.contains('.') {
+            normalized.push('/');
+        }
+        if normalized == url || out.contains(&normalized) {
+            continue;
+        }
+        out.push(normalized);
+    }
+    out
 }
 
 /// 从 front matter 里挑出各分类维度的词条。
@@ -428,6 +464,37 @@ mod tests {
             raw,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn aliases_are_normalized_to_site_urls() {
+        let page = parse(
+            "posts/new-slug.md",
+            "+++\ntitle = \"改过地址\"\naliases = [\"old-slug\", \"/posts/older/\", \"legacy.html\", \"\", \"/posts/new-slug/\"]\n+++\n正文\n",
+        );
+        assert_eq!(
+            page.aliases,
+            vec![
+                "/old-slug/".to_string(),
+                "/posts/older/".to_string(),
+                "/legacy.html".to_string(),
+            ],
+            "补斜杠、保留带扩展名的、丢掉空串与指向自己的"
+        );
+    }
+
+    #[test]
+    fn aliases_do_not_become_a_taxonomy_dimension() {
+        // aliases 是字符串数组，若不声明成字段会被当成自定义分类维度
+        let page = parse(
+            "posts/a.md",
+            "+++\ntitle = \"甲\"\naliases = [\"/old/\"]\n+++\n正文\n",
+        );
+        assert!(
+            !page.taxonomies.contains_key("aliases"),
+            "{:?}",
+            page.taxonomies
+        );
     }
 
     #[test]

@@ -30,6 +30,8 @@ pub struct Patch {
     pub tags: Option<Vec<String>>,
     /// SEO 关键词。留空数组即删键，页面随之回退到用 tags 当关键词。
     pub keywords: Option<Vec<String>>,
+    /// 旧地址。改 slug 时把老地址加进来，构建会为它生成重定向页。
+    pub aliases: Option<Vec<String>>,
     pub draft: Option<bool>,
     pub weight: Option<i64>,
 }
@@ -71,6 +73,9 @@ pub fn apply(raw: &str, patch: &Patch) -> Result<String> {
     }
     if let Some(keywords) = &patch.keywords {
         set_string_array(table, "keywords", keywords);
+    }
+    if let Some(aliases) = &patch.aliases {
+        set_string_array(table, "aliases", aliases);
     }
     if let Some(draft) = patch.draft {
         // draft = false 与不写等价，删掉更干净（新建内容的骨架也是这个约定）。
@@ -222,6 +227,33 @@ mod tests {
         );
         // 空白项被丢掉，不会生成 tags = ["", ...] 这种脏数据
         assert_eq!(read(&updated).unwrap().tags.len(), 2);
+    }
+
+    #[test]
+    fn aliases_can_be_added_and_removed() {
+        let updated = apply(
+            SAMPLE,
+            &Patch {
+                aliases: Some(vec!["/posts/old-slug/".into(), " ".into()]),
+                ..Patch::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            updated.contains("aliases = [\"/posts/old-slug/\"]"),
+            "{updated}"
+        );
+
+        // 空数组即删键：不留 aliases = [] 这种噪音
+        let cleared = apply(
+            &updated,
+            &Patch {
+                aliases: Some(Vec::new()),
+                ..Patch::default()
+            },
+        )
+        .unwrap();
+        assert!(!cleared.contains("aliases"), "{cleared}");
     }
 
     #[test]

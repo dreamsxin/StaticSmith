@@ -226,7 +226,7 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "patch_front_matter",
             title: "改写 front matter 字段",
-            description: "只改指定字段（标题、描述、关键词、标签、日期、草稿开关），正文与未涉及的键、注释原样保留。给空串或空数组表示删除该键。补 SEO 字段用这个，不要用 write_content 整文覆盖。",
+            description: "只改指定字段（标题、描述、关键词、标签、日期、旧地址、草稿开关），正文与未涉及的键、注释原样保留。给空串或空数组表示删除该键。补 SEO 字段用这个，不要用 write_content 整文覆盖。",
             access: Access::Write,
             schema: || {
                 json!({
@@ -237,6 +237,11 @@ pub fn all() -> Vec<ToolDef> {
                         "description": { "type": "string" },
                         "keywords": { "type": "array", "items": { "type": "string" } },
                         "tags": { "type": "array", "items": { "type": "string" } },
+                        "aliases": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "旧地址，如 [\"/posts/old-slug/\"]；改 slug 后加上它，构建会生成重定向页"
+                        },
                         "date": { "type": "string", "description": "YYYY-MM-DD 或 RFC3339" },
                         "slug": { "type": "string" },
                         "template": { "type": "string" },

@@ -176,6 +176,7 @@ description = "改一次头部，全站同步"
 template = "pages/post.html"   # 可选，缺省按目录约定推导
 slug = "cascading-updates"     # 可选，缺省取文件名
 tags = ["模板", "增量构建"]
+aliases = ["/posts/old-slug/"]  # 可选，旧地址，构建会生成重定向页
 draft = false
 weight = 0                     # 列表排序，越小越靠前
 [extra]
@@ -187,3 +188,14 @@ cover = "/images/cover.png"
 
 没有 front matter 时整个文件都是正文，标题回退为第一个 `# ` 标题、否则文件名。
 `date` 接受 `YYYY-MM-DD` 或 RFC3339。`draft = true` 的页面不会出现在产物与列表里。
+
+`aliases` 是这篇文章的旧地址。改 slug、换栏目之后老链接就 404 了，把老地址写进
+`aliases`，构建会为每一个写一张极小的重定向页：`meta refresh` 立刻跳到新地址、
+`canonical` 指向新地址（让搜索引擎把权重并过去）、`noindex` 拦住旧地址自己被收录，
+再留一条手点的链接兜住禁用跳转的环境。写法上 `/posts/old/` 与 `posts/old` 等价，
+带扩展名的 `legacy.html` 按文件对待；指向自己的项会被忽略。
+
+站内死链体检因此看不到这些旧地址——它们在产物里是真实存在的文件。
+删除某个 alias 后旧的重定向页不会被自动清理（与分页产物同样的已知行为），
+需要时做一次完整重建。
+
