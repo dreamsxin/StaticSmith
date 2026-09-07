@@ -45,6 +45,13 @@ function clone(config: SiteConfig | null | undefined): SiteConfig {
       max_size_mb: 32,
       url_prefix: null,
     },
+    taxonomy: {
+      enabled: true,
+      slug: 'tags',
+      title: '标签',
+      list_template: 'pages/tags.html',
+      term_template: 'pages/tag.html',
+    },
     deploy: { type: 'none', git: null, ftp: null },
   }
 }
@@ -135,6 +142,20 @@ function onDeployKindChange() {
         用哈希前两位分片存放
       </label>
       <p class="build__muted">当前资源地址前缀：<code>{{ assetUrlPrefix }}</code></p>
+
+      <h3>标签页</h3>
+      <label class="settings__checkbox">
+        <input v-model="form.taxonomy.enabled" type="checkbox" />
+        由 front matter 的 tags 生成标签页
+      </label>
+      <template v-if="form.taxonomy.enabled">
+        <label>URL 前缀<input v-model="form.taxonomy.slug" type="text" /></label>
+        <label>总览页标题<input v-model="form.taxonomy.title" type="text" /></label>
+        <p class="build__muted">
+          将生成 <code>/{{ form.taxonomy.slug }}/</code> 与
+          <code>/{{ form.taxonomy.slug }}/&lt;标签&gt;/</code>，分页沿用「每页条数」
+        </p>
+      </template>
     </div>
 
     <div class="settings__panel">

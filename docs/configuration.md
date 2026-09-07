@@ -32,6 +32,13 @@ shard = true
 max_size_mb = 32
 # url_prefix = "https://cdn.example.com/images"
 
+[taxonomy]
+enabled = true
+slug = "tags"           # → /tags/ 与 /tags/<标签>/
+title = "标签"
+list_template = "pages/tags.html"
+term_template = "pages/tag.html"
+
 [deploy]
 type = "git"          # none / git / ftp
 
@@ -85,6 +92,17 @@ sftp = false
 - `max_size_mb`：单文件上限，默认 32，0 表示不限制
 - `url_prefix`：URL 前缀覆盖。留空时按 `dir` 推导（`images` → `/images/`），
   填 CDN 地址可让页面直接引用 CDN
+
+`[taxonomy]` —— 由 front matter 的 `tags` 生成标签页
+
+- `enabled`：默认开启。关闭后既不生成标签页，也不会在文章页渲染标签链接
+  （否则会留下指向不存在页面的死链）
+- `slug`：URL 前缀，默认 `tags`，即 `/tags/` 与 `/tags/<标签>/`
+- `title`：总览页标题，默认「标签」
+- `list_template` / `term_template`：总览页与单标签页模板。
+  模板缺失时跳过生成并在构建报告里给出提示，不会让整次构建失败
+
+单标签页的分页沿用 `build.page_size`。标签 URL 保留中文原字（不转拼音）。
 
 `[deploy]`
 

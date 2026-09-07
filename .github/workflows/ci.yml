@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 同一分支的新推送取消上一次未完成的运行，省 CI 时间
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  # 生成引擎、CLI、发布层与 MCP 都不依赖 GUI 系统库，在 Linux 上跑最快
+  core:
+    name: Rust（core / cli / deploy / mcp）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: 格式检查
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: >-
+          cargo clippy --all-targets
+          -p staticsmith-core -p staticsmith-cli -p staticsmith-deploy -p staticsmith-mcp
+      - name: 测试
+        run: >-
+          cargo test
+          -p staticsmith-core -p staticsmith-cli -p staticsmith-deploy -p staticsmith-mcp
+
+  # 桌面端要连 WebView 一起编，放在 Windows 上跑（自带 WebView2）
+  desktop:
+    name: 桌面端（Windows 全量）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: 安装前端依赖
+        run: npm ci
+      # tauri-build 需要 frontendDist 目录存在，所以先打前端
+      - name: 前端类型检查与打包
+        run: npm run build
+      - name: 全量测试
+        run: cargo test --workspace

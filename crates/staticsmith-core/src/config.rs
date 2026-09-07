@@ -16,6 +16,8 @@ pub struct SiteConfig {
     #[serde(default)]
     pub assets: Assets,
     #[serde(default)]
+    pub taxonomy: Taxonomy,
+    #[serde(default)]
     pub deploy: Deploy,
 }
 
@@ -181,6 +183,60 @@ impl Default for Build {
     }
 }
 
+/// 标签（taxonomy）页面生成。
+///
+/// front matter 里的 `tags` 由此变成可浏览的两级页面：总览与单个标签。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Taxonomy {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// URL 前缀，如 `tags` → `/tags/` 与 `/tags/rust/`。
+    #[serde(default = "default_taxonomy_slug")]
+    pub slug: String,
+    /// 总览页标题。
+    #[serde(default = "default_taxonomy_title")]
+    pub title: String,
+    /// 总览页与单标签页模板。缺失时跳过生成并在构建报告里给出提示。
+    #[serde(default = "default_taxonomy_list_template")]
+    pub list_template: String,
+    #[serde(default = "default_taxonomy_term_template")]
+    pub term_template: String,
+}
+
+impl Default for Taxonomy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            slug: default_taxonomy_slug(),
+            title: default_taxonomy_title(),
+            list_template: default_taxonomy_list_template(),
+            term_template: default_taxonomy_term_template(),
+        }
+    }
+}
+
+impl Taxonomy {
+    /// 规范化后的 URL 前缀（去掉首尾斜杠）。
+    pub fn normalized_slug(&self) -> String {
+        self.slug.replace('\\', "/").trim_matches('/').to_string()
+    }
+
+    fn validate(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+        if !self.enabled {
+            return issues;
+        }
+        let slug = self.normalized_slug();
+        if slug.is_empty() {
+            issues.push("taxonomy.slug 不能为空".to_string());
+        }
+        if slug.split('/').any(|s| s == "..") {
+            issues.push("taxonomy.slug 不能包含 `..`".to_string());
+        }
+        issues
+    }
+}
+
 impl Assets {
     /// 资源目录的规范化形式：去掉首尾斜杠，统一正斜杠。
     pub fn normalized_dir(&self) -> String {
@@ -247,6 +303,7 @@ impl SiteConfig {
             issues.push("build.page_size 必须大于 0".to_string());
         }
         issues.extend(self.assets.validate());
+        issues.extend(self.taxonomy.validate());
         match self.deploy.r#type {
             DeployKind::Git if self.deploy.git.is_none() => {
                 issues.push("deploy.type = \"git\" 但缺少 [deploy.git] 配置段".to_string());
@@ -331,6 +388,18 @@ fn default_hash_length() -> usize {
 }
 fn default_feed_limit() -> usize {
     20
+}
+fn default_taxonomy_slug() -> String {
+    "tags".to_string()
+}
+fn default_taxonomy_title() -> String {
+    "标签".to_string()
+}
+fn default_taxonomy_list_template() -> String {
+    "pages/tags.html".to_string()
+}
+fn default_taxonomy_term_template() -> String {
+    "pages/tag.html".to_string()
 }
 fn default_max_asset_mb() -> u64 {
     32

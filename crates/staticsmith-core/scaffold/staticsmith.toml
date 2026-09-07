@@ -30,6 +30,14 @@ max_size_mb = 32
 # URL 前缀留空时按 dir 推导，此处等价于 "/images/"
 # url_prefix = "https://cdn.example.com/images"
 
+[taxonomy]
+# 由 front matter 的 tags 生成 /tags/ 与 /tags/<标签>/
+enabled = true
+slug = "tags"
+title = "标签"
+list_template = "pages/tags.html"
+term_template = "pages/tag.html"
+
 [deploy]
 # 可选值：none / git / ftp
 type = "none"

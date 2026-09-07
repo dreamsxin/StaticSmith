@@ -333,6 +333,103 @@ fn site_files_can_be_disabled_and_warn_without_base_url() {
 }
 
 #[test]
+fn full_build_emits_tag_pages_and_links_them_from_posts() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    // 总览页列出标签与篇数
+    let overview = read(dir.path(), "tags/index.html");
+    assert!(overview.contains("模板"));
+    assert!(overview.contains("增量构建"));
+    assert!(overview.contains("/tags/模板/"));
+
+    // 单标签页列出该标签下的文章
+    let term = read(dir.path(), "tags/模板/index.html");
+    assert!(term.contains("统一模板与级联更新是怎么工作的"));
+    assert!(term.contains("共 1 篇"));
+
+    // 文章页的标签变成可点链接
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(
+        post.contains("href=\"/tags/模板/\""),
+        "文章页应链接到标签页"
+    );
+}
+
+#[test]
+fn taxonomy_can_be_disabled() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    // 配置里只有 [taxonomy] 段有 enabled 开关
+    std::fs::write(
+        &config_path,
+        config.replace("enabled = true", "enabled = false"),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+    assert!(!dir.path().join("dist/tags").exists());
+    // 关闭后文章页回落为纯文本标签
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(!post.contains("href=\"/tags/"));
+}
+
+#[test]
+fn tag_pages_are_paginated_like_section_lists() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("page_size = 10", "page_size = 1"),
+    )
+    .unwrap();
+
+    // 再写两篇同标签文章，凑出 3 页
+    for i in 1..=2 {
+        std::fs::write(
+            dir.path().join(format!("content/posts/t{i}.md")),
+            format!(
+                "+++\ntitle = \"标签文章 {i}\"\ndate = \"2026-09-0{i}\"\ntags = [\"模板\"]\n+++\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let first = read(dir.path(), "tags/模板/index.html");
+    assert!(first.contains("共 3 篇"));
+    assert!(first.contains("/tags/模板/page/2/"));
+    assert!(dir
+        .path()
+        .join("dist/tags/模板/page/3/index.html")
+        .is_file());
+    assert!(!dir.path().join("dist/tags/模板/page/4").exists());
+}
+
+#[test]
+fn missing_taxonomy_template_degrades_to_a_warning() {
+    let dir = new_project();
+    std::fs::remove_file(dir.path().join("templates/pages/tags.html")).unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    // 缺模板不该让整次构建失败，页面照常生成
+    assert!(dir.path().join("dist/index.html").is_file());
+    assert!(!dir.path().join("dist/tags").exists());
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains("pages/tags.html"));
+}
+
+#[test]
 fn create_content_writes_a_draft_skeleton_and_avoids_overwriting() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();

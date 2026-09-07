@@ -67,6 +67,18 @@ let mut builder = Builder::open("./my-site")?;
 let report = builder.build(BuildMode::Incremental)?;
 ```
 
+**标签页是怎么生成的？**
+
+front matter 里写 `tags = ["模板", "增量构建"]`，构建时自动聚合出 `/tags/`（总览，
+按篇数排序）与 `/tags/<标签>/`（单标签，沿用 `build.page_size` 分页），
+文章页的标签也会变成指向标签页的链接。中文标签在 URL 里保留原字，不转拼音。
+
+标签页不进增量索引：它们是全站 tags 的聚合视图，任何一篇文章改标签都会影响，
+所以每次构建整体重算——数量通常只有几十，成本可忽略。
+
+关掉 `[taxonomy] enabled` 后既不生成标签页，也不会在文章页渲染标签链接
+（否则会留下指向不存在页面的死链）。
+
 **草稿会被发布出去吗？**
 
 不会。`draft = true` 的页面既不进产物，也不出现在列表页的 `items` 与全站 `pages` 里。

@@ -33,6 +33,7 @@ pub mod filters;
 pub mod graph;
 pub mod index;
 pub mod scaffold;
+pub mod taxonomy;
 pub mod templates;
 pub mod util;
 pub mod watch;
@@ -42,7 +43,7 @@ pub mod serve;
 
 pub use assets::{AssetStore, SavedAsset};
 pub use build::{BuildMode, BuildPlan, BuildReport, Builder, Pagination};
-pub use config::{AssetNaming, Assets, ProjectPaths, SiteConfig, CONFIG_FILE_NAME};
+pub use config::{AssetNaming, Assets, ProjectPaths, SiteConfig, Taxonomy, CONFIG_FILE_NAME};
 pub use content::{NewContent, Page};
 pub use error::{Error, Result};
 pub use graph::TemplateGraph;

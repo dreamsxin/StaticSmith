@@ -7,7 +7,13 @@
   <header class="post__header">
     <h1>{{ page.title }}</h1>
     {% if page.date %}<time datetime="{{ page.date }}">{{ page.date | date(format="%Y-%m-%d") }}</time>{% endif %}
-    {% if page.tags %}
+    {% if tag_links %}
+      <ul class="post__tags">
+        {% for tag in tag_links %}
+          <li><a href="{{ tag.url | safe }}">{{ tag.name }}</a></li>
+        {% endfor %}
+      </ul>
+    {% elif page.tags %}
       <ul class="post__tags">
         {% for tag in page.tags %}<li>{{ tag }}</li>{% endfor %}
       </ul>

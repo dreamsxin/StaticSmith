@@ -41,6 +41,14 @@ export interface SiteConfig {
     max_size_mb: number
     url_prefix?: string | null
   }
+  taxonomy: {
+    enabled: boolean
+    /** URL 前缀，如 tags → /tags/ */
+    slug: string
+    title: string
+    list_template: string
+    term_template: string
+  }
   deploy: {
     type: DeployKind
     git?: {

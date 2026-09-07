@@ -117,6 +117,29 @@ time {
   border-radius: 999px;
 }
 
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0;
+  margin: 1rem 0 0;
+  list-style: none;
+}
+
+.tag-cloud li {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.tag-cloud__count {
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
 .pagination {
   display: flex;
   align-items: center;

@@ -50,6 +50,14 @@ pub const FILES: &[ScaffoldFile] = &[
         include_str!("../scaffold/templates/pages/post.html"),
     ),
     (
+        "templates/pages/tags.html",
+        include_str!("../scaffold/templates/pages/tags.html"),
+    ),
+    (
+        "templates/pages/tag.html",
+        include_str!("../scaffold/templates/pages/tag.html"),
+    ),
+    (
         "themes/default/static/css/main.css",
         include_str!("../scaffold/themes/default/static/css/main.css"),
     ),

@@ -23,6 +23,7 @@
 - 站点目录结构全部可配置（内容 / 模板 / 主题 / 静态资源 / 输出 / 资源子目录与 URL 前缀）
 - 新建内容：按标题生成 slug 与 front matter 骨架，默认草稿，重名自动加序号
 - `sitemap.xml` 与 Atom 订阅（`feed.xml`）生成，可开关
+- 标签页：front matter 的 `tags` 自动生成 `/tags/` 总览与 `/tags/<标签>/`，沿用分页规则
 - 本地预览服务器（仅监听 127.0.0.1），预览与线上一致
 - 命令行工具 `staticsmith`：init / new / build / plan / serve / deploy / check，适合 CI
 - MCP 服务端：AI Agent 可通过 stdio 或 SSE 操作站点，权限默认只读
@@ -75,6 +76,7 @@ StaticSmith/
 │   │   │   ├── index.rs         # SQLite 索引
 │   │   │   ├── assets.rs        # 媒体资源内容寻址存储
 │   │   │   ├── feeds.rs         # sitemap.xml 与 Atom 订阅
+│   │   │   ├── taxonomy.rs      # 标签聚合
 │   │   │   ├── serve.rs         # 本地预览 HTTP 服务器（serve feature）
 │   │   │   ├── build.rs         # 全量 / 增量构建引擎
 │   │   │   ├── watch.rs          # 文件监听
@@ -114,7 +116,7 @@ my-site/
 ├── templates/
 │   ├── layouts/base.html     # 主布局
 │   ├── components/           # 全局共享组件：header / footer / sidebar / pagination
-│   └── pages/                # 页面模板：index / list / post
+│   └── pages/                # 页面模板：index / list / post / tags / tag
 ├── themes/default/static/    # 主题静态资源，构建时复制到输出目录
 ├── static/                   # 站点静态资源（含编辑器插入的图片，默认在 static/images/）
 ├── dist/                     # 生成产物

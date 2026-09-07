@@ -69,12 +69,25 @@ URL 白名单为空，于是每次调用都被拒绝，前端如果没接错误�
 
 结论：加权限时不要只看命令名，要确认对应的 scope 也给了。前端调用一定要有错误出口。
 
+## 持续集成
+
+`.github/workflows/ci.yml` 两个 job：
+
+- **core**（Linux）：`cargo fmt --all --check` + clippy + 测试，只覆盖
+  core / cli / deploy / mcp——它们不依赖 GUI 系统库，跑得快
+- **desktop**（Windows）：`npm ci` → `npm run build`（tauri-build 需要 `dist-ui/` 存在）
+  → `cargo test --workspace`，把桌面端连 WebView 一起编进去
+
+`RUSTFLAGS: -D warnings` 让 clippy 与编译告警在 CI 里等同失败。
+
 ## 尚未完成的方向
 
 - 块级拖拽富文本编辑（当前是 Markdown 源文编辑）
-- 标签 / 分类（taxonomy）页面生成
+- 模板与内容编辑器的语法高亮
+- 分类（category）与自定义 taxonomy（目前只有 tags）
 - 资源垃圾回收：找出未被任何内容引用的媒体文件
 - `serve` 的文件监听自动重建（目前需要手动重新生成）
+- 多窗口（一窗口一站点，事件定向已就绪）
 - 主题包 `.zip` 导入导出
 - i18n 宏库与多语言构建
 - 基准测试（criterion）

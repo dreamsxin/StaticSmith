@@ -51,14 +51,31 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
 
 - `site`：`[site]` 配置段（`title` / `description` / `base_url` / `language` / `extra`）
 - `build`：`[build]` 配置段
+- `taxonomy`：`[taxonomy]` 配置段，用来判断是否渲染标签入口
 - `page`：当前页面（`title` / `date` / `tags` / `url` / `content` / `section` / `extra` …）
 - `pages`：全站可发布页面数组
 - `generator`：`"StaticSmith 2.0"`
+
+文章页额外获得：
+
+- `tag_links`：`[{ name, url }]`，当前页面的标签及其标签页地址。
+  标签功能关闭时为空数组，模板可回落为纯文本
 
 栏目索引页（`is_index` 为真）额外获得：
 
 - `items`：当前分页的条目（同栏目下的非索引页，按 `weight` 升序、日期降序）
 - `pagination`：分页上下文
+
+标签总览页（`pages/tags.html`）：
+
+- `terms`：`[{ name, slug, url, count }]`，按篇数降序、同数按名称升序
+- `page`：合成对象（`title` 取 `taxonomy.title`、`url` 为 `/tags/`），便于复用主布局
+
+单标签页（`pages/tag.html`）：
+
+- `term`：当前标签
+- `terms`：全部标签（可用于侧边栏标签云）
+- `items` 与 `pagination`：与栏目列表页同构，分页大小取 `build.page_size`
 
 ## 分页
 
