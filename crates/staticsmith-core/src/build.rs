@@ -299,6 +299,15 @@ impl Builder {
         self.reload()
     }
 
+    /// 改栏目元信息（标题、简介、排序权重），落在索引页的 front matter 上。
+    ///
+    /// 返回被改动的索引页源文件——缺索引页的栏目会顺手补一张，调用方据此提示。
+    pub fn set_section_meta(&mut self, path: &str, meta: &sections::Meta) -> Result<String> {
+        let source = sections::set_meta(&self.paths, path, meta)?;
+        self.reload()?;
+        Ok(source)
+    }
+
     /// 新建内容文件，返回其相对 `content/` 的路径。
     ///
     /// 同名文件已存在时追加 `-2`、`-3`，不会覆盖已有内容。
@@ -579,6 +588,14 @@ impl Builder {
             })
             .collect();
         ctx.insert("menu", &menu);
+        // sections：能打开的栏目（有索引页的那些），已按 weight 排好。
+        // 没有索引页的栏目地址本身是 404，放进模板只会生成死链，所以在这里就滤掉。
+        let sections: Vec<sections::Section> = self
+            .sections()
+            .into_iter()
+            .filter(|section| section.index_source.is_some())
+            .collect();
+        ctx.insert("sections", &sections);
         ctx.insert("generator", "StaticSmith 2.0");
         ctx
     }

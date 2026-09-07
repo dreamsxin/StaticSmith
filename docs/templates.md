@@ -59,6 +59,9 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
   `mailto:`），模板不必自己认协议：
   `{% for item in menu %}<a href="{{ item.url | safe }}">{{ item.name }}</a>{% endfor %}`。
   地址要用 `| safe`，否则 Tera 会把 `/` 转成 `&#x2F;`；能逃出 `href=""` 的字符已在配置校验时拦掉
+- `sections`：能打开的栏目（有索引页的那些），按 `weight` 升序、再按路径排。
+  每项是 `{ path, title, description, weight, url, index_source, pages, drafts, children }`。
+  没有索引页的栏目地址本身是 404，所以不进这个列表——列出来只会生成死链
 - `page`：当前页面（`title` / `date` / `tags` / `keywords` / `taxonomies` / `url` / `content` / `section` / `extra` …）
 - `pages`：全站可发布页面数组
 - `generator`：`"StaticSmith 2.0"`

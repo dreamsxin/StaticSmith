@@ -114,6 +114,8 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `create_section(path, title) -> { path, index_source }`：建目录并写索引页
 - `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added }`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
+- `save_section_meta(args: { path, title, description, weight }) -> Section[]`：
+  改栏目元信息，返回刷新后的清单
 
 批量动作（逐篇独立，结果里分「改了哪些」与「跳过哪些及原因」）：
 
@@ -141,8 +143,14 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 
 
 `Section`：`path`（相对 `content/`，根目录为空串）、`title`（取索引页标题，
-否则目录名）、`url`、`index_source`（为 `null` 表示这个栏目打不开列表页）、
-`pages`（直属文章数）、`drafts`、`children`。
+否则目录名）、`description` 与 `weight`（取索引页的同名字段）、`url`、
+`index_source`（为 `null` 表示这个栏目打不开列表页）、`pages`（直属文章数）、
+`drafts`、`children`。清单按 `weight` 升序、再按路径排——权重都不写就等于按路径排。
+
+`save_section_meta` 把标题、简介、排序权重写进索引页的 front matter（`toml_edit`
+保序改写，正文与其他键不动）；简介留空、权重为 0 表示删掉那个键。缺索引页的栏目
+会顺手补一张 `index.md`——栏目就是目录，元信息只能存在那张列表页里，
+另开一个「栏目配置文件」就会出现两处真相。
 
 `rename_section` 的 `keep_aliases` 省略时按 `true`：给每篇文章补旧地址，
 构建后旧地址是重定向页。改名与删栏目都会牵动整棵子树，因此这几个命令会先

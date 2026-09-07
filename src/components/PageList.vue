@@ -6,7 +6,7 @@
  * 标题行说明这一栏是内容并给出新建入口，搜索行只负责过滤，剩下才是列表。
  * 之前搜索框与「＋」并排且没有任何标识，很容易被当成「新建内容的名称输入框」。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
@@ -75,8 +75,16 @@ const groups = computed(() => {
     list.push(page as PageSummary)
     map.set(page.section, list)
   }
-  return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+  // 栏目顺序跟着索引页的 weight 走，与站点上列出的顺序一致；
+  // 没排过序的（weight 0）按路径，免得顺序看起来随机
+  return [...map.entries()].sort(
+    ([a], [b]) => weightOf(a) - weightOf(b) || a.localeCompare(b),
+  )
 })
+
+function weightOf(path: string): number {
+  return sectionOf.value.get(path)?.weight ?? 0
+}
 
 /** 栏目元信息（有没有索引页、直属篇数）按路径取用。 */
 const sectionOf = computed(() => new Map(store.sections.map((s) => [s.path, s])))
@@ -318,6 +326,36 @@ async function removeSection(path: string) {
   await actions.removeSection(path)
 }
 
+/**
+ * 栏目元信息：标题、简介、排序权重。
+ *
+ * 这三项都存在索引页的 front matter 里——栏目就是目录，它的介绍该在那张列表页上，
+ * 而不是另开一个栏目配置文件。缺索引页的栏目保存时会顺手补一张。
+ */
+const editingMeta = ref<string | null>(null)
+const metaForm = reactive({ title: '', description: '', weight: 0 })
+
+function startMeta(path: string) {
+  const section = sectionOf.value.get(path)
+  metaForm.title = section?.title ?? sectionLabel(path)
+  metaForm.description = section?.description ?? ''
+  metaForm.weight = section?.weight ?? 0
+  editingMeta.value = path
+  renamingSection.value = null
+  confirmingSectionDelete.value = null
+}
+
+async function submitMeta() {
+  const path = editingMeta.value
+  if (path === null || !metaForm.title.trim()) return
+  editingMeta.value = null
+  await actions.saveSectionMeta(path, {
+    title: metaForm.title.trim(),
+    description: metaForm.description.trim(),
+    weight: metaForm.weight,
+  })
+}
+
 // ---------------------------------------------------------------- 删除文章
 
 /**
@@ -557,6 +595,14 @@ async function remove(page: PageSummary) {
           >缺列表页</span
         >
         <span class="page-list__spacer" />
+        <button
+          type="button"
+          class="page-list__icon"
+          title="栏目信息：标题、简介、排序（存在索引页的 front matter 里）"
+          @click="startMeta(section)"
+        >
+          信息
+        </button>
         <template v-if="section !== ''">
           <button
             type="button"
@@ -591,6 +637,34 @@ async function remove(page: PageSummary) {
           </button>
         </template>
       </h3>
+
+      <form
+        v-if="editingMeta === section"
+        class="page-list__rename"
+        @submit.prevent="submitMeta"
+      >
+        <label>
+          栏目标题
+          <input v-model="metaForm.title" type="text" />
+        </label>
+        <label>
+          简介（列表页与 SEO 描述用）
+          <input v-model="metaForm.description" type="text" />
+        </label>
+        <label>
+          排序（小的在前，0 表示不排）
+          <input v-model.number="metaForm.weight" type="number" />
+        </label>
+        <p v-if="!sectionOf.get(section)?.index_source" class="page-list__hint">
+          这个栏目还没有列表页，保存时会顺手建一张 index.md。
+        </p>
+        <div class="page-list__new-actions">
+          <button type="submit" class="btn--primary" :disabled="store.busy || !metaForm.title.trim()">
+            保存
+          </button>
+          <button type="button" @click="editingMeta = null">取消</button>
+        </div>
+      </form>
 
       <form
         v-if="renamingSection === section"

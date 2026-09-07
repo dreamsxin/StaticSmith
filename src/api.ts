@@ -551,6 +551,10 @@ export interface Section {
   path: string
   /** 有索引页就是它的标题，否则是目录名 */
   title: string
+  /** 索引页的 description */
+  description: string
+  /** 索引页的 weight，小的在前；0 表示没排过序 */
+  weight: number
   url: string
   /** 栏目索引页的源文件；为 null 表示这个栏目打不开列表页 */
   index_source: string | null
@@ -559,6 +563,13 @@ export interface Section {
   drafts: number
   /** 直接子栏目的路径 */
   children: string[]
+}
+
+/** 栏目元信息，写在索引页的 front matter 上。 */
+export interface SectionMeta {
+  title: string
+  description: string
+  weight: number
 }
 
 export interface SectionCreated {
@@ -585,6 +596,14 @@ export const renameSection = (from: string, to: string, keepAliases: boolean) =>
 
 /** 删除空栏目，返回删除后的栏目清单。里面还有文章时后端报错，不会连带删除。 */
 export const removeSection = (path: string) => invoke<Section[]>('remove_section', { path })
+
+/**
+ * 改栏目元信息（标题、简介、排序权重），返回刷新后的栏目清单。
+ *
+ * 缺索引页的栏目会顺手补一张——元信息就存在那张列表页里，没有单独的栏目配置文件。
+ */
+export const saveSectionMeta = (path: string, meta: SectionMeta) =>
+  invoke<Section[]>('save_section_meta', { args: { path, ...meta } })
 
 
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */

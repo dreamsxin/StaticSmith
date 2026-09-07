@@ -14,7 +14,9 @@ use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportRep
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
-use staticsmith_core::sections::{Created as SectionCreated, Renamed as SectionRenamed, Section};
+use staticsmith_core::sections::{
+    Created as SectionCreated, Meta as SectionMeta, Renamed as SectionRenamed, Section,
+};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
     content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
@@ -90,6 +92,14 @@ pub struct RenameSectionArgs {
 
 fn keep_aliases_default() -> bool {
     true
+}
+
+/// 栏目元信息的参数。
+#[derive(Debug, Deserialize)]
+pub struct SectionMetaArgs {
+    pub path: String,
+    #[serde(flatten)]
+    pub meta: SectionMeta,
 }
 
 // ---------------------------------------------------------------- 项目生命周期
@@ -537,6 +547,33 @@ pub fn remove_section(state: State<'_, AppState>, path: String) -> Result<Vec<Se
         let dir = content::resolve_source(&session.builder.paths.content, &path);
         state.note_self_tree(&dir);
         session.builder.remove_section(&path)?;
+        Ok(session.builder.sections())
+    })
+}
+
+/// 改栏目元信息（标题、简介、排序权重），写在索引页的 front matter 上。
+///
+/// 缺索引页的栏目会顺手补一张——不然元信息没处存。返回刷新后的栏目清单。
+#[tauri::command]
+pub fn save_section_meta(
+    state: State<'_, AppState>,
+    args: SectionMetaArgs,
+) -> Result<Vec<Section>> {
+    state.with_session_mut(|session| {
+        let content_root = session.builder.paths.content.clone();
+        // 索引页可能还不存在，两个候选名都先记下，免得补出来的文件被当成外部修改
+        for name in ["index.md", "_index.md"] {
+            let file = content::resolve_source(
+                &content_root,
+                &if args.path.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{}/{name}", args.path)
+                },
+            );
+            state.note_self_write(&file);
+        }
+        session.builder.set_section_meta(&args.path, &args.meta)?;
         Ok(session.builder.sections())
     })
 }

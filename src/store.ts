@@ -351,6 +351,21 @@ export const actions = {
     await this.recomputePlan()
   },
 
+  /**
+   * 改栏目元信息（标题、简介、排序权重）。
+   *
+   * 元信息写在索引页的 front matter 上，缺索引页的栏目会顺手补一张——
+   * 栏目就是目录，它的介绍就该在那张列表页里，不额外发明一个栏目配置文件。
+   */
+  async saveSectionMeta(path: string, meta: api.SectionMeta) {
+    const sections = await run(() => api.saveSectionMeta(path, meta))
+    if (!sections) return
+    state.sections = sections
+    notify('success', `已更新栏目「${meta.title}」`)
+    await this.refresh()
+    await this.recomputePlan()
+  },
+
 
 
   /**

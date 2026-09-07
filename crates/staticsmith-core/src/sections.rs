@@ -27,6 +27,10 @@ pub struct Section {
     pub path: String,
     /// 展示名：有索引页就用它的标题，否则用目录名。
     pub title: String,
+    /// 栏目简介，取索引页的 `description`。没有索引页时是空串。
+    pub description: String,
+    /// 排序权重，取索引页的 `weight`。小的在前，缺省 0。
+    pub weight: i64,
     /// 栏目地址，如 `/posts/`。
     pub url: String,
     /// 栏目索引页的源文件（`index.md` / `_index.md`），没有则为 `None`。
@@ -40,6 +44,15 @@ pub struct Section {
     pub drafts: usize,
     /// 直接子栏目的路径。
     pub children: Vec<String>,
+}
+
+/// 栏目元信息（索引页 front matter 里与「这个栏目是什么」有关的那几项）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct Meta {
+    pub title: String,
+    pub description: String,
+    /// 0 表示不写这个键（与「没排过序」等价）。
+    pub weight: i64,
 }
 
 /// 新建结果。
@@ -61,7 +74,7 @@ pub struct Renamed {
     pub aliases_added: usize,
 }
 
-/// 列出全部栏目，按路径排序。根目录也算一个栏目（`path` 为空串）。
+/// 列出全部栏目，按权重、再按路径排序。根目录也算一个栏目（`path` 为空串）。
 ///
 /// 中间层目录即使自己没有文章也会出现：`posts/2026/a.md` 会让 `posts` 与 `posts/2026`
 /// 都成为栏目，否则界面里会凭空缺一层。
@@ -71,6 +84,8 @@ pub fn list(pages: &[Page]) -> Vec<Section> {
         known.entry(path.to_string()).or_insert_with(|| Section {
             path: path.to_string(),
             title: default_title(path),
+            description: String::new(),
+            weight: 0,
             url: url_for(path),
             index_source: None,
             pages: 0,
@@ -95,6 +110,8 @@ pub fn list(pages: &[Page]) -> Vec<Section> {
             if !page.title.trim().is_empty() {
                 section.title = page.title.clone();
             }
+            section.description = page.description.clone();
+            section.weight = page.weight;
             continue;
         }
         section.pages += 1;
@@ -112,7 +129,77 @@ pub fn list(pages: &[Page]) -> Vec<Section> {
         }
     }
 
-    known.into_values().collect()
+    // 权重排序在最后统一做：`known` 是按路径排好的 BTreeMap，稳定排序之后
+    // 「没排过序的栏目」保持路径顺序，而不是变成随机顺序。
+    let order: BTreeMap<String, i64> = known
+        .values()
+        .map(|section| (section.path.clone(), section.weight))
+        .collect();
+    let mut sections: Vec<Section> = known.into_values().collect();
+    for section in &mut sections {
+        section
+            .children
+            .sort_by_key(|child| (order.get(child).copied().unwrap_or(0), child.clone()));
+    }
+    sections.sort_by_key(|section| section.weight);
+    sections
+}
+
+/// 读写栏目元信息（标题、简介、排序权重）落在索引页的 front matter 上。
+///
+/// 没有单独的「栏目配置文件」是有意的：栏目就是目录，它的元信息就该在那张列表页里，
+/// 否则同一件事会有两处真相。缺索引页的栏目会顺手补一张——不然改了也没处存。
+///
+/// 返回被改动的索引页源文件（相对 `content/`），调用方据此刷新界面与增量构建。
+pub fn set_meta(paths: &ProjectPaths, path: &str, meta: &Meta) -> Result<String> {
+    let relative = util::sanitize_relative_dir(path);
+    let dir = resolve_dir(paths, &relative)?;
+    if !dir.is_dir() {
+        return Err(Error::Other(format!("栏目不存在: {relative}")));
+    }
+    if meta.title.trim().is_empty() {
+        return Err(Error::Other("栏目标题不能为空".to_string()));
+    }
+
+    let (file, source) = match existing_index(&dir, &relative) {
+        Some(found) => found,
+        None => {
+            let file = dir.join("index.md");
+            std::fs::write(&file, index_skeleton(meta.title.trim()))
+                .map_err(|e| Error::io(&file, e))?;
+            let source = join_source(&relative, "index.md");
+            (file, source)
+        }
+    };
+
+    let raw = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
+    let updated = frontmatter::apply(
+        &raw,
+        &frontmatter::Patch {
+            title: Some(meta.title.trim().to_string()),
+            description: Some(meta.description.trim().to_string()),
+            weight: Some(meta.weight),
+            ..frontmatter::Patch::default()
+        },
+    )?;
+    std::fs::write(&file, updated).map_err(|e| Error::io(&file, e))?;
+    Ok(source)
+}
+
+/// 已有的索引页（`index.md` 优先，其次 `_index.md`）。
+fn existing_index(dir: &Path, relative: &str) -> Option<(PathBuf, String)> {
+    ["index.md", "_index.md"].into_iter().find_map(|name| {
+        let file = dir.join(name);
+        file.is_file().then(|| (file, join_source(relative, name)))
+    })
+}
+
+fn join_source(relative: &str, name: &str) -> String {
+    if relative.is_empty() {
+        name.to_string()
+    } else {
+        format!("{relative}/{name}")
+    }
 }
 
 /// 新建栏目：建目录并写一张索引页。
@@ -486,6 +573,105 @@ mod tests {
         // 根目录与越界路径都拒绝
         assert!(remove(&f.paths, "").is_err());
         assert!(remove(&f.paths, "../../etc").is_err());
+    }
+
+    #[test]
+    fn meta_lands_in_the_index_page_and_orders_sections() {
+        let f = fixture();
+        write(
+            &f,
+            "posts/index.md",
+            "+++\ntitle = \"文章\"\n+++\n列表页正文\n",
+        );
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+        write(&f, "notes/n.md", "+++\ntitle = \"随手\"\n+++\n");
+
+        // notes 还没有索引页，改元信息时顺手补一张
+        let source = set_meta(
+            &f.paths,
+            "notes",
+            &Meta {
+                title: "随手记".into(),
+                description: "短小的记录".into(),
+                weight: 1,
+            },
+        )
+        .unwrap();
+        assert_eq!(source, "notes/index.md");
+
+        set_meta(
+            &f.paths,
+            "posts",
+            &Meta {
+                title: "文章".into(),
+                description: "长文".into(),
+                weight: 2,
+            },
+        )
+        .unwrap();
+
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/index.md")).unwrap();
+        assert!(raw.contains("description = \"长文\""), "{raw}");
+        assert!(raw.contains("weight = 2"), "{raw}");
+        assert!(raw.contains("列表页正文"), "正文必须原样保留：{raw}");
+
+        let list = sections(&f);
+        assert_eq!(find(&list, "notes").description, "短小的记录");
+        assert_eq!(find(&list, "notes").weight, 1);
+        // 权重小的在前；没排过序的根目录（weight 0）更靠前
+        let order: Vec<&str> = list.iter().map(|s| s.path.as_str()).collect();
+        assert_eq!(order, vec!["", "notes", "posts"]);
+        assert_eq!(
+            find(&list, "").children,
+            vec!["notes".to_string(), "posts".to_string()],
+            "子栏目也按权重排"
+        );
+    }
+
+    #[test]
+    fn meta_clears_empty_description_and_zero_weight() {
+        let f = fixture();
+        write(
+            &f,
+            "posts/index.md",
+            "+++\ntitle = \"文章\"\ndescription = \"旧简介\"\nweight = 5\n+++\n",
+        );
+
+        set_meta(
+            &f.paths,
+            "posts",
+            &Meta {
+                title: "文章".into(),
+                description: String::new(),
+                weight: 0,
+            },
+        )
+        .unwrap();
+
+        // 空值等于不写：留下 description = "" 只会让源文越写越长
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/index.md")).unwrap();
+        assert!(!raw.contains("description"), "{raw}");
+        assert!(!raw.contains("weight"), "{raw}");
+    }
+
+    #[test]
+    fn meta_refuses_empty_title_and_missing_sections() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+
+        let err = set_meta(&f.paths, "posts", &Meta::default()).unwrap_err();
+        assert!(err.to_string().contains("标题不能为空"), "{err}");
+
+        let err = set_meta(
+            &f.paths,
+            "ghost",
+            &Meta {
+                title: "不存在".into(),
+                ..Meta::default()
+            },
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("栏目不存在"), "{err}");
     }
 
     #[test]
