@@ -6,6 +6,7 @@
   --bg: #ffffff;
   --bg-subtle: #f6f8fa;
   --warn: #9a6700;
+  --danger: #b3261e;
   color-scheme: light dark;
 }
 
@@ -16,6 +17,7 @@
     --border: #30363d;
     --bg: #0d1117;
     --bg-subtle: #161b22;
+    --danger: #f85149;
   }
 }
 
@@ -378,6 +380,38 @@ kbd {
   list-style: none;
 }
 
+.page-list li {
+  display: flex;
+  gap: 0.15rem;
+  align-items: center;
+}
+
+/* 删除入口平时不抢注意力，指针悬停或键盘聚焦时才显形 */
+.page-list button.page-list__icon,
+.page-list button.page-list__danger {
+  flex: none;
+  width: auto;
+  padding: 0 0.35rem;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  opacity: 0;
+}
+
+.page-list li:hover .page-list__icon,
+.page-list li:hover .page-list__danger,
+.page-list li:focus-within .page-list__icon,
+.page-list li:focus-within .page-list__danger {
+  opacity: 1;
+}
+
+.page-list button.page-list__danger {
+  color: var(--danger);
+  opacity: 1;
+}
+
+
+
 .page-list button {
   display: flex;
   gap: 0.4rem;
@@ -419,6 +453,12 @@ kbd {
   color: var(--warn);
 }
 
+.badge--ok {
+  border: 1px solid currentcolor;
+  color: #1a7f37;
+}
+
+
 .editor__dirty {
   color: var(--warn);
 }
@@ -448,6 +488,46 @@ kbd {
   padding: 0.15rem 0.4rem;
   font-size: 0.85rem;
 }
+
+.editor__toolbar button.active {
+  border-color: var(--accent);
+}
+
+.editor__assets {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  overflow-x: auto;
+  max-height: 6.5rem;
+  padding: 0.4rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.editor__asset {
+  flex: none;
+  padding: 0.15rem;
+  line-height: 0;
+}
+
+.editor__asset img {
+  width: 4rem;
+  height: 4rem;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.editor__asset-name {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 9rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 
 .editor,
 .preview {

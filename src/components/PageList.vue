@@ -42,12 +42,26 @@ const creating = ref(false)
 const newTitle = ref('')
 const newSection = ref('posts')
 
+/**
+ * 待确认删除的源路径。
+ *
+ * 不用 `window.confirm`：Tauri 的 WebView 里原生弹窗会抢焦点且样式与应用割裂，
+ * 就地把按钮换成「确认删除 / 取消」更轻，也不会挡住列表。
+ */
+const confirmingDelete = ref<string | null>(null)
+
+async function remove(page: PageSummary) {
+  confirmingDelete.value = null
+  await actions.deleteContent(page)
+}
+
 async function create() {
   if (!newTitle.value.trim()) return
   await actions.createContent(newTitle.value.trim(), newSection.value.trim())
   newTitle.value = ''
   creating.value = false
 }
+
 </script>
 
 <template>
@@ -95,7 +109,31 @@ async function create() {
               >●</span
             >
           </button>
+          <template v-if="confirmingDelete === page.source">
+            <button
+              type="button"
+              class="page-list__danger"
+              :disabled="store.busy"
+              title="删除源文件，产物在下次生成时清理"
+              @click="remove(page)"
+            >
+              确认删除
+            </button>
+            <button type="button" class="page-list__icon" @click="confirmingDelete = null">
+              取消
+            </button>
+          </template>
+          <button
+            v-else
+            type="button"
+            class="page-list__icon"
+            title="删除这篇内容"
+            @click="confirmingDelete = page.source"
+          >
+            ×
+          </button>
         </li>
+
       </ul>
     </div>
 

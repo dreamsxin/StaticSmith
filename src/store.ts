@@ -9,6 +9,7 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
 import type {
+  AssetRecord,
   BuildMode,
   BuildPlan,
   BuildReport,
@@ -50,6 +51,8 @@ interface State {
   previewTarget: string | null
   /** 产物清单，生成后刷新 */
   outputs: OutputFile[]
+  /** 已登记的媒体资源，编辑器复用时用 */
+  assets: AssetRecord[]
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -74,6 +77,7 @@ const state = reactive<State>({
   previewServer: null,
   previewTarget: null,
   outputs: [],
+  assets: [],
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -205,6 +209,7 @@ export const actions = {
     state.previewServer = null
     state.previewTarget = null
     state.outputs = []
+    state.assets = []
     state.plan = null
     // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
     void this.loadRecent()
@@ -254,6 +259,48 @@ export const actions = {
     const page = state.project?.pages.find((p) => p.source === source)
     if (page) await this.openContent(page as PageSummary)
   },
+
+  /**
+   * 删除一篇内容。
+   *
+   * 只删源文件；已生成的 HTML 留在产物目录里，由下一次构建按 `orphaned_pages` 清理，
+   * 所以这里直接把返回的计划写进状态，界面能看到「将清理 N 个产物」。
+   */
+  async deleteContent(page: PageSummary) {
+    const plan = await run(() => api.deleteContent(page.source))
+    if (!plan) return
+    state.plan = plan
+    if (state.currentSource === page.source) {
+      state.currentSource = null
+      state.currentRaw = ''
+      state.savedRaw = ''
+      state.previewHtml = ''
+    }
+    if (state.pendingPage?.source === page.source) state.pendingPage = null
+    await this.refresh()
+    notify('success', `已删除 ${page.source}，生成时会清理它的产物`)
+  },
+
+  /** 读取已登记的媒体资源，编辑器「媒体库」用。 */
+  async loadAssets() {
+    const items = await run(() => api.listAssets())
+    if (items) state.assets = items
+  },
+
+  /** 凭证是否已存在系统凭据管理器里。查询失败按「没有」处理。 */
+  async hasSecret(account: string): Promise<boolean> {
+    try {
+      return await api.hasSecret(account)
+    } catch {
+      return false
+    }
+  },
+
+  async deleteSecret(account: string) {
+    const done = await run(() => api.deleteSecret(account))
+    if (done !== undefined) notify('success', '凭证已从系统凭据管理器移除')
+  },
+
 
   /**
    * 切换本地预览服务器。
@@ -318,6 +365,8 @@ export const actions = {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const asset = await run(() => api.saveAsset(file.name || 'pasted', bytes))
     if (!asset) return undefined
+    // 新资源要出现在媒体库里，否则刚粘的图片在「复用」列表里找不到。
+    void this.loadAssets()
     notify(
       'success',
       asset.deduplicated

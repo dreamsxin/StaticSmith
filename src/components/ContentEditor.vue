@@ -122,6 +122,39 @@ async function onPickFiles(event: Event) {
   input.value = ''
 }
 
+// ---------------------------------------------------------------- 媒体库
+
+/**
+ * 复用已上传的资源。
+ *
+ * 资源是内容寻址的，同一张图再粘一次也只会命中去重，但用户得先找到那张图——
+ * 之前 `list_assets` 只有后端有，界面里没有任何入口。
+ */
+const showAssets = ref(false)
+
+async function toggleAssets() {
+  showAssets.value = !showAssets.value
+  if (showAssets.value) await actions.loadAssets()
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i
+
+/** 缩略图要走 HTTP：iframe 之外的 WebView 同样读不到磁盘文件。 */
+const assetBase = computed(() => store.previewServer)
+
+function insertAsset(url: string) {
+  const name = url.split('/').pop() ?? '资源'
+  const snippet = IMAGE_EXT.test(url) ? `![${name}](${url})` : `[${name}](${url})`
+  const el = textarea.value
+  if (el) {
+    const caret = el.selectionStart + snippet.length
+    replaceSelection(snippet, caret, caret)
+  } else {
+    actions.setRaw(store.currentRaw + snippet)
+  }
+}
+
+
 // ---------------------------------------------------------------- 快捷键
 
 function onKeydown(event: KeyboardEvent) {
@@ -173,6 +206,14 @@ function onKeydown(event: KeyboardEvent) {
       <button type="button" title="插入图片（也可直接粘贴或拖入）" @click="filePicker?.click()">
         图片
       </button>
+      <button
+        type="button"
+        :class="{ active: showAssets }"
+        title="复用已上传的资源"
+        @click="toggleAssets"
+      >
+        媒体库
+      </button>
       <input
         ref="filePicker"
         type="file"
@@ -182,6 +223,31 @@ function onKeydown(event: KeyboardEvent) {
         @change="onPickFiles"
       />
     </div>
+
+    <div v-if="showAssets" class="editor__assets">
+      <p v-if="!store.assets.length" class="build__muted">
+        还没有资源。粘贴、拖入或用「图片」按钮上传后会出现在这里。
+      </p>
+      <button
+        v-for="asset in store.assets"
+        :key="asset.content_hash"
+        type="button"
+        class="editor__asset"
+        :title="`${asset.url} · ${(asset.size / 1024).toFixed(1)} KB`"
+        @click="insertAsset(asset.url)"
+      >
+        <img
+          v-if="assetBase && IMAGE_EXT.test(asset.url)"
+          :src="`${assetBase}${asset.url}`"
+          :alt="asset.url"
+        />
+        <span v-else class="editor__asset-name">{{ asset.url.split('/').pop() }}</span>
+      </button>
+      <p v-if="store.assets.length && !assetBase" class="build__muted">
+        启动本地预览服务器并生成一次后，这里会显示缩略图。
+      </p>
+    </div>
+
 
     <textarea
       ref="textarea"

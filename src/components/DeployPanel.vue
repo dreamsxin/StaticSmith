@@ -5,12 +5,13 @@
  * 凭证（Git Token / FTP 密码）只通过 `save_secret` 交给 Rust 侧写入系统凭据管理器，
  * 不进 `staticsmith.toml`，也不留在前端状态里——保存后立即清空输入框。
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { store, actions } from '../store'
 
 const secret = ref('')
-const saved = ref(false)
+/** 凭据管理器里是否已有这条凭证。null 表示还没查。 */
+const stored = ref<boolean | null>(null)
 
 const deploy = computed(() => store.project?.config.deploy)
 
@@ -23,12 +24,33 @@ const account = computed(() => {
   return ''
 })
 
+/**
+ * 跟着条目名查一次状态。
+ *
+ * 之前只有「保存成功」的一次性提示，重开应用后完全看不出凭证在不在，
+ * 用户只能靠「测试连接」间接猜——所以这里把状态显式摆出来。
+ */
+watch(
+  account,
+  async (value) => {
+    stored.value = value ? await actions.hasSecret(value) : null
+  },
+  { immediate: true },
+)
+
 async function storeSecret() {
   if (!account.value || !secret.value) return
   await actions.saveSecret(account.value, secret.value)
   secret.value = ''
-  saved.value = true
+  stored.value = await actions.hasSecret(account.value)
 }
+
+async function removeSecret() {
+  if (!account.value) return
+  await actions.deleteSecret(account.value)
+  stored.value = await actions.hasSecret(account.value)
+}
+
 </script>
 
 <template>
@@ -50,20 +72,30 @@ async function storeSecret() {
       <p class="build__muted">
         凭据条目：<code>{{ account || '（未配置）' }}</code>
       </p>
+      <p v-if="account">
+        <span v-if="stored" class="badge badge--ok">已存储</span>
+        <span v-else class="badge badge--draft">未存储</span>
+        <span class="build__muted">
+          {{ stored ? '发布时直接从系统凭据管理器读取，可重新输入覆盖。' : '发布前需要先保存 Token / 密码。' }}
+        </span>
+      </p>
       <label>
         Token / 密码
         <input v-model="secret" type="password" autocomplete="off" :disabled="!account" />
       </label>
       <div class="deploy__actions">
         <button type="button" :disabled="!account || !secret" @click="storeSecret">
-          保存到系统凭据管理器
+          {{ stored ? '覆盖已存储的凭证' : '保存到系统凭据管理器' }}
+        </button>
+        <button type="button" :disabled="!stored || store.busy" @click="removeSecret">
+          删除凭证
         </button>
         <button type="button" :disabled="store.busy" @click="actions.checkDeploy()">
           测试连接
         </button>
       </div>
-      <p v-if="saved" class="build__muted">凭证已写入系统凭据管理器。</p>
     </div>
+
 
     <div class="deploy__panel">
       <h3>执行发布</h3>
