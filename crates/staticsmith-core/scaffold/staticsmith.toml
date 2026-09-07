@@ -38,6 +38,23 @@ title = "标签"
 list_template = "pages/tags.html"
 term_template = "pages/tag.html"
 
+# 需要「分类」等更多维度时改用 [[taxonomies]]，写了它上面的 [taxonomy] 就不再生效。
+# name 是 front matter 字段名，slug 是 URL 前缀，模板可以复用同一套。
+# [[taxonomies]]
+# name = "tags"
+# slug = "tags"
+# title = "标签"
+# list_template = "pages/tags.html"
+# term_template = "pages/tag.html"
+#
+# [[taxonomies]]
+# name = "categories"
+# slug = "categories"
+# title = "分类"
+# list_template = "pages/tags.html"
+# term_template = "pages/tag.html"
+
+
 [deploy]
 # 可选值：none / git / ftp
 type = "none"

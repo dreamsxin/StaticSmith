@@ -51,15 +51,19 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
 
 - `site`：`[site]` 配置段（`title` / `description` / `base_url` / `language` / `extra`）
 - `build`：`[build]` 配置段
-- `taxonomy`：`[taxonomy]` 配置段，用来判断是否渲染标签入口
-- `page`：当前页面（`title` / `date` / `tags` / `url` / `content` / `section` / `extra` …）
+- `taxonomies`：生效的全部分类维度（标签、分类…），用来渲染导航入口：
+  `{% for tax in taxonomies %}<a href="/{{ tax.slug }}/">{{ tax.title }}</a>{% endfor %}`
+- `taxonomy`：其中第一个维度（标签页与词条页里指当前那一个）。旧模板的写法仍可用
+- `page`：当前页面（`title` / `date` / `tags` / `keywords` / `taxonomies` / `url` / `content` / `section` / `extra` …）
 - `pages`：全站可发布页面数组
 - `generator`：`"StaticSmith 2.0"`
 
 文章页额外获得：
 
-- `tag_links`：`[{ name, url }]`，当前页面的标签及其标签页地址。
-  标签功能关闭时为空数组，模板可回落为纯文本
+- `term_links`：`{ "tags": [{ name, url }], "categories": [...] }`，
+  当前页面各维度的词条及其页面地址。没配成 taxonomy 的字段不出现在这里（避免死链）
+- `tag_links`：等价于 `term_links.tags`，为旧模板保留
+
 
 栏目索引页（`is_index` 为真）额外获得：
 

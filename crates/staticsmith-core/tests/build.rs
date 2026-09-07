@@ -429,6 +429,49 @@ fn outputs_list_exposes_generated_pages_that_have_no_source_file() {
 }
 
 #[test]
+fn multiple_taxonomies_each_get_their_own_pages() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    // 用 [[taxonomies]] 覆盖单数写法：标签 + 分类两个维度
+    std::fs::write(
+        &config_path,
+        format!(
+            "{config}\n[[taxonomies]]\nname = \"tags\"\nslug = \"tags\"\ntitle = \"标签\"\n\
+             list_template = \"pages/tags.html\"\nterm_template = \"pages/tag.html\"\n\n\
+             [[taxonomies]]\nname = \"categories\"\nslug = \"categories\"\ntitle = \"分类\"\n\
+             list_template = \"pages/tags.html\"\nterm_template = \"pages/tag.html\"\n"
+        ),
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.path().join("content/posts/categorized.md"),
+        "+++\ntitle = \"带分类的文章\"\ncategories = [\"工程实践\"]\ntags = [\"模板\"]\n+++\n\n正文。\n",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    // 两个维度各自成页
+    assert!(read(dir.path(), "categories/index.html").contains("工程实践"));
+    let term = read(dir.path(), "categories/工程实践/index.html");
+    assert!(term.contains("带分类的文章"));
+    assert!(read(dir.path(), "tags/index.html").contains("模板"));
+
+    // 文章页把两个维度都渲染成链接
+    let post = read(dir.path(), "posts/categorized/index.html");
+    assert!(post.contains("href=\"/tags/模板/\""), "{post}");
+
+    // 头部导航按配置列出全部维度
+    assert!(
+        post.contains("href=\"/categories/\""),
+        "缺少分类入口：{post}"
+    );
+}
+
+#[test]
 fn taxonomy_can_be_disabled() {
     let dir = new_project();
     let config_path = dir.path().join("staticsmith.toml");

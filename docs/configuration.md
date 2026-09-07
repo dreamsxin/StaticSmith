@@ -104,6 +104,43 @@ sftp = false
 
 单标签页的分页沿用 `build.page_size`。标签 URL 保留中文原字（不转拼音）。
 
+`[[taxonomies]]` —— 多个分类维度（标签 + 分类 + 自定义）
+
+```toml
+[[taxonomies]]
+name = "tags"          # 读哪个 front matter 字段
+slug = "tags"          # URL 前缀
+title = "标签"
+list_template = "pages/tags.html"
+term_template = "pages/tag.html"
+
+[[taxonomies]]
+name = "categories"
+slug = "categories"
+title = "分类"
+list_template = "pages/tags.html"
+term_template = "pages/tag.html"
+```
+
+写了 `[[taxonomies]]` 就以它为准，单数的 `[taxonomy]` 不再生效——两套并存只会让人猜
+哪个赢。字段与 `[taxonomy]` 相同，多出的 `name` 指定读哪个 front matter 字段
+（留空按 `slug` 推）。两个维度用同一个 `slug` 会被校验拒绝，否则产物互相覆盖。
+
+内容侧只需写对应字段：
+
+```toml
+tags = ["模板", "增量构建"]
+categories = ["工程实践"]
+```
+
+没配成 taxonomy 的字段不生成页面，也不会在文章页渲染成链接（避免死链）。
+模板侧用 `taxonomies` 遍历全部维度、`term_links.<字段名>` 取当前页面的链接，
+见 [统一模板与级联更新](templates.md)。
+
+设置界面目前只编辑单数的 `[taxonomy]`，但保存会把手写的 `[[taxonomies]]` 原样带回，
+不会被抹掉。
+
+
 `[deploy]`
 
 - `type`：`none`（默认）/ `git` / `ftp`。选了 `git` 或 `ftp` 就必须提供同名配置段，

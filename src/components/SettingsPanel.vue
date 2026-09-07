@@ -21,7 +21,8 @@ watch(
   (config) => Object.assign(form, clone(config)),
 )
 
-function clone(config: SiteConfig | null | undefined): SiteConfig {
+/** store 是深只读的，深拷贝一份给表单编辑（拷贝会把只读性去掉）。 */
+function clone(config: unknown): SiteConfig {
   if (config) return JSON.parse(JSON.stringify(config)) as SiteConfig
   return {
     site: { title: '', description: '', base_url: '', language: 'zh-CN', extra: {} },
@@ -47,11 +48,13 @@ function clone(config: SiteConfig | null | undefined): SiteConfig {
     },
     taxonomy: {
       enabled: true,
+      name: 'tags',
       slug: 'tags',
       title: '标签',
       list_template: 'pages/tags.html',
       term_template: 'pages/tag.html',
     },
+    taxonomies: [],
     deploy: { type: 'none', git: null, ftp: null },
   }
 }

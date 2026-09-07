@@ -17,6 +17,9 @@ pub struct SiteConfig {
     pub assets: Assets,
     #[serde(default)]
     pub taxonomy: Taxonomy,
+    /// 额外的分类维度。写了它就以它为准，`[taxonomy]` 退化为不生效的旧写法。
+    #[serde(default)]
+    pub taxonomies: Vec<Taxonomy>,
     #[serde(default)]
     pub deploy: Deploy,
 }
@@ -183,13 +186,17 @@ impl Default for Build {
     }
 }
 
-/// 标签（taxonomy）页面生成。
+/// 一个 taxonomy（分类维度）的页面生成规则。
 ///
-/// front matter 里的 `tags` 由此变成可浏览的两级页面：总览与单个标签。
+/// front matter 里的同名字段由此变成可浏览的两级页面：总览与单个词条。
+/// `tags` 是默认那一个；再加「分类」等维度用 `[[taxonomies]]`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Taxonomy {
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// front matter 里的字段名，如 `tags`、`categories`。留空按 `slug` 推。
+    #[serde(default = "default_taxonomy_slug")]
+    pub name: String,
     /// URL 前缀，如 `tags` → `/tags/` 与 `/tags/rust/`。
     #[serde(default = "default_taxonomy_slug")]
     pub slug: String,
@@ -207,6 +214,7 @@ impl Default for Taxonomy {
     fn default() -> Self {
         Self {
             enabled: true,
+            name: default_taxonomy_slug(),
             slug: default_taxonomy_slug(),
             title: default_taxonomy_title(),
             list_template: default_taxonomy_list_template(),
@@ -221,6 +229,16 @@ impl Taxonomy {
         self.slug.replace('\\', "/").trim_matches('/').to_string()
     }
 
+    /// 读取哪个 front matter 字段。留空退回 slug——多数站点两者同名。
+    pub fn field(&self) -> String {
+        let name = self.name.trim();
+        if name.is_empty() {
+            self.normalized_slug()
+        } else {
+            name.to_string()
+        }
+    }
+
     fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
         if !self.enabled {
@@ -232,6 +250,9 @@ impl Taxonomy {
         }
         if slug.split('/').any(|s| s == "..") {
             issues.push("taxonomy.slug 不能包含 `..`".to_string());
+        }
+        if self.field().is_empty() {
+            issues.push("taxonomy.name 与 slug 不能同时为空".to_string());
         }
         issues
     }
@@ -293,6 +314,24 @@ impl SiteConfig {
         std::fs::write(&path, raw).map_err(|e| Error::io(&path, e))
     }
 
+    /// 生效的分类维度。
+    ///
+    /// 写了 `[[taxonomies]]` 就以它为准；否则把旧的 `[taxonomy]` 当成单个 tags 维度。
+    /// 只返回启用的项，调用方不必再判 `enabled`。
+    pub fn effective_taxonomies(&self) -> Vec<Taxonomy> {
+        if self.taxonomies.is_empty() {
+            if self.taxonomy.enabled {
+                return vec![self.taxonomy.clone()];
+            }
+            return Vec::new();
+        }
+        self.taxonomies
+            .iter()
+            .filter(|t| t.enabled)
+            .cloned()
+            .collect()
+    }
+
     /// 校验必填项，返回人类可读的问题列表（空列表表示配置合法）。
     pub fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
@@ -303,7 +342,19 @@ impl SiteConfig {
             issues.push("build.page_size 必须大于 0".to_string());
         }
         issues.extend(self.assets.validate());
-        issues.extend(self.taxonomy.validate());
+        for taxonomy in self.effective_taxonomies() {
+            issues.extend(taxonomy.validate());
+        }
+        // 两个维度共用一个 URL 前缀会互相覆盖产物，必须拦下来
+        let mut slugs: Vec<String> = self
+            .effective_taxonomies()
+            .iter()
+            .map(|t| t.normalized_slug())
+            .collect();
+        slugs.sort();
+        if slugs.windows(2).any(|w| w[0] == w[1]) {
+            issues.push("taxonomies 里出现了重复的 slug，产物会互相覆盖".to_string());
+        }
         match self.deploy.r#type {
             DeployKind::Git if self.deploy.git.is_none() => {
                 issues.push("deploy.type = \"git\" 但缺少 [deploy.git] 配置段".to_string());

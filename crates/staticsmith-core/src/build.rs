@@ -278,11 +278,11 @@ impl Builder {
 
         let site_ctx = self.site_context();
         let all_pages: Vec<&Page> = self.pages.iter().filter(|p| p.is_publishable()).collect();
-        let collected = self.collect_taxonomy(&all_pages);
+        let collected = self.collect_taxonomies(&all_pages);
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,
-            tag_urls: tag_urls(&collected),
+            term_urls: term_urls(&collected),
         };
 
         // 并行渲染：每个页面产出一个或多个（分页）HTML 文件。
@@ -398,7 +398,7 @@ impl Builder {
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,
-            tag_urls: tag_urls(&self.collect_taxonomy(&all_pages)),
+            term_urls: term_urls(&self.collect_taxonomies(&all_pages)),
         };
         let rendered = renderer.render_page(page, &self.site_context(), &all_pages)?;
         rendered
@@ -409,20 +409,36 @@ impl Builder {
             .ok_or_else(|| Error::Other("渲染结果为空".to_string()))
     }
 
-    /// 聚合标签。关闭时返回空——否则文章页会生成指向不存在页面的死链。
-    fn collect_taxonomy<'p>(&self, all_pages: &[&'p Page]) -> Vec<taxonomy::TermPages<'p>> {
-        if !self.config.taxonomy.enabled {
-            return Vec::new();
-        }
-        taxonomy::collect(all_pages, &self.config.taxonomy.normalized_slug())
+    /// 逐个维度聚合词条。
+    ///
+    /// 关闭（或没有配任何维度）时返回空——否则文章页会生成指向不存在页面的死链。
+    fn collect_taxonomies<'p>(
+        &self,
+        all_pages: &[&'p Page],
+    ) -> Vec<(TaxonomyConfig, Vec<taxonomy::TermPages<'p>>)> {
+        self.config
+            .effective_taxonomies()
+            .into_iter()
+            .map(|config| {
+                let entries =
+                    taxonomy::collect(all_pages, &config.normalized_slug(), &config.field());
+                (config, entries)
+            })
+            .collect()
     }
 
     fn site_context(&self) -> Context {
         let mut ctx = Context::new();
         ctx.insert("site", &self.config.site);
         ctx.insert("build", &self.config.build);
-        // 模板据此决定是否渲染标签入口
+        // 模板据此渲染分类入口：taxonomies 是生效的全部维度，
+        // taxonomy 保留为其中第一个，兼容只有标签的旧模板。
+        let taxonomies = self.config.effective_taxonomies();
         ctx.insert("taxonomy", &self.config.taxonomy);
+        if let Some(first) = taxonomies.first() {
+            ctx.insert("taxonomy", first);
+        }
+        ctx.insert("taxonomies", &taxonomies);
         ctx.insert("generator", "StaticSmith 2.0");
         ctx
     }
@@ -465,38 +481,44 @@ impl Builder {
         &self,
         renderer: &Renderer<'_>,
         site_ctx: &Context,
-        collected: &[taxonomy::TermPages<'_>],
+        collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
         all_pages: &[&Page],
     ) -> Result<(usize, Vec<String>)> {
-        let config = &self.config.taxonomy;
         let mut notes = Vec::new();
-        if !config.enabled || collected.is_empty() {
-            return Ok((0, notes));
-        }
-
-        let missing: Vec<&str> = [config.list_template.as_str(), config.term_template.as_str()]
-            .into_iter()
-            .filter(|name| self.templates.get(name).is_none())
-            .collect();
-        if !missing.is_empty() {
-            notes.push(format!("缺少模板 {}，已跳过标签页生成", missing.join("、")));
-            return Ok((0, notes));
-        }
-
-        let prefix = config.normalized_slug();
-        let terms = taxonomy::terms_of(collected);
         let mut written = 0;
 
-        // 总览页：/tags/
-        let list_html = renderer.render_taxonomy_list(site_ctx, &terms, config, all_pages)?;
-        self.write_output(&format!("{prefix}/index.html"), &list_html)?;
-        written += 1;
+        for (config, entries) in collected {
+            if entries.is_empty() {
+                continue;
+            }
 
-        // 单标签页：/tags/<slug>/，条目多时按 build.page_size 分页
-        for entry in collected {
-            for file in renderer.render_term(site_ctx, entry, &terms, &prefix, all_pages)? {
-                self.write_output(&file.path, &file.html)?;
-                written += 1;
+            let missing: Vec<&str> = [config.list_template.as_str(), config.term_template.as_str()]
+                .into_iter()
+                .filter(|name| self.templates.get(name).is_none())
+                .collect();
+            if !missing.is_empty() {
+                notes.push(format!(
+                    "缺少模板 {}，已跳过 {} 页生成",
+                    missing.join("、"),
+                    config.title
+                ));
+                continue;
+            }
+
+            let prefix = config.normalized_slug();
+            let terms = taxonomy::terms_of(entries);
+
+            // 总览页：/tags/
+            let list_html = renderer.render_taxonomy_list(site_ctx, &terms, config, all_pages)?;
+            self.write_output(&format!("{prefix}/index.html"), &list_html)?;
+            written += 1;
+
+            // 单词条页：/tags/<slug>/，条目多时按 build.page_size 分页
+            for entry in entries {
+                for file in renderer.render_term(site_ctx, entry, &terms, config, all_pages)? {
+                    self.write_output(&file.path, &file.html)?;
+                    written += 1;
+                }
             }
         }
         Ok((written, notes))
@@ -537,21 +559,32 @@ impl Builder {
 struct Renderer<'a> {
     templates: &'a TemplateSet,
     config: &'a SiteConfig,
-    /// 标签名 → 标签页地址。文章页据此把 tags 渲染成链接。
-    tag_urls: BTreeMap<String, String>,
+    /// 维度名 → （词条名 → 词条页地址）。文章页据此把分类渲染成链接。
+    term_urls: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 impl Renderer<'_> {
-    /// 当前页面 tags 对应的链接，供模板渲染成可点的标签。
-    fn tag_links(&self, page: &Page) -> Vec<Value> {
-        page.tags
-            .iter()
-            .filter_map(|tag| {
-                self.tag_urls
-                    .get(tag.trim())
-                    .map(|url| json!({ "name": tag, "url": url }))
-            })
-            .collect()
+    /// 当前页面各维度对应的链接，供模板渲染成可点的标签 / 分类。
+    ///
+    /// 形状是 `{ "tags": [{name, url}], "categories": [...] }`。
+    fn term_links(&self, page: &Page) -> BTreeMap<String, Vec<Value>> {
+        let mut out = BTreeMap::new();
+        for (field, values) in &page.taxonomies {
+            let Some(urls) = self.term_urls.get(field) else {
+                continue; // 这个字段没有配成 taxonomy，不生成链接（否则是死链）
+            };
+            let links: Vec<Value> = values
+                .iter()
+                .filter_map(|name| {
+                    urls.get(name.trim())
+                        .map(|url| json!({ "name": name, "url": url }))
+                })
+                .collect();
+            if !links.is_empty() {
+                out.insert(field.clone(), links);
+            }
+        }
+        out
     }
 
     /// 标签总览页。
@@ -578,18 +611,21 @@ impl Renderer<'_> {
         // 布局与侧边栏依赖全站列表，标签页也必须提供，否则渲染直接失败。
         ctx.insert("pages", all_pages);
         ctx.insert("terms", terms);
+        // 多维度时，模板里的 taxonomy 指当前这一个
+        ctx.insert("taxonomy", config);
         Ok(self.finish(self.templates.tera.render(&config.list_template, &ctx)?))
     }
 
-    /// 单个标签页，条目多时按 `build.page_size` 分页。
+    /// 单个词条页，条目多时按 `build.page_size` 分页。
     fn render_term(
         &self,
         site_ctx: &Context,
         entry: &taxonomy::TermPages<'_>,
         terms: &[taxonomy::Term],
-        prefix: &str,
+        config: &TaxonomyConfig,
         all_pages: &[&Page],
     ) -> Result<Vec<RenderedFile>> {
+        let prefix = config.normalized_slug();
         let per_page = self.config.build.page_size.max(1);
         let total_pages = entry.pages.len().div_ceil(per_page).max(1);
         let primary_output = format!("{prefix}/{}/index.html", entry.term.slug);
@@ -622,14 +658,11 @@ impl Renderer<'_> {
             ctx.insert("pages", all_pages);
             ctx.insert("items", &slice);
             ctx.insert("pagination", &pagination);
+            ctx.insert("taxonomy", config);
 
             files.push(RenderedFile {
                 path: pagination.output_path(&primary_output),
-                html: self.finish(
-                    self.templates
-                        .tera
-                        .render(&self.config.taxonomy.term_template, &ctx)?,
-                ),
+                html: self.finish(self.templates.tera.render(&config.term_template, &ctx)?),
             });
         }
         Ok(files)
@@ -642,7 +675,9 @@ impl Renderer<'_> {
         all_pages: &[&Page],
     ) -> Result<RenderedPage> {
         let mut files = Vec::new();
-        let tag_links = self.tag_links(page);
+        let term_links = self.term_links(page);
+        // tag_links 是旧模板用的名字，保留以免升级后文章页的标签突然消失
+        let tag_links = term_links.get("tags").cloned().unwrap_or_default();
 
         if page.is_index {
             let items = section_items(page, all_pages);
@@ -660,6 +695,7 @@ impl Renderer<'_> {
                 ctx.insert("items", &slice);
                 ctx.insert("pagination", &pagination);
                 ctx.insert("tag_links", &tag_links);
+                ctx.insert("term_links", &term_links);
 
                 let html = self.finish(self.templates.tera.render(&page.template, &ctx)?);
                 files.push(RenderedFile {
@@ -672,6 +708,7 @@ impl Renderer<'_> {
             ctx.insert("page", page);
             ctx.insert("pages", all_pages);
             ctx.insert("tag_links", &tag_links);
+            ctx.insert("term_links", &term_links);
             let html = self.finish(self.templates.tera.render(&page.template, &ctx)?);
             files.push(RenderedFile {
                 path: page.output.clone(),
@@ -762,11 +799,19 @@ impl Pagination {
     }
 }
 
-/// 标签名 → 标签页地址。
-fn tag_urls(collected: &[taxonomy::TermPages<'_>]) -> BTreeMap<String, String> {
+/// 维度名 → （词条名 → 词条页地址）。
+fn term_urls(
+    collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
+) -> BTreeMap<String, BTreeMap<String, String>> {
     collected
         .iter()
-        .map(|entry| (entry.term.name.clone(), entry.term.url.clone()))
+        .map(|(config, entries)| {
+            let urls = entries
+                .iter()
+                .map(|entry| (entry.term.name.clone(), entry.term.url.clone()))
+                .collect();
+            (config.field(), urls)
+        })
         .collect()
 }
 

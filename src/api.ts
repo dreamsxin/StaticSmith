@@ -43,12 +43,29 @@ export interface SiteConfig {
   }
   taxonomy: {
     enabled: boolean
+    /** front matter 字段名，如 tags / categories */
+    name: string
     /** URL 前缀，如 tags → /tags/ */
     slug: string
     title: string
     list_template: string
     term_template: string
   }
+  /**
+   * 多分类维度。写了它就以它为准，`taxonomy` 退化为旧写法。
+   *
+   * 界面目前只编辑单数的 `taxonomy`，但保存时会把这个数组原样带回去，
+   * 不会把手写的 `[[taxonomies]]` 抹掉。
+   */
+  taxonomies: Array<{
+    enabled: boolean
+    name: string
+    slug: string
+    title: string
+    list_template: string
+    term_template: string
+  }>
+
   deploy: {
     type: DeployKind
     git?: {

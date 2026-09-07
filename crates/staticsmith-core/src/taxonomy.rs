@@ -28,16 +28,20 @@ pub struct TermPages<'a> {
     pub pages: Vec<&'a Page>,
 }
 
-/// 聚合标签。
+/// 聚合某个维度的词条。
 ///
-/// - 只统计非栏目索引页（索引页的 tags 没有意义）
-/// - 标签按文章数降序、同数按名称升序，方便直接渲染成标签云
-/// - 每个标签内部按 `weight` 升序、日期降序，与栏目列表页一致
-pub fn collect<'a>(pages: &[&'a Page], base_slug: &str) -> Vec<TermPages<'a>> {
+/// - `field` 是 front matter 字段名（`tags` / `categories` / 自定义）
+/// - 只统计非栏目索引页（索引页的分类没有意义）
+/// - 词条按文章数降序、同数按名称升序，方便直接渲染成标签云
+/// - 每个词条内部按 `weight` 升序、日期降序，与栏目列表页一致
+pub fn collect<'a>(pages: &[&'a Page], base_slug: &str, field: &str) -> Vec<TermPages<'a>> {
     let mut grouped: Vec<(String, Vec<&'a Page>)> = Vec::new();
 
     for page in pages.iter().filter(|p| !p.is_index) {
-        for tag in &page.tags {
+        let Some(values) = page.taxonomies.get(field) else {
+            continue;
+        };
+        for tag in values {
             let name = tag.trim();
             if name.is_empty() {
                 continue;
@@ -144,7 +148,7 @@ mod tests {
         let c = tagged("posts/c.md", "C", "2026-09-03", &["模板"]);
         let pages = [&a, &b, &c];
 
-        let collected = collect(&pages, "tags");
+        let collected = collect(&pages, "tags", "tags");
         let names: Vec<&str> = collected.iter().map(|t| t.term.name.as_str()).collect();
 
         // rust 与 模板 都是 2 篇，按名称升序（中文按码位排在字母后）
@@ -159,7 +163,7 @@ mod tests {
         let new = tagged("posts/new.md", "新", "2026-09-01", &["rust"]);
         let pages = [&old, &new];
 
-        let collected = collect(&pages, "tags");
+        let collected = collect(&pages, "tags", "tags");
         let titles: Vec<&str> = collected[0]
             .pages
             .iter()
@@ -177,7 +181,7 @@ mod tests {
         let post = tagged("posts/a.md", "A", "2026-09-01", &["rust"]);
         let pages = [&index, &post];
 
-        let collected = collect(&pages, "tags");
+        let collected = collect(&pages, "tags", "tags");
         assert_eq!(collected[0].term.count, 1);
         assert_eq!(collected[0].pages[0].title, "A");
     }
@@ -185,7 +189,7 @@ mod tests {
     #[test]
     fn empty_and_whitespace_tags_are_ignored() {
         let p = tagged("posts/a.md", "A", "2026-09-01", &["  ", "rust"]);
-        let collected = collect(&[&p], "tags");
+        let collected = collect(&[&p], "tags", "tags");
         assert_eq!(collected.len(), 1);
         assert_eq!(collected[0].term.name, "rust");
     }
@@ -196,7 +200,7 @@ mod tests {
         let b = tagged("posts/b.md", "B", "2026-09-02", &["C  ++"]);
         let pages = [&a, &b];
 
-        let collected = collect(&pages, "tags");
+        let collected = collect(&pages, "tags", "tags");
         assert_eq!(collected.len(), 2);
         let slugs: Vec<&str> = collected.iter().map(|t| t.term.slug.as_str()).collect();
         assert_ne!(slugs[0], slugs[1], "slug 冲突必须区分，否则文件互相覆盖");
@@ -205,21 +209,21 @@ mod tests {
     #[test]
     fn cjk_tags_keep_their_characters_in_urls() {
         let p = tagged("posts/a.md", "A", "2026-09-01", &["增量构建"]);
-        let collected = collect(&[&p], "tags");
+        let collected = collect(&[&p], "tags", "tags");
         assert_eq!(collected[0].term.url, "/tags/增量构建/");
     }
 
     #[test]
     fn base_slug_is_normalized() {
         let p = tagged("posts/a.md", "A", "2026-09-01", &["rust"]);
-        let collected = collect(&[&p], "/topics/");
+        let collected = collect(&[&p], "/topics/", "tags");
         assert_eq!(collected[0].term.url, "/topics/rust/");
     }
 
     #[test]
     fn terms_of_extracts_the_template_shape() {
         let p = tagged("posts/a.md", "A", "2026-09-01", &["rust"]);
-        let collected = collect(&[&p], "tags");
+        let collected = collect(&[&p], "tags", "tags");
         let terms = terms_of(&collected);
         assert_eq!(terms.len(), 1);
         assert_eq!(terms[0].name, "rust");
@@ -228,6 +232,6 @@ mod tests {
     #[test]
     fn no_tags_yields_nothing() {
         let p = page("posts/a.md", "+++\ntitle = \"A\"\n+++\n");
-        assert!(collect(&[&p], "tags").is_empty());
+        assert!(collect(&[&p], "tags", "tags").is_empty());
     }
 }

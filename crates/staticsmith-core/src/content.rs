@@ -36,6 +36,10 @@ pub struct FrontMatter {
     pub weight: i64,
     #[serde(default)]
     pub extra: toml::Table,
+    /// 未声明的顶层键。`categories` 这类自定义分类维度从这里读出来，
+    /// 不必为每加一个维度就改一次结构体。
+    #[serde(flatten)]
+    pub rest: toml::Table,
 }
 
 /// 一篇已解析的内容页。
@@ -54,6 +58,8 @@ pub struct Page {
     pub tags: Vec<String>,
     /// SEO 关键词，未写时等于 `tags`。
     pub keywords: Vec<String>,
+    /// 各分类维度的词条：`tags`、`categories` 或任意自定义字段。
+    pub taxonomies: std::collections::BTreeMap<String, Vec<String>>,
     pub draft: bool,
     pub weight: i64,
     /// 所在栏目（相对 content 的目录，根目录为空串）。
@@ -119,6 +125,8 @@ impl Page {
             fm.keywords.clone()
         };
 
+        let taxonomies = collect_taxonomy_fields(&fm);
+
         Ok(Self {
             source,
             output,
@@ -129,6 +137,7 @@ impl Page {
             date: fm.date.as_deref().and_then(parse_date),
             tags: fm.tags.clone(),
             keywords,
+            taxonomies,
             draft: fm.draft,
             weight: fm.weight,
             section: dir,
@@ -144,6 +153,42 @@ impl Page {
     pub fn is_publishable(&self) -> bool {
         !self.draft
     }
+}
+
+/// 从 front matter 里挑出各分类维度的词条。
+///
+/// `tags` 是声明字段，其余（`categories` 等）来自未声明的顶层键——
+/// 只认「字符串数组」，把 `draft = true` 这类标量挡在外面。
+fn collect_taxonomy_fields(fm: &FrontMatter) -> std::collections::BTreeMap<String, Vec<String>> {
+    let mut out = std::collections::BTreeMap::new();
+    let clean = |items: &[String]| -> Vec<String> {
+        items
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    let tags = clean(&fm.tags);
+    if !tags.is_empty() {
+        out.insert("tags".to_string(), tags);
+    }
+
+    for (key, value) in &fm.rest {
+        let Some(array) = value.as_array() else {
+            continue;
+        };
+        let items: Vec<String> = array
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !items.is_empty() {
+            out.insert(key.clone(), items);
+        }
+    }
+    out
 }
 
 /// 递归扫描 `content/` 下所有 `.md` / `.markdown` 文件并解析。
