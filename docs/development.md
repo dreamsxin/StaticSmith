@@ -54,8 +54,20 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 ## 前端约定
 
 - 状态集中在 `src/store.ts`（`reactive` 单例 + `readonly` 导出）。组件只读状态、调用 actions
-- 所有异步调用经 `run()` 包装，统一处理 busy 标记与错误消息
-- 预览用 iframe + `srcdoc` + `sandbox="allow-same-origin"`，站点脚本不会影响宿主界面
+- 所有异步调用经 `run()` 包装，统一处理 busy 标记与错误；**失败一律弹通知**——
+  只写进 `store.error` 而调用点不显示它，用户看到的就是「点了没反应」
+- 涉及系统能力的调用（打开浏览器、定位文件）也走 store，这样权限被拒时能看到原因
+- 预览用 iframe：内存预览走 `srcdoc`，本地服务器模式走 `src`（`sandbox` 只在前者加，
+  否则会挡掉 http 源的加载）
+
+## Tauri 权限的坑
+
+`opener:allow-open-url` 的字面含义是「允许调用 open_url 命令，但没有任何预置 scope」——
+URL 白名单为空，于是每次调用都被拒绝，前端如果没接错误处理就表现为「按钮没反应」。
+要打开 http/https 链接得用 `opener:default`（它同时带上 `allow-default-urls` 的 scope
+与 `allow-reveal-item-in-dir`）。
+
+结论：加权限时不要只看命令名，要确认对应的 scope 也给了。前端调用一定要有错误出口。
 
 ## 尚未完成的方向
 

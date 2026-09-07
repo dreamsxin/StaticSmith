@@ -4,7 +4,8 @@
  * 用 `reactive` 单例而不是 Pinia：状态只有一份（同时只能打开一个项目），
  * 引入额外状态库带来的收益小于心智负担。
  */
-import { reactive, readonly } from 'vue'
+import { computed, reactive, readonly } from 'vue'
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
 import type {
@@ -19,6 +20,14 @@ import type {
   TemplateInfo,
 } from './api'
 
+export type ToastKind = 'success' | 'error' | 'info'
+
+export interface Toast {
+  id: number
+  kind: ToastKind
+  message: string
+}
+
 interface State {
   project: ProjectSummary | null
   /** 最近打开的站点，起始页用 */
@@ -26,6 +35,10 @@ interface State {
   /** 当前编辑的内容源路径 */
   currentSource: string | null
   currentRaw: string
+  /** 上次保存时的正文快照，用来判断是否有未保存改动 */
+  savedRaw: string
+  /** 有未保存改动时被拦下的待打开页面 */
+  pendingPage: PageSummary | null
   /** 当前编辑的模板名 */
   currentTemplate: string | null
   currentTemplateSource: string
@@ -38,6 +51,7 @@ interface State {
   progress: string
   busy: boolean
   error: string | null
+  toasts: Toast[]
   /** 磁盘上被外部编辑器改动、界面尚未刷新的提示 */
   externalChange: boolean
 }
@@ -47,6 +61,8 @@ const state = reactive<State>({
   recent: [],
   currentSource: null,
   currentRaw: '',
+  savedRaw: '',
+  pendingPage: null,
   currentTemplate: null,
   currentTemplateSource: '',
   previewHtml: '',
@@ -57,17 +73,42 @@ const state = reactive<State>({
   progress: '',
   busy: false,
   error: null,
+  toasts: [],
   externalChange: false,
 })
 
-/** 统一的错误处理与 busy 标记，避免每个组件各写一遍 try/catch。 */
+/** 编辑器里有未保存改动。切换文章、关闭项目前据此拦一道。 */
+export const isDirty = computed(
+  () => state.currentSource !== null && state.currentRaw !== state.savedRaw,
+)
+
+let toastId = 0
+
+/** 弹一条通知。错误停留更久，因为用户往往需要读完整句。 */
+function notify(kind: ToastKind, message: string) {
+  const id = ++toastId
+  state.toasts.push({ id, kind, message })
+  const ttl = kind === 'error' ? 8000 : 3500
+  setTimeout(() => {
+    state.toasts = state.toasts.filter((t) => t.id !== id)
+  }, ttl)
+}
+
+/**
+ * 统一的错误处理与 busy 标记，避免每个组件各写一遍 try/catch。
+ *
+ * 失败一律弹通知：之前只写进 `state.error`，而调用点常常不显示它，
+ * 结果就是「点了没反应」——比报错更难排查。
+ */
 async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
   state.busy = true
   state.error = null
   try {
     return await action()
   } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err)
+    const message = err instanceof Error ? err.message : String(err)
+    state.error = message
+    notify('error', message)
     return undefined
   } finally {
     state.busy = false
@@ -77,6 +118,12 @@ async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
 export const store = readonly(state)
 
 export const actions = {
+  notify,
+
+  dismissToast(id: number) {
+    state.toasts = state.toasts.filter((t) => t.id !== id)
+  },
+
   /** 读取最近打开的站点。已被删除或移动的条目由后端自动清理。 */
   async loadRecent() {
     const items = await run(() => api.recentProjects())
@@ -94,6 +141,7 @@ export const actions = {
       state.project = summary
       state.externalChange = false
       await this.recomputePlan()
+      notify('success', `已打开 ${summary.config.site.title}`)
     }
   },
 
@@ -116,6 +164,8 @@ export const actions = {
     state.project = null
     state.currentSource = null
     state.currentRaw = ''
+    state.savedRaw = ''
+    state.pendingPage = null
     state.previewHtml = ''
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
     state.previewServer = null
@@ -124,11 +174,34 @@ export const actions = {
     void this.loadRecent()
   },
 
+  /** 请求打开一篇内容。有未保存改动时先问，不直接丢弃。 */
+  async requestOpenContent(page: PageSummary) {
+    if (page.source === state.currentSource) return
+    if (isDirty.value) {
+      state.pendingPage = page
+      return
+    }
+    await this.openContent(page)
+  },
+
+  /** 处理「未保存改动」的三种选择。 */
+  async resolvePending(choice: 'save' | 'discard' | 'cancel') {
+    const target = state.pendingPage
+    state.pendingPage = null
+    if (!target || choice === 'cancel') return
+    if (choice === 'save') {
+      await this.saveContent()
+      if (isDirty.value) return // 保存失败就留在原处
+    }
+    await this.openContent(target)
+  },
+
   async openContent(page: PageSummary) {
     const raw = await run(() => api.readContent(page.source))
     if (raw !== undefined) {
       state.currentSource = page.source
       state.currentRaw = raw
+      state.savedRaw = raw
       state.currentTemplate = null
       await this.refreshPreview()
     }
@@ -139,6 +212,7 @@ export const actions = {
     const source = await run(() => api.createContent({ title, section }))
     if (!source) return
     await this.refresh()
+    notify('success', `已创建 ${source}（草稿）`)
     const page = state.project?.pages.find((p) => p.source === source)
     if (page) await this.openContent(page as PageSummary)
   },
@@ -153,10 +227,25 @@ export const actions = {
     if (state.previewServer) {
       await run(() => api.stopPreviewServer())
       state.previewServer = null
+      notify('info', '本地预览服务器已停止')
       return
     }
     const url = await run(() => api.startPreviewServer())
-    if (url) state.previewServer = url
+    if (url) {
+      state.previewServer = url
+      notify('success', `本地预览服务器：${url}`)
+    }
+  },
+
+  /** 在系统默认浏览器里打开地址。 */
+  async openInBrowser(url: string) {
+    await run(() => openUrl(url))
+  },
+
+  /** 在文件管理器中定位输出目录。 */
+  async revealOutput() {
+    const dir = await run(() => api.outputDir())
+    if (dir) await run(() => revealItemInDir(dir))
   },
 
   setRaw(raw: string) {
@@ -165,11 +254,14 @@ export const actions = {
 
   async saveContent() {
     if (!state.currentSource) return
-    const plan = await run(() => api.saveContent(state.currentSource!, state.currentRaw))
+    const raw = state.currentRaw
+    const plan = await run(() => api.saveContent(state.currentSource!, raw))
     if (plan) {
+      state.savedRaw = raw
       state.plan = plan
       await this.refresh()
       await this.refreshPreview()
+      notify('success', `已保存，待生成 ${plan.pages.length} 个页面`)
     }
   },
 
@@ -188,9 +280,12 @@ export const actions = {
     const bytes = new Uint8Array(await file.arrayBuffer())
     const asset = await run(() => api.saveAsset(file.name || 'pasted', bytes))
     if (!asset) return undefined
-    state.progress = asset.deduplicated
-      ? `已复用相同内容的资源 ${asset.file_name}`
-      : `已保存资源 ${asset.file_name}`
+    notify(
+      'success',
+      asset.deduplicated
+        ? `已复用相同内容的资源 ${asset.file_name}`
+        : `已保存资源 ${asset.file_name}`,
+    )
     return asset.url
   },
 
@@ -215,6 +310,7 @@ export const actions = {
     if (plan) {
       state.plan = plan
       await this.refresh()
+      notify('success', `${state.currentTemplate} 已保存，影响 ${plan.pages.length} 个页面`)
     }
   },
 
@@ -229,25 +325,38 @@ export const actions = {
       state.lastBuild = report
       await this.recomputePlan()
       await this.refresh()
+      notify(
+        'success',
+        `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
+      )
+      for (const warning of report.warnings) notify('info', warning)
     }
   },
 
   async saveConfig(config: SiteConfig) {
     const issues = await run(() => api.saveConfig(config))
-    if (issues) await this.refresh()
+    if (issues) {
+      await this.refresh()
+      notify('success', '设置已保存')
+    }
   },
 
   async saveSecret(account: string, secret: string) {
-    await run(() => api.saveSecret(account, secret))
+    const done = await run(() => api.saveSecret(account, secret))
+    if (done !== undefined) notify('success', '凭证已写入系统凭据管理器')
   },
 
   async checkDeploy() {
-    await run(() => api.checkDeploy())
+    const done = await run(() => api.checkDeploy())
+    if (done !== undefined) notify('success', '连接与凭证检查通过')
   },
 
   async deploy() {
     const report = await run(() => api.deploySite())
-    if (report) state.lastDeploy = report
+    if (report) {
+      state.lastDeploy = report
+      notify('success', `发布完成：上传 ${report.uploaded.length} 个文件`)
+    }
   },
 
   dismissError() {

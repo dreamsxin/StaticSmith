@@ -8,7 +8,6 @@
  *   代价是需要先生成一次。
  */
 import { computed } from 'vue'
-import { openUrl } from '@tauri-apps/plugin-opener'
 
 import { actions, store } from '../store'
 
@@ -33,7 +32,8 @@ const serverPageUrl = computed(() =>
       <button
         v-if="serverPageUrl"
         type="button"
-        @click="openUrl(serverPageUrl)"
+        :disabled="store.busy"
+        @click="actions.openInBrowser(serverPageUrl)"
       >
         在浏览器打开
       </button>

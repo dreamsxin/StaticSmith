@@ -1,12 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "桌面端默认权限：文件对话框与在系统中打开生成结果",
+  "description": "桌面端默认权限：文件对话框、在浏览器打开预览地址、在文件管理器中定位产物",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "dialog:allow-open",
-    "opener:allow-open-path",
-    "opener:allow-open-url"
+    "opener:default"
   ]
 }

@@ -1,18 +1,11 @@
 <script setup lang="ts">
 /** 生成面板：展示增量影响范围、触发构建、查看历史。 */
 import { computed } from 'vue'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
 
-import { outputDir } from '../api'
 import { actions, store } from '../store'
 
 const plan = computed(() => store.plan)
 const report = computed(() => store.lastBuild)
-
-async function openOutput() {
-  const dir = await outputDir()
-  await revealItemInDir(dir)
-}
 </script>
 
 <template>
@@ -47,7 +40,7 @@ async function openOutput() {
         <button type="button" :disabled="store.busy" @click="actions.recomputePlan()">
           重新计算范围
         </button>
-        <button type="button" @click="openOutput">打开输出目录</button>
+        <button type="button" @click="actions.revealOutput()">在文件管理器中定位产物</button>
       </div>
     </div>
 
