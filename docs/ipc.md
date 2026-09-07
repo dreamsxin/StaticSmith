@@ -170,6 +170,19 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 不给「点一下直接导」。`import_content` 会在写盘前对每个可导入目标
 `note_self_write`，避免导完弹「检测到外部修改」。
 
+主题包（与 `staticsmith theme` 同一套逻辑）：
+
+- `export_theme(args: { archive, name, version, description, author }) -> ThemeExported`：
+  打包模板与主题静态资源，返回 `{ archive, files, templates, assets }`
+- `scan_theme(archive) -> ThemePreview`：只读，给出 `manifest`、`files`（会写出的文件）、
+  `conflicts`（其中会覆盖现有文件的）、`rejected`（越界或位置不对的条目及原因）
+- `import_theme(archive, overwrite) -> ThemeImported`：`written` / `skipped` / `rejected`
+
+包里只有 `templates/` 与 `theme/` 两块，`content/` 与 `static/` 既不进包也不会被写——
+换外观不该动内容。`import_theme` 会先对模板目录与主题目录各 `note_self_tree`：
+一次装十几个文件，逐个记不如把两棵子树标上。装完界面要重算增量计划，
+「待生成」会跳成全站，这正是应该让人看到的事实。
+
 
 
 

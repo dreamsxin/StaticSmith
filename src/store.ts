@@ -224,6 +224,40 @@ export const actions = {
     return report
   },
 
+  /** 打包当前外观。不含 content/ 与 static/，所以给别人也不会带走内容。 */
+  async exportTheme(archive: string, manifest: api.ThemeManifest) {
+    const report = await run(() => api.exportTheme(archive, manifest))
+    if (!report) return undefined
+    notify(
+      'success',
+      `已打包「${manifest.name}」：模板 ${report.templates} 个、资源 ${report.assets} 个`,
+    )
+    return report
+  },
+
+  /** 只读：主题包会写哪些文件、哪些会被覆盖。 */
+  async scanTheme(archive: string) {
+    return await run(() => api.scanTheme(archive))
+  },
+
+  /**
+   * 装主题包。
+   *
+   * 换外观等于所有页面的模板都变了，所以装完刷新组件树与增量计划——
+   * 「待生成 N / M」会直接跳成全站，这正是应该让人看到的事实。
+   */
+  async importTheme(archive: string, overwrite: boolean) {
+    const report = await run(() => api.importTheme(archive, overwrite))
+    if (!report) return undefined
+    notify(
+      'success',
+      `已装「${report.manifest.name}」：写入 ${report.written.length} 个文件，跳过 ${report.skipped.length} 个`,
+    )
+    await this.refresh()
+    await this.recomputePlan()
+    return report
+  },
+
 
   /** 新建栏目：建目录并写一张索引页，否则栏目列表页打不开。 */
   async createSection(path: string, title: string) {

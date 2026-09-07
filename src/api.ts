@@ -609,6 +609,57 @@ export const saveSectionMeta = (path: string, meta: SectionMeta) =>
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
 export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })
 
+// ---------------------------------------------------------------- 主题包
+
+/** 主题包的说明文件（包内 theme.toml）。 */
+export interface ThemeManifest {
+  name: string
+  version: string
+  description: string
+  author: string
+}
+
+export interface ThemeExported {
+  archive: string
+  files: number
+  templates: number
+  assets: number
+}
+
+export interface ThemeRejected {
+  /** 压缩包里的原始条目名 */
+  entry: string
+  reason: string
+}
+
+export interface ThemePreview {
+  manifest: ThemeManifest
+  /** 会写出的文件，相对站点根目录 */
+  files: string[]
+  /** 其中已存在、装包会覆盖的那些 */
+  conflicts: string[]
+  /** 被拒绝的条目（越界路径、两个目录之外的位置） */
+  rejected: ThemeRejected[]
+}
+
+export interface ThemeImported {
+  manifest: ThemeManifest
+  written: string[]
+  skipped: string[]
+  rejected: ThemeRejected[]
+}
+
+/** 打包当前外观（模板 + 主题静态资源），不含 content/ 与 static/。 */
+export const exportTheme = (archive: string, manifest: ThemeManifest) =>
+  invoke<ThemeExported>('export_theme', { args: { archive, ...manifest } })
+
+/** 只读：主题包会写哪些文件、哪些会被覆盖。 */
+export const scanTheme = (archive: string) => invoke<ThemePreview>('scan_theme', { archive })
+
+/** 装主题包。`overwrite` 为假时已存在的文件一律跳过。 */
+export const importTheme = (archive: string, overwrite: boolean) =>
+  invoke<ThemeImported>('import_theme', { archive, overwrite })
+
 
 
 /** 分块转换，避免大文件时 `String.fromCharCode(...)` 参数过多导致栈溢出。 */

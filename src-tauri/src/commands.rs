@@ -18,6 +18,10 @@ use staticsmith_core::sections::{
     Created as SectionCreated, Meta as SectionMeta, Renamed as SectionRenamed, Section,
 };
 use staticsmith_core::templates::TemplateInfo;
+use staticsmith_core::theme::{
+    Exported as ThemeExported, Imported as ThemeImported, Manifest as ThemeManifest,
+    Preview as ThemePreview,
+};
 use staticsmith_core::{
     content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
     SiteConfig,
@@ -100,6 +104,15 @@ pub struct SectionMetaArgs {
     pub path: String,
     #[serde(flatten)]
     pub meta: SectionMeta,
+}
+
+/// 打包主题的参数。
+#[derive(Debug, Deserialize)]
+pub struct ThemeExportArgs {
+    /// 要写出的 zip 路径（由界面的「另存为」对话框给出）。
+    pub archive: String,
+    #[serde(flatten)]
+    pub manifest: ThemeManifest,
 }
 
 // ---------------------------------------------------------------- 项目生命周期
@@ -575,6 +588,43 @@ pub fn save_section_meta(
         }
         session.builder.set_section_meta(&args.path, &args.meta)?;
         Ok(session.builder.sections())
+    })
+}
+
+// ---------------------------------------------------------------- 主题包
+
+/// 打包当前站点的外观（模板 + 主题静态资源）成一个 zip。
+///
+/// 不含 `content/` 与 `static/`：文章与上传的图片是站点的，不是主题的。
+#[tauri::command]
+pub fn export_theme(state: State<'_, AppState>, args: ThemeExportArgs) -> Result<ThemeExported> {
+    state.with_session(|session| {
+        Ok(session
+            .builder
+            .export_theme(Path::new(&args.archive), &args.manifest)?)
+    })
+}
+
+/// 读出主题包会写哪些文件、哪些会覆盖现有文件。只读，不碰磁盘上的模板。
+#[tauri::command]
+pub fn scan_theme(state: State<'_, AppState>, archive: String) -> Result<ThemePreview> {
+    state.with_session(|session| Ok(session.builder.scan_theme(Path::new(&archive))?))
+}
+
+/// 装主题包。`overwrite` 为假时已存在的文件一律跳过。
+#[tauri::command]
+pub fn import_theme(
+    state: State<'_, AppState>,
+    archive: String,
+    overwrite: bool,
+) -> Result<ThemeImported> {
+    state.with_session_mut(|session| {
+        // 一次装十几个模板，逐个记不如把两棵子树都标上：否则装完必弹「检测到外部修改」
+        state.note_self_tree(&session.builder.paths.templates);
+        state.note_self_tree(&session.builder.paths.theme);
+        Ok(session
+            .builder
+            .import_theme(Path::new(&archive), overwrite)?)
     })
 }
 
