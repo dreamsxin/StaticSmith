@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use staticsmith_core::watch::{ChangeSet, ProjectWatcher};
-use staticsmith_core::Builder;
+use staticsmith_core::{Builder, PreviewServer};
 use tauri::{AppHandle, Emitter};
 
 use crate::error::{AppError, Result};
@@ -19,6 +19,8 @@ pub const EVENT_DEPLOY_PROGRESS: &str = "deploy://progress";
 pub struct Session {
     pub root: PathBuf,
     pub builder: Builder,
+    /// 本地预览服务器，未启动时为 None。随 Session 一起 drop。
+    pub preview: Option<PreviewServer>,
     /// 监听器随 Session 一起 drop，从而自动停止后台线程。
     _watcher: Option<ProjectWatcher>,
 }
@@ -52,6 +54,7 @@ impl AppState {
         *self.session.lock().expect("状态锁被污染") = Some(Session {
             root: root.to_path_buf(),
             builder,
+            preview: None,
             _watcher: Some(watcher),
         });
         Ok(())

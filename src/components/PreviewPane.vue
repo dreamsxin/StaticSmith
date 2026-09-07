@@ -1,23 +1,64 @@
 <script setup lang="ts">
 /**
- * 布局继承预览。
+ * 预览面板，两种模式：
  *
- * 直接把后端渲染好的完整 HTML 灌进 iframe：预览与最终产物走的是同一条渲染路径，
- * 因此「所见」必然等于「所得」。iframe 加 sandbox，避免站点脚本影响宿主界面。
+ * - **内存预览**（默认）：后端用同一条渲染路径渲出完整 HTML 灌进 iframe 的 `srcdoc`。
+ *   保存即可见，但 iframe 没有文件访问权限，图片与 CSS 取不到。
+ * - **本地服务器**：起一个只监听 127.0.0.1 的静态服务器指向产物目录，预览与线上完全一致，
+ *   代价是需要先生成一次。
  */
-import { store } from '../store'
+import { computed } from 'vue'
+import { openUrl } from '@tauri-apps/plugin-opener'
+
+import { actions, store } from '../store'
+
+/** 当前编辑页在站点里的地址。 */
+const pageUrl = computed(
+  () => store.project?.pages.find((p) => p.source === store.currentSource)?.url ?? '/',
+)
+
+const serverPageUrl = computed(() =>
+  store.previewServer ? `${store.previewServer}${pageUrl.value}` : null,
+)
 </script>
 
 <template>
   <section class="preview">
-    <header class="preview__bar">布局继承预览</header>
+    <header class="preview__bar">
+      <span>{{ store.previewServer ? '本地服务器预览' : '布局继承预览' }}</span>
+      <span class="editor__spacer" />
+      <button type="button" :disabled="store.busy" @click="actions.togglePreviewServer()">
+        {{ store.previewServer ? '停止服务器' : '启动本地服务器' }}
+      </button>
+      <button
+        v-if="serverPageUrl"
+        type="button"
+        @click="openUrl(serverPageUrl)"
+      >
+        在浏览器打开
+      </button>
+    </header>
+
     <iframe
-      v-if="store.previewHtml"
+      v-if="serverPageUrl"
+      class="preview__frame"
+      title="本地服务器预览"
+      :src="serverPageUrl"
+    />
+    <iframe
+      v-else-if="store.previewHtml"
       class="preview__frame"
       title="页面预览"
       sandbox="allow-same-origin"
       :srcdoc="store.previewHtml"
     />
     <p v-else class="preview__empty">保存或刷新后在此显示最终呈现效果。</p>
+
+    <footer v-if="store.previewServer" class="editor__foot">
+      {{ store.previewServer }} · 仅监听回环地址，需先「生成」才能看到最新产物
+    </footer>
+    <footer v-else class="editor__foot">
+      内存预览不加载图片与 CSS；需要完整效果请启动本地服务器
+    </footer>
   </section>
 </template>

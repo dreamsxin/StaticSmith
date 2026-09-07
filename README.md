@@ -21,6 +21,10 @@
 - Tera 渲染、主题静态资源复制、可选 HTML 压缩
 - 编辑器粘贴 / 拖入图片：按内容哈希（SHA-256 或 MD5）落盘到站点资源目录，自动去重
 - 站点目录结构全部可配置（内容 / 模板 / 主题 / 静态资源 / 输出 / 资源子目录与 URL 前缀）
+- 新建内容：按标题生成 slug 与 front matter 骨架，默认草稿，重名自动加序号
+- `sitemap.xml` 与 Atom 订阅（`feed.xml`）生成，可开关
+- 本地预览服务器（仅监听 127.0.0.1），预览与线上一致
+- 命令行工具 `staticsmith`：init / new / build / plan / serve / deploy / check，适合 CI
 - Git 发布（`git2`，产物独立仓库 + 强制推送产物分支）
 - FTP / SFTP 差异同步（按大小与修改时间比对，只传变化文件）
 - 凭证写入操作系统凭据管理器（Windows Credential Manager / macOS Keychain / Secret Service）
@@ -39,6 +43,11 @@ npm run tauri dev           # 启动桌面端（自动拉起 Vite）
 cargo test --workspace      # 运行 Rust 测试
 npm run build               # 前端类型检查 + 打包
 npm run tauri build         # 打包安装程序
+
+# 命令行（不需要 GUI 依赖，适合 CI）
+cargo run -p staticsmith-cli -- init ./my-site --title "我的站点"
+cargo run -p staticsmith-cli -- build --project ./my-site
+cargo run -p staticsmith-cli -- serve --project ./my-site
 ```
 
 首次运行界面后：**在空目录新建站点** → 自动写入 `templates/`、`themes/default/`、
@@ -61,11 +70,14 @@ StaticSmith/
 │   │   │   ├── graph.rs          # 模板依赖图（级联更新基础）
 │   │   │   ├── index.rs         # SQLite 索引
 │   │   │   ├── assets.rs        # 媒体资源内容寻址存储
+│   │   │   ├── feeds.rs         # sitemap.xml 与 Atom 订阅
+│   │   │   ├── serve.rs         # 本地预览 HTTP 服务器（serve feature）
 │   │   │   ├── build.rs         # 全量 / 增量构建引擎
 │   │   │   ├── watch.rs          # 文件监听
 │   │   │   ├── filters.rs        # 自定义 Tera 过滤器
 │   │   │   └── scaffold.rs       # 新建项目
 │   │   └── tests/build.rs        # 端到端构建测试
+│   ├── staticsmith-cli/          # 命令行工具（bin 名 staticsmith）
 │   └── staticsmith-deploy/
 │       └── src/
 │           ├── manifest.rs       # 本地清单与差异同步计划
@@ -112,6 +124,7 @@ my-site/
 - [统一模板与级联更新](docs/templates.md)
 - [媒体资源与目录结构](docs/assets.md)
 - [配置说明](docs/configuration.md)
+- [命令行工具](docs/cli.md)
 - [发布机制](docs/deploy.md)
 - [IPC 命令参考](docs/ipc.md)
 - [开发指引](docs/development.md)

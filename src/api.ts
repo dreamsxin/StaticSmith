@@ -28,6 +28,9 @@ export interface SiteConfig {
     static_dir: string
     page_size: number
     minify: boolean
+    generate_sitemap: boolean
+    generate_feed: boolean
+    feed_limit: number
   }
   assets: {
     /** 相对 static_dir 的子目录 */
@@ -200,6 +203,30 @@ export const saveContent = (source: string, raw: string) =>
 export const deleteContent = (source: string) => invoke<BuildPlan>('delete_content', { source })
 
 export const previewPage = (source: string) => invoke<string>('preview_page', { source })
+
+/** 新建内容的请求体，字段名与 Rust 的 `NewContent` 一致。 */
+export interface NewContentRequest {
+  section: string
+  title: string
+  slug?: string | null
+  template?: string | null
+  description?: string
+  tags?: string[]
+  /** 缺省为 true：新建内容默认是草稿 */
+  draft?: boolean
+}
+
+export const createContent = (request: NewContentRequest) =>
+  invoke<string>('create_content', { request })
+
+// ---------------------------------------------------------------- 本地预览服务器
+
+export const startPreviewServer = (port?: number) =>
+  invoke<string>('start_preview_server', { port })
+
+export const stopPreviewServer = () => invoke<void>('stop_preview_server')
+
+export const previewServerUrl = () => invoke<string | null>('preview_server_url')
 
 // ---------------------------------------------------------------- 媒体资源
 

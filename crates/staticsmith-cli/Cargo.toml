@@ -1,0 +1,25 @@
+[package]
+name = "staticsmith-cli"
+description = "StaticSmith 命令行工具：无界面构建、预览与发布"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "staticsmith"
+path = "src/main.rs"
+
+[dependencies]
+staticsmith-core = { workspace = true, features = ["serve"] }
+staticsmith-deploy.workspace = true
+
+anyhow.workspace = true
+clap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

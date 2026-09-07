@@ -256,6 +256,96 @@ pub fn resolve_source(content_root: &Path, source: &str) -> PathBuf {
     content_root.join(source.replace('\\', "/"))
 }
 
+/// 新建内容的请求参数。
+///
+/// 界面上「新建文章」只需要填标题与栏目，其余字段给默认值即可。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct NewContent {
+    /// 栏目（相对 `content/` 的目录），根目录传空串。
+    #[serde(default)]
+    pub section: String,
+    pub title: String,
+    /// 文件名主干，缺省由标题推导。
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub template: Option<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// 默认建为草稿，避免刚写一行就被发布出去。
+    #[serde(default = "default_draft")]
+    pub draft: bool,
+}
+
+fn default_draft() -> bool {
+    true
+}
+
+impl NewContent {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            draft: true,
+            ..Default::default()
+        }
+    }
+
+    pub fn in_section(mut self, section: impl Into<String>) -> Self {
+        self.section = section.into();
+        self
+    }
+
+    /// 目标源文件路径（相对 `content/`）。栏目里的路径穿越片段会被丢弃。
+    pub fn source_path(&self) -> String {
+        let section = util::sanitize_relative_dir(&self.section);
+        let stem = self
+            .slug
+            .as_deref()
+            .map(util::slugify_name)
+            .filter(|s| !s.is_empty())
+            .or_else(|| Some(util::slugify_name(&self.title)))
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "untitled".to_string());
+        if section.is_empty() {
+            format!("{stem}.md")
+        } else {
+            format!("{section}/{stem}.md")
+        }
+    }
+
+    /// 生成带 front matter 的骨架文件内容。`date` 为 `YYYY-MM-DD`。
+    pub fn to_markdown(&self, date: &str) -> String {
+        let mut fm = String::from("+++\n");
+        fm.push_str(&format!("title = {}\n", toml_string(&self.title)));
+        fm.push_str(&format!("date = {}\n", toml_string(date)));
+        if !self.description.is_empty() {
+            fm.push_str(&format!(
+                "description = {}\n",
+                toml_string(&self.description)
+            ));
+        }
+        if let Some(template) = &self.template {
+            fm.push_str(&format!("template = {}\n", toml_string(template)));
+        }
+        if !self.tags.is_empty() {
+            let tags: Vec<String> = self.tags.iter().map(|t| toml_string(t)).collect();
+            fm.push_str(&format!("tags = [{}]\n", tags.join(", ")));
+        }
+        if self.draft {
+            fm.push_str("draft = true\n");
+        }
+        fm.push_str("+++\n\n");
+        fm
+    }
+}
+
+/// TOML 字符串字面量：转义反斜杠与双引号即可，标题里不会有控制字符。
+fn toml_string(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,5 +419,53 @@ mod tests {
         let a = parse("a.md", "+++\ntitle=\"a\"\n+++\n1");
         let b = parse("a.md", "+++\ntitle=\"a\"\n+++\n2");
         assert_ne!(a.hash, b.hash);
+    }
+
+    #[test]
+    fn new_content_derives_path_from_title() {
+        let request = NewContent::new("统一模板 与 级联更新").in_section("posts");
+        assert_eq!(request.source_path(), "posts/统一模板-与-级联更新.md");
+    }
+
+    #[test]
+    fn new_content_prefers_explicit_slug() {
+        let mut request = NewContent::new("随便写的标题");
+        request.slug = Some("Custom Slug".into());
+        assert_eq!(request.source_path(), "custom-slug.md");
+    }
+
+    #[test]
+    fn new_content_section_cannot_escape_content_dir() {
+        let request = NewContent::new("x").in_section("../../etc");
+        assert_eq!(request.source_path(), "etc/x.md");
+    }
+
+    #[test]
+    fn new_content_falls_back_when_title_has_no_usable_chars() {
+        assert_eq!(NewContent::new("???").source_path(), "untitled.md");
+    }
+
+    #[test]
+    fn new_content_skeleton_is_parseable_and_draft_by_default() {
+        let mut request = NewContent::new("带 \"引号\" 的标题").in_section("posts");
+        request.tags = vec!["模板".into(), "增量".into()];
+        request.description = "摘要".into();
+
+        let raw = request.to_markdown("2026-09-07");
+        let page = parse("posts/x.md", &raw);
+
+        assert_eq!(page.title, "带 \"引号\" 的标题");
+        assert_eq!(page.tags, vec!["模板", "增量"]);
+        assert_eq!(page.description, "摘要");
+        assert!(page.draft, "新建内容默认是草稿");
+        assert!(page.date.is_some());
+    }
+
+    #[test]
+    fn new_content_skeleton_omits_empty_fields() {
+        let raw = NewContent::new("t").to_markdown("2026-09-07");
+        assert!(!raw.contains("description"));
+        assert!(!raw.contains("tags"));
+        assert!(!raw.contains("template"));
     }
 }

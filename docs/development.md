@@ -19,6 +19,9 @@ cargo test --workspace          # 全部 Rust 测试
 cargo test -p staticsmith-core  # 只测生成引擎
 cargo fmt --all                 # 格式化
 cargo clippy --workspace --all-targets
+
+# CLI（不依赖 GUI 系统库）
+cargo run -p staticsmith-cli -- --help
 ```
 
 `npm run tauri dev` 依赖 `dist-ui/`（`tauri.conf.json` 的 `frontendDist`）在生产构建时存在；
@@ -54,6 +57,9 @@ cargo clippy --workspace --all-targets
 ## 尚未完成的方向
 
 - 块级拖拽富文本编辑（当前是 Markdown 源文编辑）
+- 标签 / 分类（taxonomy）页面生成
+- 资源垃圾回收：找出未被任何内容引用的媒体文件
+- `serve` 的文件监听自动重建（目前需要手动重新生成）
 - 主题包 `.zip` 导入导出
 - i18n 宏库与多语言构建
 - 基准测试（criterion）

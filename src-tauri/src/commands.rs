@@ -7,7 +7,7 @@ use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
-use staticsmith_core::{content, scaffold, SavedAsset, SiteConfig};
+use staticsmith_core::{content, scaffold, NewContent, PreviewServer, SavedAsset, SiteConfig};
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use tauri::{AppHandle, Emitter, State};
 
@@ -175,6 +175,46 @@ pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<Buil
 #[tauri::command]
 pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<String> {
     state.with_session(|session| Ok(session.builder.preview(&source)?))
+}
+
+/// 新建内容，返回其相对 `content/` 的路径。
+#[tauri::command]
+pub fn create_content(state: State<'_, AppState>, request: NewContent) -> Result<String> {
+    state.with_session_mut(|session| Ok(session.builder.create_content(&request)?))
+}
+
+// ---------------------------------------------------------------- 本地预览服务器
+
+/// 启动本地预览服务器，返回站点根地址。
+///
+/// 内存预览（`preview_page`）取不到图片与 CSS——iframe 的 `srcdoc` 没有本地文件访问权限。
+/// 这个服务器只监听 127.0.0.1，指向产物目录，因此预览与线上完全一致。
+#[tauri::command]
+pub fn start_preview_server(state: State<'_, AppState>, port: Option<u16>) -> Result<String> {
+    state.with_session_mut(|session| {
+        if let Some(server) = &session.preview {
+            return Ok(server.base_url());
+        }
+        let server = PreviewServer::start(&session.builder.paths.output, port.unwrap_or(0))?;
+        let url = server.base_url();
+        session.preview = Some(server);
+        Ok(url)
+    })
+}
+
+#[tauri::command]
+pub fn stop_preview_server(state: State<'_, AppState>) -> Result<()> {
+    state.with_session_mut(|session| {
+        // drop 即停止：PreviewServer 的 Drop 会置停止标记并 join 线程。
+        session.preview = None;
+        Ok(())
+    })
+}
+
+/// 当前预览地址，未启动时返回 null。
+#[tauri::command]
+pub fn preview_server_url(state: State<'_, AppState>) -> Result<Option<String>> {
+    state.with_session(|session| Ok(session.preview.as_ref().map(|s| s.base_url())))
 }
 
 // ---------------------------------------------------------------- 媒体资源

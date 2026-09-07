@@ -27,6 +27,8 @@ interface State {
   currentTemplate: string | null
   currentTemplateSource: string
   previewHtml: string
+  /** 本地预览服务器地址，未启动时为 null */
+  previewServer: string | null
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
@@ -44,6 +46,7 @@ const state = reactive<State>({
   currentTemplate: null,
   currentTemplateSource: '',
   previewHtml: '',
+  previewServer: null,
   plan: null,
   lastBuild: null,
   lastDeploy: null,
@@ -99,6 +102,8 @@ export const actions = {
     state.currentSource = null
     state.currentRaw = ''
     state.previewHtml = ''
+    // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
+    state.previewServer = null
     state.plan = null
   },
 
@@ -110,6 +115,31 @@ export const actions = {
       state.currentTemplate = null
       await this.refreshPreview()
     }
+  },
+
+  /** 新建内容并立即打开编辑。 */
+  async createContent(title: string, section: string) {
+    const source = await run(() => api.createContent({ title, section }))
+    if (!source) return
+    await this.refresh()
+    const page = state.project?.pages.find((p) => p.source === source)
+    if (page) await this.openContent(page as PageSummary)
+  },
+
+  /**
+   * 切换本地预览服务器。
+   *
+   * 内存预览取不到图片与 CSS（iframe srcdoc 没有文件访问权限），
+   * 开启服务器后预览走 HTTP，与线上完全一致。
+   */
+  async togglePreviewServer() {
+    if (state.previewServer) {
+      await run(() => api.stopPreviewServer())
+      state.previewServer = null
+      return
+    }
+    const url = await run(() => api.startPreviewServer())
+    if (url) state.previewServer = url
   },
 
   setRaw(raw: string) {

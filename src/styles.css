@@ -204,6 +204,22 @@ h3 {
   padding: 0.5rem;
 }
 
+.page-list__toolbar {
+  display: flex;
+  gap: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__new {
+  padding: 0.6rem 0.2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__new label {
+  font-size: 0.8rem;
+}
+
 .page-list__group h3 {
   color: var(--fg-muted);
   text-transform: uppercase;

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use staticsmith_core::{build::BuildMode, scaffold, Builder};
+use staticsmith_core::{build::BuildMode, scaffold, Builder, NewContent};
 
 /// 新建一个临时项目并返回其根目录。
 fn new_project() -> tempfile::TempDir {
@@ -290,4 +290,99 @@ fn asset_directory_is_configurable() {
         .join("dist/media/2026")
         .join(&saved.file_name)
         .is_file());
+}
+
+#[test]
+fn full_build_emits_sitemap_and_atom_feed() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    assert!(report.warnings.is_empty(), "{:?}", report.warnings);
+
+    let sitemap = read(dir.path(), "sitemap.xml");
+    assert!(sitemap.contains("<loc>https://example.com/</loc>"));
+    assert!(sitemap.contains("<loc>https://example.com/posts/hello-staticsmith/</loc>"));
+
+    let feed = read(dir.path(), "feed.xml");
+    assert!(feed.contains("<feed xmlns=\"http://www.w3.org/2005/Atom\""));
+    assert!(feed.contains("rel=\"self\" href=\"https://example.com/feed.xml\""));
+    assert!(feed.contains("<title>统一模板与级联更新是怎么工作的</title>"));
+    // 栏目索引页不进订阅。
+    assert!(!feed.contains("<title>文章归档</title>"));
+}
+
+#[test]
+fn site_files_can_be_disabled_and_warn_without_base_url() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("base_url = \"https://example.com\"", "base_url = \"\""),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    assert!(!dir.path().join("dist/sitemap.xml").exists());
+    assert!(!dir.path().join("dist/feed.xml").exists());
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains("base_url"));
+}
+
+#[test]
+fn create_content_writes_a_draft_skeleton_and_avoids_overwriting() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+
+    let source = builder
+        .create_content(&NewContent::new("我的第一篇文章").in_section("posts"))
+        .unwrap();
+    assert_eq!(source, "posts/我的第一篇文章.md");
+
+    // 新建后内容树里立刻能看到它，且默认是草稿。
+    let page = builder
+        .pages()
+        .iter()
+        .find(|p| p.source == source)
+        .expect("新建的内容应出现在页面列表里");
+    assert_eq!(page.title, "我的第一篇文章");
+    assert!(page.draft);
+    assert_eq!(page.template, "pages/post.html");
+
+    // 同名再建一次不覆盖，追加序号。
+    let second = builder
+        .create_content(&NewContent::new("我的第一篇文章").in_section("posts"))
+        .unwrap();
+    assert_eq!(second, "posts/我的第一篇文章-2.md");
+
+    // 草稿不进产物。
+    builder.build(BuildMode::Full).unwrap();
+    assert!(!dir
+        .path()
+        .join("dist/posts/我的第一篇文章/index.html")
+        .exists());
+}
+
+#[test]
+fn preview_server_serves_the_built_site() {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let server = staticsmith_core::PreviewServer::start(&builder.paths.output, 0).unwrap();
+    let mut stream = TcpStream::connect(server.addr()).unwrap();
+    stream
+        .write_all(b"GET /posts/hello-staticsmith/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.contains("site-header"), "预览应返回完整页面");
 }

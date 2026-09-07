@@ -28,6 +28,7 @@ pub mod build;
 pub mod config;
 pub mod content;
 pub mod error;
+pub mod feeds;
 pub mod filters;
 pub mod graph;
 pub mod index;
@@ -36,14 +37,20 @@ pub mod templates;
 pub mod util;
 pub mod watch;
 
+#[cfg(feature = "serve")]
+pub mod serve;
+
 pub use assets::{AssetStore, SavedAsset};
 pub use build::{BuildMode, BuildPlan, BuildReport, Builder, Pagination};
 pub use config::{AssetNaming, Assets, ProjectPaths, SiteConfig, CONFIG_FILE_NAME};
-pub use content::Page;
+pub use content::{NewContent, Page};
 pub use error::{Error, Result};
 pub use graph::TemplateGraph;
 pub use index::Index;
 pub use templates::{TemplateKind, TemplateSet};
+
+#[cfg(feature = "serve")]
+pub use serve::PreviewServer;
 
 /// 核心库版本，界面「关于」页展示用。
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

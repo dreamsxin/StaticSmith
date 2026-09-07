@@ -33,6 +33,9 @@ function clone(config: SiteConfig | null | undefined): SiteConfig {
       static_dir: './static',
       page_size: 10,
       minify: true,
+      generate_sitemap: true,
+      generate_feed: true,
+      feed_limit: 20,
     },
     assets: {
       dir: 'images',
@@ -90,6 +93,21 @@ function onDeployKindChange() {
         <input v-model="form.build.minify" type="checkbox" />
         压缩输出 HTML
       </label>
+      <label class="settings__checkbox">
+        <input v-model="form.build.generate_sitemap" type="checkbox" />
+        生成 sitemap.xml
+      </label>
+      <label class="settings__checkbox">
+        <input v-model="form.build.generate_feed" type="checkbox" />
+        生成 Atom 订阅（feed.xml）
+      </label>
+      <label>
+        订阅条目上限（0 为不限）
+        <input v-model.number="form.build.feed_limit" type="number" min="0" />
+      </label>
+      <p v-if="!form.site.base_url.trim()" class="build__muted">
+        站点地址为空时会跳过 sitemap 与订阅——它们需要绝对地址。
+      </p>
 
       <h3>媒体资源</h3>
       <label>

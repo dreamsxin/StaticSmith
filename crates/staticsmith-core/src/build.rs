@@ -8,8 +8,9 @@ use tera::Context;
 
 use crate::assets::{AssetStore, SavedAsset};
 use crate::config::{ProjectPaths, SiteConfig};
-use crate::content::{self, Page};
+use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
+use crate::feeds;
 use crate::index::{AssetRecord, Index, PageRecord};
 use crate::templates::TemplateSet;
 use crate::util;
@@ -142,6 +143,34 @@ impl Builder {
         self.index.assets()
     }
 
+    /// 新建内容文件，返回其相对 `content/` 的路径。
+    ///
+    /// 同名文件已存在时追加 `-2`、`-3`，不会覆盖已有内容。
+    pub fn create_content(&mut self, request: &NewContent) -> Result<String> {
+        let base = request.source_path();
+        let (stem, ext) = base
+            .rsplit_once('.')
+            .map(|(s, e)| (s.to_string(), e.to_string()))
+            .unwrap_or_else(|| (base.clone(), "md".to_string()));
+
+        let mut source = base.clone();
+        let mut suffix = 2;
+        while content::resolve_source(&self.paths.content, &source).exists() {
+            source = format!("{stem}-{suffix}.{ext}");
+            suffix += 1;
+        }
+
+        let path = content::resolve_source(&self.paths.content, &source);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
+        }
+        let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+        std::fs::write(&path, request.to_markdown(&today)).map_err(|e| Error::io(&path, e))?;
+
+        self.reload()?;
+        Ok(source)
+    }
+
     /// 计算构建计划，不写任何文件。
     pub fn plan(&self, mode: BuildMode) -> Result<BuildPlan> {
         let known = self.index.template_hashes()?;
@@ -239,6 +268,20 @@ impl Builder {
             }
         }
 
+        // 站点级 XML 产物。成本很低且依赖全站列表，因此增量构建也一起刷新。
+        match self.write_site_files(&all_pages) {
+            Ok(count) => files_written += count,
+            Err(e) => warnings.push(format!("站点级文件生成失败: {e}")),
+        }
+        if self.config.site.base_url.trim().is_empty()
+            && (self.config.build.generate_sitemap || self.config.build.generate_feed)
+        {
+            warnings.push(
+                "site.base_url 为空，已跳过 sitemap.xml 与 feed.xml（它们需要绝对地址）"
+                    .to_string(),
+            );
+        }
+
         // 清理已删除内容的产物。
         let mut removed_files = Vec::new();
         for record in self.index.prune_pages(
@@ -334,6 +377,28 @@ impl Builder {
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }
         std::fs::write(&path, html).map_err(|e| Error::io(&path, e))
+    }
+
+    /// 写出 `sitemap.xml` 与 `feed.xml`，返回写入的文件数。
+    ///
+    /// `site.base_url` 为空时直接跳过：相对链接的 sitemap 与订阅对搜索引擎和阅读器都无效。
+    fn write_site_files(&self, pages: &[&Page]) -> Result<usize> {
+        let base = self.config.site.base_url.trim();
+        if base.is_empty() {
+            return Ok(0);
+        }
+        let mut count = 0;
+        if self.config.build.generate_sitemap {
+            self.write_output("sitemap.xml", &feeds::sitemap_xml(base, pages))?;
+            count += 1;
+        }
+        if self.config.build.generate_feed {
+            let updated = chrono::Utc::now().to_rfc3339();
+            let xml = feeds::atom_xml(&self.config, pages, self.config.build.feed_limit, &updated);
+            self.write_output("feed.xml", &xml)?;
+            count += 1;
+        }
+        Ok(count)
     }
 
     /// 复制主题静态资源与站点级 `static_dir`（含编辑器插入的媒体资源）到输出目录。

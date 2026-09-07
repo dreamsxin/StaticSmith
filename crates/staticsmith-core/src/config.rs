@@ -51,6 +51,15 @@ pub struct Build {
     pub page_size: usize,
     #[serde(default)]
     pub minify: bool,
+    /// 生成 `sitemap.xml`（需要 `site.base_url`）。
+    #[serde(default = "default_true")]
+    pub generate_sitemap: bool,
+    /// 生成 `feed.xml`（Atom，需要 `site.base_url`）。
+    #[serde(default = "default_true")]
+    pub generate_feed: bool,
+    /// 订阅条目数上限，0 表示不限制。
+    #[serde(default = "default_feed_limit")]
+    pub feed_limit: usize,
 }
 
 /// 编辑器插入的图片等媒体资源如何落盘。
@@ -165,6 +174,9 @@ impl Default for Build {
             static_dir: default_static_dir(),
             page_size: default_page_size(),
             minify: false,
+            generate_sitemap: true,
+            generate_feed: true,
+            feed_limit: default_feed_limit(),
         }
     }
 }
@@ -316,6 +328,9 @@ fn default_assets_dir() -> String {
 }
 fn default_hash_length() -> usize {
     16
+}
+fn default_feed_limit() -> usize {
+    20
 }
 fn default_max_asset_mb() -> u64 {
     32

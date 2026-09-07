@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[features]
+default = ["serve"]
+# 本地预览 HTTP 服务器。CLI 与桌面端都需要它；纯构建场景可以关掉以减少依赖。
+serve = ["dep:tiny_http"]
+
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
@@ -25,6 +30,7 @@ regex.workspace = true
 notify.workspace = true
 tracing.workspace = true
 slug.workspace = true
+tiny_http = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

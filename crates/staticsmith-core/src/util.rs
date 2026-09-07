@@ -21,8 +21,7 @@ pub fn hash_bytes(input: &[u8]) -> String {
     hex16(&digest)
 }
 
-/// 完整的 SHA-256 十六进制串（64 字符）。
-///
+/// 完整的 SHA-256 十六进制串（64 字符）。///
 /// 资源去重用全长哈希：截断到 16 字节虽然足够做变更判定，但资源是内容寻址的存储键，
 /// 不值得为省几十字节承担额外碰撞面。
 pub fn hash_bytes_full(input: &[u8]) -> String {
@@ -34,6 +33,37 @@ pub fn hash_bytes_full(input: &[u8]) -> String {
 
 fn hex16(digest: &[u8]) -> String {
     digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
+}
+
+/// 生成用于文件名与 URL 的名字：保留字母数字（含中日韩）与 `-` `_`，其余折叠为单个 `-`。
+///
+/// 不做音译（`slug` crate 会把中文整段丢掉），因此中文标题会原样保留在 URL 里——
+/// 现代浏览器与服务器都能正确处理 UTF-8 路径，硬转拼音反而丢信息。
+pub fn slugify_name(input: &str) -> String {
+    let mut out = String::new();
+    for ch in input.chars() {
+        if ch.is_alphanumeric() || ch == '-' || ch == '_' {
+            out.extend(ch.to_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+        if out.chars().count() >= 64 {
+            break;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// 清洗相对目录：统一正斜杠、去掉首尾斜杠与 `.` / `..` 片段。
+///
+/// 用于所有来自界面输入的目录（新建内容的栏目、资源子目录），杜绝路径穿越。
+pub fn sanitize_relative_dir(input: &str) -> String {
+    input
+        .replace('\\', "/")
+        .split('/')
+        .filter(|s| !s.is_empty() && *s != "." && *s != "..")
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// 保守的 HTML 压缩：折叠标签间的空白，保留 `pre` / `code` / `script` / `style` / `textarea` 内部原样。
@@ -117,5 +147,28 @@ mod tests {
     #[test]
     fn minify_keeps_word_separation_in_text() {
         assert_eq!(minify_html("<p>hello\n  world</p>"), "<p>hello world</p>");
+    }
+
+    #[test]
+    fn slugify_keeps_cjk_and_collapses_separators() {
+        assert_eq!(slugify_name("Hello World"), "hello-world");
+        assert_eq!(slugify_name("统一模板 与 级联更新"), "统一模板-与-级联更新");
+        assert_eq!(slugify_name("a//b??c"), "a-b-c");
+        assert_eq!(slugify_name("__keep_underscores__"), "__keep_underscores__");
+        assert_eq!(slugify_name("???"), "");
+    }
+
+    #[test]
+    fn slugify_is_length_bounded() {
+        assert!(slugify_name(&"a".repeat(200)).chars().count() <= 64);
+    }
+
+    #[test]
+    fn sanitize_relative_dir_drops_traversal() {
+        assert_eq!(sanitize_relative_dir("posts"), "posts");
+        assert_eq!(sanitize_relative_dir("/posts/2026/"), "posts/2026");
+        assert_eq!(sanitize_relative_dir("..\\..\\etc"), "etc");
+        assert_eq!(sanitize_relative_dir("./a/./b"), "a/b");
+        assert_eq!(sanitize_relative_dir(""), "");
     }
 }

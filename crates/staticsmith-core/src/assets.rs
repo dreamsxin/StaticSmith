@@ -206,25 +206,14 @@ fn extension_of(original_name: &str) -> Option<String> {
     (!cleaned.is_empty()).then_some(cleaned)
 }
 
-/// `original` 命名策略下清洗文件主干：保留字母数字（含中日韩）与 `-` `_`，其余折叠为 `-`。
+/// `original` 命名策略下清洗文件主干：丢弃路径部分，只保留清洗后的文件名。
 fn sanitize_stem(original_name: &str) -> String {
     let name = original_name
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(original_name);
     let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
-    let mut out = String::new();
-    for ch in stem.chars() {
-        if ch.is_alphanumeric() || ch == '-' || ch == '_' {
-            out.extend(ch.to_lowercase());
-        } else if !out.ends_with('-') {
-            out.push('-');
-        }
-        if out.chars().count() >= 64 {
-            break;
-        }
-    }
-    out.trim_matches('-').to_string()
+    crate::util::slugify_name(stem)
 }
 
 /// 剪贴板粘贴的图片往往没有文件名，按魔术字节判断类型。

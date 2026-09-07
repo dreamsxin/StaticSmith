@@ -24,9 +24,24 @@
 
 - `list_pages() -> PageSummary[]`
 - `read_content(source) -> string`：读取源文件原文（含 front matter）
+- `create_content(request) -> string`：新建内容，返回其相对 `content/` 的路径
 - `save_content({ source, raw }) -> BuildPlan`：写盘 + 重新解析 + 返回增量计划
 - `delete_content(source) -> BuildPlan`
 - `preview_page(source) -> string`：在父级布局下渲染完整 HTML，不写盘
+
+`create_content` 的 `request` 字段：`section`、`title`、`slug?`、`template?`、
+`description?`、`tags?`、`draft?`（缺省 true）。文件名由 slug 或标题推导，
+同名时追加 `-2`；`section` 里的 `..` 会被丢弃。
+
+## 本地预览服务器
+
+- `start_preview_server(port?) -> string`：启动并返回站点根地址，已启动时返回现有地址
+- `stop_preview_server()`
+- `preview_server_url() -> string | null`
+
+服务器只监听 127.0.0.1，指向产物目录。内存预览（`preview_page`）取不到图片与 CSS，
+因为 iframe 的 `srcdoc` 没有文件访问权限；需要完整效果时启动这个服务器。
+它随项目关闭一起停止。
 
 `source` 是相对 `content/` 的正斜杠路径，如 `posts/hello.md`。
 

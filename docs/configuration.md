@@ -20,6 +20,9 @@ template_dir = "./templates"
 static_dir = "./static"
 page_size = 10
 minify = true
+generate_sitemap = true
+generate_feed = true
+feed_limit = 20
 
 [assets]
 dir = "images"          # 相对 static_dir
@@ -67,6 +70,9 @@ sftp = false
 - `page_size`：列表页每页条数，必须大于 0
 - `minify`：是否压缩输出 HTML。压缩只折叠标签间空白，`pre` / `code` / `script` /
   `style` / `textarea` 内部原样保留，不会破坏手写的 JS/CSS
+- `generate_sitemap` / `generate_feed`：是否生成 `sitemap.xml` 与 `feed.xml`（Atom）。
+  两者都需要 `site.base_url`；为空时跳过并在构建报告里给出提示
+- `feed_limit`：订阅条目上限，默认 20，0 表示不限制
 
 相对路径按站点根目录解析（`ProjectPaths`）；绝对路径原样使用。
 
