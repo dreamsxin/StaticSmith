@@ -485,6 +485,74 @@ kbd {
   padding: 0 0 0.75rem;
 }
 
+/* 标题行说明这一栏是什么，并把「新建」放在固定位置——搜索框不再兼任入口 */
+.page-list__head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__head h2 {
+  flex: none;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.page-list__count {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.page-list__group .page-list__count {
+  flex: none;
+  margin-left: 0.3rem;
+}
+
+/* 放大镜与清除按钮压在输入框上，一眼能看出这是搜索而不是待填的字段 */
+.page-list__search {
+  position: relative;
+  display: flex;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__search input {
+  flex: 1;
+  min-width: 0;
+  padding-left: 1.7rem;
+  font-size: 0.85rem;
+}
+
+.page-list__search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.95rem;
+  transform: translateY(-50%);
+  opacity: 0.55;
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.page-list__search-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  padding: 0 0.2rem;
+  transform: translateY(-50%);
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+}
+
+
 /* 工具条常驻可见：列表滚起来后过滤框不该跟着滚走 */
 .page-list__toolbar {
   position: sticky;
@@ -511,12 +579,27 @@ kbd {
 
 .page-list__new {
   padding: 0.6rem 0.5rem;
+  background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
 }
 
-.page-list__new label {
-  font-size: 0.8rem;
+.page-list__new h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.82rem;
 }
+
+.page-list__new label {
+  gap: 0.15rem;
+  margin-bottom: 0.4rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.page-list__new-actions {
+  display: flex;
+  gap: 0.4rem;
+}
+
 
 .page-list__group {
   padding: 0 0.5rem;
@@ -579,6 +662,22 @@ kbd {
   border: none;
   border-radius: 4px;
 }
+
+/* 上面那条是给列表条目的；标题行、搜索框、表单里的按钮仍是普通按钮 */
+.page-list__head button,
+.page-list__search button,
+.page-list__new-actions button {
+  flex: none;
+  width: auto;
+  text-align: center;
+}
+
+.page-list__head button.btn--primary,
+.page-list__new-actions button.btn--primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+
 
 .page-list button.active {
   color: inherit;
