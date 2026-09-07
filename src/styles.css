@@ -738,6 +738,17 @@ kbd {
   white-space: nowrap;
 }
 
+.preview__auto {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+
 
 .settings__checkbox {
   flex-direction: row;

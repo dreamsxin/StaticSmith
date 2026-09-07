@@ -22,9 +22,20 @@ const pageUrl = computed(
 /** 预览的目标地址：优先产物地址，否则当前编辑页。 */
 const targetUrl = computed(() => store.previewTarget ?? pageUrl.value)
 
+/**
+ * 服务器预览地址。
+ *
+ * 带上 `_` 参数：iframe 指向的是静态文件，重新生成后不会自己刷新，
+ * 地址不变则连请求都不会发。生成计数变化时 src 变化，才会重载。
+ */
 const serverPageUrl = computed(() =>
   store.previewServer ? `${store.previewServer}${targetUrl.value}` : null,
 )
+
+const framePageUrl = computed(() =>
+  serverPageUrl.value ? `${serverPageUrl.value}?_=${store.previewNonce}` : null,
+)
+
 </script>
 
 <template>
@@ -43,6 +54,14 @@ const serverPageUrl = computed(() =>
       <button type="button" :disabled="store.busy" @click="actions.togglePreviewServer()">
         {{ store.previewServer ? '停止服务器' : '启动本地服务器' }}
       </button>
+      <label class="preview__auto" title="保存后自动增量生成，产物与服务器预览随之更新">
+        <input
+          type="checkbox"
+          :checked="store.autoBuild"
+          @change="actions.setAutoBuild(($event.target as HTMLInputElement).checked)"
+        />
+        保存即生成
+      </label>
       <button
         v-if="serverPageUrl"
         type="button"
@@ -54,11 +73,12 @@ const serverPageUrl = computed(() =>
     </header>
 
     <iframe
-      v-if="serverPageUrl"
+      v-if="framePageUrl"
       class="preview__frame"
       title="本地服务器预览"
-      :src="serverPageUrl"
+      :src="framePageUrl"
     />
+
     <iframe
       v-else-if="store.previewHtml"
       class="preview__frame"
@@ -69,7 +89,9 @@ const serverPageUrl = computed(() =>
     <p v-else class="preview__empty">保存或刷新后在此显示最终呈现效果。</p>
 
     <footer v-if="store.previewServer" class="editor__foot">
-      {{ store.previewServer }} · 仅监听回环地址，需先「生成」才能看到最新产物
+      {{ store.previewServer }} · 仅监听回环地址{{
+        store.autoBuild ? '，保存后自动重新生成' : '，需先「生成」才能看到最新产物'
+      }}
     </footer>
     <footer v-else class="editor__foot">
       内存预览不加载图片与 CSS；需要完整效果请启动本地服务器

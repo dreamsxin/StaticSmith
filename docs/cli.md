@@ -15,7 +15,8 @@ staticsmith init [目录] --title "站点名"     # 创建骨架，已存在文�
 staticsmith new "标题" [--section posts] [--slug custom] [--template pages/post.html] [--publish]
 staticsmith build [--full]                    # 默认智能增量
 staticsmith plan  [--full]                    # 只算影响范围，不写文件
-staticsmith serve [--port 5321] [--build]     # 本地预览，仅监听 127.0.0.1
+staticsmith serve [--port 5321] [--no-watch]  # 本地预览，仅监听 127.0.0.1
+
 staticsmith deploy [--build] [--check-only]   # Git 或 FTP/SFTP 发布
 staticsmith check                             # 校验配置、模板与内容
 staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
@@ -25,6 +26,13 @@ staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
 除 `init` 外，所有命令接受 `--project <目录>` 指定站点根目录（默认当前目录）。
 
 `new` 默认建为草稿（`draft = true`），加 `--publish` 才直接发布——写了一行就被推上线不是好默认值。
+
+`serve` 默认监听 `content/`、`templates/`、`themes/`，改动后自动增量重新生成（去抖 300 ms），
+启动时也会先生成一次，因此首屏就有内容。重建失败（比如模板正在改、语法暂时不完整）只打印错误，
+服务器继续跑，改好后下一次保存就恢复。纯静态托管场景用 `--no-watch` 关掉监听，
+此时若想先生成一次再服务，额外加 `--build`。
+
+
 
 ## 凭证：只读环境变量
 

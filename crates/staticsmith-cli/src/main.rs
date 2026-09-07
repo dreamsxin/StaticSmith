@@ -83,7 +83,7 @@ pub enum Command {
         project: ProjectArgs,
     },
 
-    /// 启动本地预览服务器（仅监听 127.0.0.1）
+    /// 启动本地预览服务器（仅监听 127.0.0.1），默认监听文件变更自动重新生成
     Serve {
         /// 端口，0 表示由系统分配
         #[arg(short = 'P', long, default_value_t = 5321)]
@@ -91,6 +91,9 @@ pub enum Command {
         /// 启动前先生成一次
         #[arg(long)]
         build: bool,
+        /// 只做静态服务，不监听文件变更
+        #[arg(long)]
+        no_watch: bool,
         #[command(flatten)]
         project: ProjectArgs,
     },
@@ -166,8 +169,9 @@ pub fn run(cli: Cli) -> Result<()> {
         Command::Serve {
             port,
             build,
+            no_watch,
             project,
-        } => cmd_serve(&project.project, port, build),
+        } => cmd_serve(&project.project, port, build, !no_watch),
         Command::Deploy {
             check_only,
             build,
@@ -259,24 +263,67 @@ pub fn cmd_plan(project: &PathBuf, mode: BuildMode) -> Result<BuildPlan> {
     Ok(plan)
 }
 
-fn cmd_serve(project: &PathBuf, port: u16, build_first: bool) -> Result<()> {
-    let builder = if build_first {
-        let mut builder = open(project)?;
+fn cmd_serve(project: &PathBuf, port: u16, build_first: bool, watch: bool) -> Result<()> {
+    let mut builder = open(project)?;
+    // 监听模式下先生成一次：否则首屏是空目录，得等到第一次改动才有内容。
+    if build_first || watch {
         builder.build(BuildMode::Incremental).context("生成失败")?;
-        builder
-    } else {
-        open(project)?
-    };
+    }
 
     let server = PreviewServer::start(&builder.paths.output, port)
         .context("预览服务器启动失败（端口可能被占用）")?;
     println!("预览地址：{}", server.base_url());
-    println!("按 Ctrl+C 停止");
 
-    // 服务器在后台线程里跑，主线程挂起等待 Ctrl+C（进程退出时线程随之结束）。
-    loop {
-        std::thread::sleep(std::time::Duration::from_secs(3600));
+    if !watch {
+        println!("按 Ctrl+C 停止（--no-watch：不会自动重新生成）");
+        // 服务器在后台线程里跑，主线程挂起等待 Ctrl+C（进程退出时线程随之结束）。
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(3600));
+        }
     }
+
+    println!("正在监听 content/ templates/ themes/，改动后自动增量生成");
+    println!("按 Ctrl+C 停止");
+    watch_and_rebuild(&mut builder)
+}
+
+/// 监听源文件，改动后增量重建。
+///
+/// 构建要 `&mut Builder`，而监听回调跑在别的线程上，所以回调只把变更集丢进通道，
+/// 真正的构建留在主线程做——顺带保证同一时刻只有一次构建在跑。
+fn watch_and_rebuild(builder: &mut Builder) -> Result<()> {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use staticsmith_core::watch::{ChangeSet, ProjectWatcher};
+
+    let paths = builder.paths.clone();
+    let (tx, rx) = mpsc::channel::<ChangeSet>();
+    let _watcher = ProjectWatcher::start(
+        &paths.templates,
+        &paths.content,
+        &paths.theme,
+        Duration::from_millis(300),
+        move |set| {
+            // 主线程已退出时发送失败，忽略即可：进程正在结束。
+            let _ = tx.send(set);
+        },
+    )
+    .context("文件监听启动失败")?;
+
+    for set in rx {
+        let changed = set.templates.len() + set.content.len() + set.other.len();
+        if let Err(err) = builder
+            .reload()
+            .and_then(|_| builder.build(BuildMode::Incremental))
+        {
+            // 模板写坏了是常态（正在编辑），报错后继续监听，不能让服务器跟着退出。
+            eprintln!("重新生成失败：{err}");
+            continue;
+        }
+        println!("检测到 {changed} 处改动，已重新生成");
+    }
+    Ok(())
 }
 
 fn cmd_deploy(project: &PathBuf, check_only: bool, build_first: bool) -> Result<()> {

@@ -176,6 +176,8 @@ pub fn save_content(state: State<'_, AppState>, args: SaveContentArgs) -> Result
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        // 先登记再写：监听事件最快也要等去抖窗口，不会早于这里。
+        state.note_self_write(&path);
         std::fs::write(&path, &args.raw)?;
         session.builder.reload()?;
         Ok(session.builder.plan(BuildMode::Incremental)?)
@@ -186,6 +188,7 @@ pub fn save_content(state: State<'_, AppState>, args: SaveContentArgs) -> Result
 pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<BuildPlan> {
     state.with_session_mut(|session| {
         let path = content::resolve_source(&session.builder.paths.content, &source);
+        state.note_self_write(&path);
         std::fs::remove_file(&path)?;
         session.builder.reload()?;
         Ok(session.builder.plan(BuildMode::Incremental)?)
@@ -201,7 +204,15 @@ pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<String
 /// 新建内容，返回其相对 `content/` 的路径。
 #[tauri::command]
 pub fn create_content(state: State<'_, AppState>, request: NewContent) -> Result<String> {
-    state.with_session_mut(|session| Ok(session.builder.create_content(&request)?))
+    state.with_session_mut(|session| {
+        let source = session.builder.create_content(&request)?;
+        // 写盘已发生，但监听器还在去抖窗口里，此时登记仍能对消。
+        state.note_self_write(&content::resolve_source(
+            &session.builder.paths.content,
+            &source,
+        ));
+        Ok(source)
+    })
 }
 
 // ---------------------------------------------------------------- 本地预览服务器
@@ -308,6 +319,7 @@ pub fn save_template(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        state.note_self_write(&path);
         std::fs::write(&path, source)?;
         session.builder.reload()?;
         Ok(session.builder.plan(BuildMode::Incremental)?)

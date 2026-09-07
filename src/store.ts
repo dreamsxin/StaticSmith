@@ -58,11 +58,17 @@ interface State {
   lastDeploy: DeployReport | null
   progress: string
   busy: boolean
+  /** 保存后自动增量生成，让服务器预览与产物跟着变 */
+  autoBuild: boolean
+  /** 每次生成后自增，用来把服务器预览的 iframe 顶掉重载 */
+  previewNonce: number
   error: string | null
   toasts: Toast[]
   /** 磁盘上被外部编辑器改动、界面尚未刷新的提示 */
   externalChange: boolean
 }
+
+const AUTO_BUILD_KEY = 'staticsmith.autoBuild'
 
 const state = reactive<State>({
   project: null,
@@ -83,6 +89,8 @@ const state = reactive<State>({
   lastDeploy: null,
   progress: '',
   busy: false,
+  autoBuild: localStorage.getItem(AUTO_BUILD_KEY) === '1',
+  previewNonce: 0,
   error: null,
   toasts: [],
   externalChange: false,
@@ -279,6 +287,7 @@ export const actions = {
     if (state.pendingPage?.source === page.source) state.pendingPage = null
     await this.refresh()
     notify('success', `已删除 ${page.source}，生成时会清理它的产物`)
+    if (state.autoBuild) await this.build('incremental', { quiet: true })
   },
 
   /** 读取已登记的媒体资源，编辑器「媒体库」用。 */
@@ -347,6 +356,7 @@ export const actions = {
       await this.refresh()
       await this.refreshPreview()
       notify('success', `已保存，待生成 ${plan.pages.length} 个页面`)
+      if (state.autoBuild) await this.build('incremental', { quiet: true })
     }
   },
 
@@ -398,6 +408,7 @@ export const actions = {
       state.plan = plan
       await this.refresh()
       notify('success', `${state.currentTemplate} 已保存，影响 ${plan.pages.length} 个页面`)
+      if (state.autoBuild) await this.build('incremental', { quiet: true })
     }
   },
 
@@ -406,20 +417,38 @@ export const actions = {
     if (plan) state.plan = plan
   },
 
-  async build(mode: BuildMode) {
+  async build(mode: BuildMode, options: { quiet?: boolean } = {}) {
     const report = await run(() => api.runBuild(mode))
     if (report) {
       state.lastBuild = report
       await this.recomputePlan()
       await this.refresh()
       await this.loadOutputs()
-      notify(
-        'success',
-        `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
-      )
+      // 服务器预览是 iframe 指向静态文件，产物变了不会自己重载，靠这个计数顶一下。
+      state.previewNonce += 1
+      if (!options.quiet) {
+        notify(
+          'success',
+          `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
+        )
+      }
       for (const warning of report.warnings) notify('info', warning)
     }
   },
+
+  /**
+   * 保存后是否自动增量生成。
+   *
+   * 内存预览一直是即时的，但服务器预览与产物目录要等手动「生成」，
+   * 于是「改完看不到」成了常态。开启后保存即重建，和现代前端的 dev server 一致；
+   * 默认关闭，因为大站点的一次增量也要秒级，不该替用户决定。
+   */
+  setAutoBuild(on: boolean) {
+    state.autoBuild = on
+    localStorage.setItem(AUTO_BUILD_KEY, on ? '1' : '0')
+    notify('info', on ? '保存后将自动增量生成' : '已关闭保存后自动生成')
+  },
+
 
   async saveConfig(config: SiteConfig) {
     const issues = await run(() => api.saveConfig(config))
