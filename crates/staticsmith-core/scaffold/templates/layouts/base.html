@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="{{ site.language }}">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}{{ page.title }} · {{ site.title }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ page.description | default(value=site.description) }}{% endblock %}" />
+  <link rel="stylesheet" href="/css/main.css" />
+  {# 主题开发模式：自定义字体、JS 等外部资源放在这里，生成时原样保留 #}
+  {% block head %}{% endblock %}
+</head>
+<body>
+  {% include "components/header.html" %}
+
+  <main class="layout">
+    <div class="layout__main">
+      {% block main %}{% endblock %}
+    </div>
+    {% block sidebar %}{% include "components/sidebar.html" %}{% endblock %}
+  </main>
+
+  {% include "components/footer.html" %}
+  {% block scripts %}{% endblock %}
+</body>
+</html>

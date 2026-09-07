@@ -1,0 +1,33 @@
+[site]
+title = "我的 Rust 静态站"
+description = "基于 Tauri 的可视化工具"
+base_url = "https://example.com"
+language = "zh-CN"
+
+[build]
+output_dir = "./dist"
+content_dir = "./content"
+theme_dir = "./themes/default"
+# 统一模板目录
+template_dir = "./templates"
+page_size = 10
+# 构建时是否压缩 HTML
+minify = true
+
+[deploy]
+# 可选值：none / git / ftp
+type = "none"
+
+# [deploy.git]
+# remote = "https://github.com/user/repo.git"
+# branch = "main"
+# commit_message = "站点更新于 {{ now() }}"
+# auth_type = "token"   # token 或 ssh
+
+# [deploy.ftp]
+# host = "ftp.example.com"
+# port = 21
+# username = "user"
+# password_env = "FTP_PASSWORD"   # 仅保存环境变量名，密码存于系统凭据管理器
+# remote_path = "/public_html"
+# sftp = false

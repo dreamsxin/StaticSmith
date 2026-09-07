@@ -1,0 +1,29 @@
+[package]
+name = "staticsmith-core"
+description = "StaticSmith 静态生成核心：配置、内容解析、模板依赖图、增量构建"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tera.workspace = true
+rusqlite.workspace = true
+rayon.workspace = true
+walkdir.workspace = true
+pulldown-cmark.workspace = true
+chrono.workspace = true
+sha2.workspace = true
+regex.workspace = true
+notify.workspace = true
+tracing.workspace = true
+slug.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,0 +1,34 @@
+# Rust
+/target
+**/target/
+Cargo.lock.bak
+
+# Node / 前端
+node_modules/
+dist/
+dist-ui/
+dist-ssr/
+.vite/
+*.local
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# 站点构建产物与本地索引
+/examples/**/dist/
+*.staticsmith.db
+*.staticsmith.db-journal
+*.staticsmith.db-wal
+
+# 编辑器 / 系统
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# 敏感信息
+.env
+.env.*
+!.env.example

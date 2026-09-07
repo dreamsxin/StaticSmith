@@ -1,0 +1,29 @@
+{# 全局分页组件：接收后端注入的 pagination 上下文，所有列表页共用 #}
+{% if pagination and pagination.total_pages > 1 %}
+<nav class="pagination" aria-label="分页导航">
+  {% if pagination.prev_url %}
+    <a class="pagination__prev" href="{{ pagination.prev_url | safe }}">上一页</a>
+  {% else %}
+    <span class="pagination__prev pagination__prev--disabled">上一页</span>
+  {% endif %}
+
+  <ol class="pagination__pages">
+    {% for url in pagination.page_urls %}
+      {% set number = loop.index %}
+      <li>
+        {% if number == pagination.current_page %}
+          <span class="pagination__current" aria-current="page">{{ number }}</span>
+        {% else %}
+          <a href="{{ url | safe }}">{{ number }}</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+
+  {% if pagination.next_url %}
+    <a class="pagination__next" href="{{ pagination.next_url | safe }}">下一页</a>
+  {% else %}
+    <span class="pagination__next pagination__next--disabled">下一页</span>
+  {% endif %}
+</nav>
+{% endif %}

@@ -1,0 +1,388 @@
+:root {
+  --fg: #1f2328;
+  --fg-muted: #656d76;
+  --accent: #b7410e;
+  --border: #d0d7de;
+  --bg: #ffffff;
+  --bg-subtle: #f6f8fa;
+  --warn: #9a6700;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #e6edf3;
+    --fg-muted: #9198a1;
+    --border: #30363d;
+    --bg: #0d1117;
+    --bg-subtle: #161b22;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--fg);
+  background: var(--bg);
+  font: 14px/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+
+button {
+  padding: 0.3rem 0.75rem;
+  color: inherit;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+input,
+select,
+textarea {
+  padding: 0.3rem 0.5rem;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.6rem;
+}
+
+code {
+  padding: 0 0.2rem;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.warn {
+  color: var(--warn);
+}
+
+/* ---------------------------------------------------------------- 起始页 */
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.welcome__slogan {
+  color: var(--fg-muted);
+}
+
+.welcome__actions {
+  display: flex;
+  gap: 2rem;
+  align-items: flex-start;
+  margin-top: 1.5rem;
+}
+
+.welcome__create {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.welcome__hint {
+  color: var(--warn);
+}
+
+.welcome__note {
+  max-width: 32rem;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------- 外框 */
+
+.app {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  height: 100%;
+}
+
+.app__header,
+.app__status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.app__status {
+  color: var(--fg-muted);
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+  font-size: 0.85rem;
+}
+
+.app__root {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.app__tabs {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.app__spacer {
+  flex: 1;
+}
+
+.app__banner,
+.app__error {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  margin: 0;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.app__error {
+  color: #b3261e;
+}
+
+.app__body {
+  display: grid;
+  grid-template-columns: 16rem minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.app__body > * {
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+
+/* ---------------------------------------------------------------- 内容区 */
+
+.page-list {
+  padding: 0.5rem;
+}
+
+.page-list__group h3 {
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}
+
+.page-list ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.page-list button {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 4px;
+}
+
+.page-list button.active {
+  color: inherit;
+  background: var(--bg-subtle);
+  border-left: 2px solid var(--accent);
+}
+
+.page-list__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  padding: 0 0.35rem;
+  font-size: 0.7rem;
+  border-radius: 999px;
+}
+
+.badge--draft {
+  border: 1px solid var(--border);
+}
+
+.badge--dirty {
+  color: var(--accent);
+}
+
+.editor,
+.preview {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor__bar,
+.preview__bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__spacer {
+  flex: 1;
+}
+
+.editor__hint {
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+.editor__area,
+.layouts__editor {
+  flex: 1;
+  min-height: 20rem;
+  padding: 0.75rem;
+  border: none;
+  border-radius: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: none;
+}
+
+.editor--empty,
+.preview__empty {
+  padding: 1rem;
+  color: var(--fg-muted);
+}
+
+.preview__frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+/* ---------------------------------------------------------------- 其他面板 */
+
+.layouts,
+.build,
+.deploy,
+.settings {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 1rem;
+  padding: 1rem;
+  align-content: start;
+}
+
+.layouts {
+  grid-template-columns: 16rem 14rem minmax(0, 1fr);
+}
+
+.build,
+.deploy,
+.settings {
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+}
+
+.layouts__list,
+.layouts__tree,
+.build__stats {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.layouts__list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+}
+
+.layouts__list label {
+  flex-direction: row;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.layouts__column--wide {
+  display: flex;
+  flex-direction: column;
+}
+
+.layouts__actions,
+.deploy__actions,
+.build__actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.layouts__impact,
+.build__muted {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+
+.build__panel,
+.deploy__panel,
+.settings__panel {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.build__stats li {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__checkbox {
+  flex-direction: row;
+  gap: 0.4rem;
+  align-items: center;
+}

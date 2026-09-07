@@ -1,0 +1,9 @@
+{# 全局侧边栏：页面可用 {% block sidebar %}{% endblock %} 覆盖为空以获得宽屏布局 #}
+<aside class="site-sidebar">
+  <h2 class="site-sidebar__title">最新文章</h2>
+  <ul>
+    {% for item in pages | filter(attribute="is_index", value=false) | slice(end=5) %}
+      <li><a href="{{ item.url | safe }}">{{ item.title }}</a></li>
+    {% endfor %}
+  </ul>
+</aside>

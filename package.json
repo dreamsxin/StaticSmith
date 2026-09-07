@@ -1,0 +1,37 @@
+{
+  "name": "staticsmith",
+  "private": true,
+  "version": "2.0.0",
+  "description": "本地静站·工坊 —— 可视化静态网站生成工具",
+  "type": "module",
+  "license": "MIT",
+  "author": "dreamszhu <dreamsxin@qq.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dreamsxin/StaticSmith.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dreamsxin/StaticSmith/issues"
+  },
+  "homepage": "https://github.com/dreamsxin/StaticSmith#readme",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "2.9.0",
+    "@tauri-apps/plugin-dialog": "2.4.0",
+    "@tauri-apps/plugin-opener": "2.5.0",
+    "vue": "3.5.22"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.9.2",
+    "@vitejs/plugin-vue": "5.2.4",
+    "typescript": "5.9.3",
+    "vite": "6.3.6",
+    "vue-tsc": "2.2.10"
+  }
+}

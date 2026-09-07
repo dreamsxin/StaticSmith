@@ -1,0 +1,149 @@
+:root {
+  --fg: #1f2328;
+  --fg-muted: #656d76;
+  --accent: #b7410e; /* Rust 橙 */
+  --border: #d0d7de;
+  --bg: #ffffff;
+  --max-width: 60rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--fg);
+  background: var(--bg);
+  font: 16px/1.7 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover,
+a:focus-visible {
+  text-decoration: underline;
+}
+
+.site-header,
+.site-footer {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 1rem 1.25rem;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.site-header__logo {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.site-header__nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16rem;
+  gap: 2.5rem;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 2rem 1.25rem;
+}
+
+@media (max-width: 48rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.site-sidebar ul {
+  padding-left: 1.1rem;
+  margin: 0;
+}
+
+.post-card,
+.archive li {
+  padding-block: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.post-card h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.2rem;
+}
+
+time {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+}
+
+.post__content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.post__content pre {
+  padding: 1rem;
+  overflow-x: auto;
+  background: #f6f8fa;
+  border-radius: 6px;
+}
+
+.post__tags {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0.5rem 0 0;
+  list-style: none;
+}
+
+.post__tags li {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 2rem;
+}
+
+.pagination__pages {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.pagination__current {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pagination__prev--disabled,
+.pagination__next--disabled {
+  color: var(--fg-muted);
+}
+
+.site-footer {
+  color: var(--fg-muted);
+  font-size: 0.875rem;
+  border-top: 1px solid var(--border);
+}

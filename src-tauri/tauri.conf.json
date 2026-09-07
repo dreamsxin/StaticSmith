@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "StaticSmith",
+  "version": "2.0.0",
+  "identifier": "app.staticsmith.desktop",
+  "build": {
+    "frontendDist": "../dist-ui",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "本地静站·工坊",
+        "width": 1360,
+        "height": 860,
+        "minWidth": 1024,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "dmg", "appimage"],
+    "icon": ["icons/icon.ico", "icons/icon.png"],
+    "publisher": "dreamszhu",
+    "copyright": "Copyright (c) 2026 dreamszhu",
+    "license": "MIT",
+    "homepage": "https://github.com/dreamsxin/StaticSmith",
+    "shortDescription": "可视化静态网站生成工具",
+    "longDescription": "本地静站·工坊：统一模板、组件级联更新、Git/FTP 一键发布"
+  }
+}

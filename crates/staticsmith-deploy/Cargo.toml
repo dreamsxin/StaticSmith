@@ -1,0 +1,34 @@
+[package]
+name = "staticsmith-deploy"
+description = "StaticSmith 发布层：Git 与 FTP/SFTP 差异同步"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[features]
+default = ["git", "ftp"]
+# 纯 Rust Git 操作（libgit2）
+git = ["dep:git2"]
+# 明文 FTP / FTPS
+ftp = ["dep:suppaftp"]
+# SFTP over SSH
+sftp = ["dep:ssh2"]
+
+[dependencies]
+staticsmith-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+walkdir.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+tera.workspace = true
+
+git2 = { version = "0.19", optional = true, default-features = false, features = ["https"] }
+suppaftp = { version = "6.0", optional = true }
+ssh2 = { version = "0.9", optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true

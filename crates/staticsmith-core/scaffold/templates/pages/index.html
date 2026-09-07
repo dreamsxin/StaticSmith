@@ -1,0 +1,22 @@
+{% extends "layouts/base.html" %}
+
+{% block main %}
+<section class="hero">
+  <h1>{{ page.title }}</h1>
+  <div class="hero__body">{{ page.content | safe }}</div>
+</section>
+
+<section class="post-list">
+  {% for item in items %}
+    <article class="post-card">
+      <h2><a href="{{ item.url | safe }}">{{ item.title }}</a></h2>
+      {% if item.date %}<time datetime="{{ item.date }}">{{ item.date | date(format="%Y-%m-%d") }}</time>{% endif %}
+      <p>{{ item.description }}</p>
+    </article>
+  {% else %}
+    <p class="empty">还没有内容，去 content/ 目录新建一篇 Markdown 吧。</p>
+  {% endfor %}
+</section>
+
+{% include "components/pagination.html" %}
+{% endblock %}
