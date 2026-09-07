@@ -1031,6 +1031,7 @@ kbd {
 }
 
 .editor__code .editor__area,
+.editor__code .layouts__editor,
 .editor__mirror {
   min-height: 0;
   margin: 0;
@@ -1043,7 +1044,8 @@ kbd {
   overflow-wrap: break-word;
 }
 
-.editor__code .editor__area {
+.editor__code .editor__area,
+.editor__code .layouts__editor {
   position: relative;
   z-index: 1;
   flex: 1;
@@ -1053,10 +1055,12 @@ kbd {
 }
 
 /* 选区仍要看得见：文字透明时靠背景色标出范围 */
-.editor__code .editor__area::selection {
+.editor__code .editor__area::selection,
+.editor__code .layouts__editor::selection {
   color: transparent;
   background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
+
 
 .editor__mirror {
   position: absolute;
@@ -1111,6 +1115,40 @@ kbd {
   color: var(--fg-muted);
 }
 
+/* 模板：先分清「这段是 HTML 还是 Tera」，再看细节 */
+.tok-comment {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.tok-stmt,
+.tok-expr {
+  color: #9a4a06;
+}
+
+.tok-keyword {
+  color: #9a4a06;
+  font-weight: 600;
+}
+
+.tok-tagname {
+  color: var(--accent);
+}
+
+.tok-attr {
+  color: #6b5bd6;
+}
+
+.tok-string {
+  color: #0a7d6b;
+}
+
+/* 模板编辑器的高亮层与内容编辑器共用一组尺寸声明，这里只补它自己的撑满行为 */
+.layouts__code {
+  min-height: 12rem;
+}
+
+
 @media (prefers-color-scheme: dark) {
   .tok-code {
     color: #6ed7c0;
@@ -1120,7 +1158,22 @@ kbd {
   .tok-fm-value {
     color: #d9bd6a;
   }
+
+  .tok-stmt,
+  .tok-expr,
+  .tok-keyword {
+    color: #e5a06a;
+  }
+
+  .tok-attr {
+    color: #a99bf0;
+  }
+
+  .tok-string {
+    color: #6ed7c0;
+  }
 }
+
 
 
 .editor--empty,

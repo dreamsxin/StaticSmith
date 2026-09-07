@@ -9,9 +9,24 @@ import { computed, ref, watch } from 'vue'
 import { templateTree } from '../api'
 import type { TemplateInfo, TemplateNode } from '../api'
 import { actions, store } from '../store'
+import { highlight } from '../template-highlight'
 
 const tree = ref<TemplateNode | null>(null)
 const selectedLayout = ref<string>('')
+const editor = ref<HTMLTextAreaElement | null>(null)
+const mirror = ref<HTMLElement | null>(null)
+
+/** 模板着色与内容编辑器同一套机制，只是规则换成 HTML + Tera。 */
+const highlighted = computed(() => highlight(store.currentTemplateSource))
+
+function syncScroll() {
+  const el = editor.value
+  const box = mirror.value
+  if (!el || !box) return
+  box.scrollTop = el.scrollTop
+  box.scrollLeft = el.scrollLeft
+}
+
 
 const layouts = computed(() => store.project?.layouts ?? [])
 const components = computed(() => store.project?.components ?? [])
@@ -84,13 +99,18 @@ const flatTree = computed(() => (tree.value ? flatten(tree.value) : []))
     <div class="layouts__column layouts__column--wide">
       <h3>{{ store.currentTemplate ?? '模板源码' }}</h3>
       <template v-if="store.currentTemplate">
-        <textarea
-          class="layouts__editor"
-          spellcheck="false"
-          aria-label="模板源码"
-          :value="store.currentTemplateSource"
-          @input="actions.setTemplateSource(($event.target as HTMLTextAreaElement).value)"
-        />
+        <div class="editor__code layouts__code">
+          <pre ref="mirror" class="editor__mirror" aria-hidden="true"><code v-html="highlighted" /></pre>
+          <textarea
+            ref="editor"
+            class="layouts__editor"
+            spellcheck="false"
+            aria-label="模板源码"
+            :value="store.currentTemplateSource"
+            @input="actions.setTemplateSource(($event.target as HTMLTextAreaElement).value)"
+            @scroll="syncScroll"
+          />
+        </div>
         <div class="layouts__actions">
           <button type="button" :disabled="store.busy" @click="actions.saveTemplate()">
             保存组件
