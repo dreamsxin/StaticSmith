@@ -18,7 +18,10 @@ const assetUrlPrefix = computed(() => {
 
 watch(
   () => store.project?.config,
-  (config) => Object.assign(form, clone(config)),
+  (config) => {
+    Object.assign(form, clone(config))
+    normalizeTaxonomies()
+  },
 )
 
 /** store 是深只读的，深拷贝一份给表单编辑（拷贝会把只读性去掉）。 */
@@ -59,8 +62,59 @@ function clone(config: unknown): SiteConfig {
   }
 }
 
+/**
+ * 分类维度统一按列表编辑。
+ *
+ * 配置文件有两种写法（单数 `[taxonomy]` 与数组 `[[taxonomies]]`），界面只呈现一种：
+ * 读取时把单数段折进列表，保存时只有一个维度就写回单数段——
+ * 免得用户只是改了个标题，配置文件的形状就被换掉。
+ */
+function normalizeTaxonomies() {
+  if (form.taxonomies.length) return
+  if (form.taxonomy.enabled) form.taxonomies = [{ ...form.taxonomy }]
+}
+
+function addTaxonomy() {
+  form.taxonomies.push({
+    enabled: true,
+    name: 'categories',
+    slug: 'categories',
+    title: '分类',
+    list_template: 'pages/tags.html',
+    term_template: 'pages/tag.html',
+  })
+}
+
+function removeTaxonomy(index: number) {
+  form.taxonomies.splice(index, 1)
+}
+
+/**
+ * 按维度数量决定写回哪种形状，然后保存。
+ *
+ * 不改 `form` 本身：保存可能被后端校验驳回（比如两个维度用了同一个 slug），
+ * 那时界面上的行必须还在，否则用户刚填的东西看起来凭空少了一条。
+ */
+function save() {
+  const rows = form.taxonomies.map((row) => ({ ...row, enabled: true }))
+  const payload = clone(form)
+  if (rows.length === 0) {
+    payload.taxonomy = { ...form.taxonomy, enabled: false }
+    payload.taxonomies = []
+  } else if (rows.length === 1) {
+    payload.taxonomy = { ...rows[0] }
+    payload.taxonomies = []
+  } else {
+    payload.taxonomies = rows
+  }
+  void actions.saveConfig(payload)
+}
+
+
 /** 切换发布方式时补齐对应配置段，避免保存时被后端校验拒绝。 */
 function onDeployKindChange() {
+
+
   if (form.deploy.type === 'git' && !form.deploy.git) {
     form.deploy.git = {
       remote: '',
@@ -146,20 +200,35 @@ function onDeployKindChange() {
       </label>
       <p class="build__muted">当前资源地址前缀：<code>{{ assetUrlPrefix }}</code></p>
 
-      <h3>标签页</h3>
-      <label class="settings__checkbox">
-        <input v-model="form.taxonomy.enabled" type="checkbox" />
-        由 front matter 的 tags 生成标签页
-      </label>
-      <template v-if="form.taxonomy.enabled">
-        <label>URL 前缀<input v-model="form.taxonomy.slug" type="text" /></label>
-        <label>总览页标题<input v-model="form.taxonomy.title" type="text" /></label>
+      <h3>分类维度</h3>
+      <p class="build__muted">
+        每个维度读一个 front matter 字段，生成总览页与词条页（分页沿用「每页条数」）。
+        标签、分类、专栏都是同一种东西，只是字段与 URL 不同。
+      </p>
+
+      <div v-for="(tax, index) in form.taxonomies" :key="index" class="settings__row">
+        <label>字段名<input v-model="tax.name" type="text" placeholder="tags" /></label>
+        <label>URL 前缀<input v-model="tax.slug" type="text" placeholder="tags" /></label>
+        <label>总览页标题<input v-model="tax.title" type="text" placeholder="标签" /></label>
+        <label>总览模板<input v-model="tax.list_template" type="text" /></label>
+        <label>词条模板<input v-model="tax.term_template" type="text" /></label>
         <p class="build__muted">
-          将生成 <code>/{{ form.taxonomy.slug }}/</code> 与
-          <code>/{{ form.taxonomy.slug }}/&lt;标签&gt;/</code>，分页沿用「每页条数」
+          front matter 写 <code>{{ tax.name || tax.slug }} = ["…"]</code>，
+          生成 <code>/{{ tax.slug }}/</code> 与 <code>/{{ tax.slug }}/&lt;词条&gt;/</code>
         </p>
-      </template>
+        <button type="button" class="page-list__danger" @click="removeTaxonomy(index)">
+          移除这个维度
+        </button>
+      </div>
+
+      <p v-if="!form.taxonomies.length" class="build__muted">
+        当前不生成任何分类页。文章里的 tags 只会显示为纯文本。
+      </p>
+      <div class="build__actions">
+        <button type="button" @click="addTaxonomy">添加维度</button>
+      </div>
     </div>
+
 
     <div class="settings__panel">
       <h3>发布</h3>
@@ -201,9 +270,7 @@ function onDeployKindChange() {
         密码与 Token 不会写入配置文件，请在「发布」页保存到系统凭据管理器。
       </p>
 
-      <button type="button" :disabled="store.busy" @click="actions.saveConfig(form)">
-        保存设置
-      </button>
+      <button type="button" :disabled="store.busy" @click="save">保存设置</button>
     </div>
   </section>
 </template>

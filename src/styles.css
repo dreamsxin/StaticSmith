@@ -1060,6 +1060,21 @@ kbd {
   align-items: center;
 }
 
+/* 一个分类维度一组字段，用卡片圈起来才看得出是「一条」 */
+.settings__row {
+  padding: 0.6rem 0.7rem;
+  margin-bottom: 0.6rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings__row .page-list__danger {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+}
+
+
 /* ---------------------------------------------------------------- SEO 体检 */
 
 .seo {
