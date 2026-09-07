@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use staticsmith_core::watch::{ChangeSet, ProjectWatcher};
 use staticsmith_core::{Builder, PreviewServer};
-use tauri::{AppHandle, Emitter};
+use tauri::{Emitter, Manager, Window};
 
 use crate::error::{AppError, Result};
 
@@ -26,18 +26,23 @@ pub struct Session {
 }
 
 /// 应用全局状态：同一时刻只允许打开一个项目，避免索引与输出目录相互干扰。
+///
+/// 多站点的形态是「一窗口一站点」（见 `docs/architecture.md`），
+/// 因此这里保留单 session，但所有事件都按窗口标签定向发送，
+/// 将来把 `Option<Session>` 换成按标签索引的表即可，不必再改事件层。
 #[derive(Default)]
 pub struct AppState {
     session: Mutex<Option<Session>>,
 }
 
 impl AppState {
-    /// 打开项目并启动文件监听。
-    pub fn open(&self, app: &AppHandle, root: &Path) -> Result<()> {
+    /// 打开项目并启动文件监听。事件只发给发起打开的那个窗口。
+    pub fn open(&self, window: &Window, root: &Path) -> Result<()> {
         let builder = Builder::open(root)?;
         let paths = builder.paths.clone();
 
-        let handle = app.clone();
+        let app = window.app_handle().clone();
+        let watch_label = window.label().to_string();
         let watcher = ProjectWatcher::start(
             &paths.templates,
             &paths.content,
@@ -45,7 +50,7 @@ impl AppState {
             Duration::from_millis(300),
             move |set: ChangeSet| {
                 // 外部编辑器改了模板 → 通知界面刷新组件树并提示重新生成。
-                if let Err(err) = handle.emit(EVENT_PROJECT_CHANGED, &set) {
+                if let Err(err) = app.emit_to(watch_label.as_str(), EVENT_PROJECT_CHANGED, &set) {
                     tracing::warn!("发送文件变更事件失败: {err}");
                 }
             },

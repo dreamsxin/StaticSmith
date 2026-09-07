@@ -4074,6 +4074,7 @@ name = "staticsmith-app"
 version = "2.0.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "keyring",
  "serde",
  "serde_json",
@@ -4083,6 +4084,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
  "thiserror 1.0.69",
  "tracing",
  "tracing-subscriber",

@@ -9,9 +9,10 @@ use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{content, scaffold, NewContent, PreviewServer, SavedAsset, SiteConfig};
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::error::{AppError, Result};
+use crate::recent;
 use crate::state::{AppState, EVENT_BUILD_PROGRESS, EVENT_DEPLOY_PROGRESS};
 
 /// 系统凭据管理器中的服务名。
@@ -75,12 +76,30 @@ pub fn is_project(path: PathBuf) -> bool {
 
 #[tauri::command]
 pub fn open_project(
-    app: AppHandle,
+    window: Window,
     state: State<'_, AppState>,
     path: PathBuf,
 ) -> Result<ProjectSummary> {
-    state.open(&app, &path)?;
-    project_summary(state)
+    state.open(&window, &path)?;
+    let summary = project_summary(state)?;
+    // 打开成功才记入最近列表，避免把打不开的目录留在起始页。
+    recent::record(window.app_handle(), &path, &summary.config.site.title);
+    Ok(summary)
+}
+
+/// 最近打开的站点，最新在前。已被删除或移动的条目会在读取时自动清理。
+#[tauri::command]
+pub fn recent_projects(app: AppHandle) -> Vec<recent::RecentEntry> {
+    recent::load(&app).items
+}
+
+/// 从最近列表移除一项（不动磁盘上的站点）。
+#[tauri::command]
+pub fn forget_project(app: AppHandle, path: PathBuf) -> Result<Vec<recent::RecentEntry>> {
+    let mut list = recent::load(&app);
+    list.remove(&path);
+    recent::save(&app, &list)?;
+    Ok(list.items)
 }
 
 #[tauri::command]
@@ -294,7 +313,7 @@ pub fn build_plan(state: State<'_, AppState>, mode: BuildMode) -> Result<BuildPl
 /// 执行构建。开始与结束时各发一次 `build://progress` 事件驱动进度条。
 #[tauri::command]
 pub fn run_build(
-    app: AppHandle,
+    window: Window,
     state: State<'_, AppState>,
     mode: BuildMode,
 ) -> Result<BuildReport> {
@@ -303,7 +322,7 @@ pub fn run_build(
         let plan = session.builder.plan(mode)?;
         let total = plan.pages.len();
         emit(
-            &app,
+            &window,
             EVENT_BUILD_PROGRESS,
             BuildProgress {
                 phase: "渲染中".to_string(),
@@ -314,7 +333,7 @@ pub fn run_build(
 
         let report = session.builder.build(mode)?;
         emit(
-            &app,
+            &window,
             EVENT_BUILD_PROGRESS,
             BuildProgress {
                 phase: "完成".to_string(),
@@ -336,7 +355,7 @@ pub fn output_dir(state: State<'_, AppState>) -> Result<PathBuf> {
 
 /// 发布站点。凭证从系统凭据管理器读取，不经过配置文件。
 #[tauri::command]
-pub fn deploy_site(app: AppHandle, state: State<'_, AppState>) -> Result<DeployReport> {
+pub fn deploy_site(window: Window, state: State<'_, AppState>) -> Result<DeployReport> {
     let (config, dist) = state.with_session(|session| {
         Ok((
             session.builder.config.clone(),
@@ -348,8 +367,8 @@ pub fn deploy_site(app: AppHandle, state: State<'_, AppState>) -> Result<DeployR
     let deployer = staticsmith_deploy::from_config(&config, credentials)?;
     deployer.check()?;
 
-    let handle = app.clone();
-    let mut on_progress = move |p: Progress| emit(&handle, EVENT_DEPLOY_PROGRESS, p);
+    let target = window.clone();
+    let mut on_progress = move |p: Progress| emit(&target, EVENT_DEPLOY_PROGRESS, p);
     Ok(deployer.deploy(&dist, &mut on_progress)?)
 }
 
@@ -472,9 +491,12 @@ fn page_summary(page: &staticsmith_core::Page) -> PageSummary {
     }
 }
 
-/// 事件发送失败不应中断业务流程，只记录日志。
-fn emit<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
-    if let Err(err) = app.emit(event, payload) {
+/// 事件只投给发起操作的窗口。
+///
+/// 用 `emit_to` 而不是广播：多窗口下广播会让 A 站点的构建进度出现在 B 站点界面上。
+/// 发送失败不应中断业务流程，只记日志。
+fn emit<T: Serialize + Clone>(window: &Window, event: &str, payload: T) {
+    if let Err(err) = window.emit_to(window.label(), event, payload) {
         tracing::warn!("发送事件 {event} 失败: {err}");
     }
 }

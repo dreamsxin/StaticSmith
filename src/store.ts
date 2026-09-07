@@ -14,12 +14,15 @@ import type {
   DeployReport,
   PageSummary,
   ProjectSummary,
+  RecentEntry,
   SiteConfig,
   TemplateInfo,
 } from './api'
 
 interface State {
   project: ProjectSummary | null
+  /** 最近打开的站点，起始页用 */
+  recent: RecentEntry[]
   /** 当前编辑的内容源路径 */
   currentSource: string | null
   currentRaw: string
@@ -41,6 +44,7 @@ interface State {
 
 const state = reactive<State>({
   project: null,
+  recent: [],
   currentSource: null,
   currentRaw: '',
   currentTemplate: null,
@@ -73,6 +77,17 @@ async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
 export const store = readonly(state)
 
 export const actions = {
+  /** 读取最近打开的站点。已被删除或移动的条目由后端自动清理。 */
+  async loadRecent() {
+    const items = await run(() => api.recentProjects())
+    if (items) state.recent = items
+  },
+
+  async forgetRecent(path: string) {
+    const items = await run(() => api.forgetProject(path))
+    if (items) state.recent = items
+  },
+
   async openProject(path: string) {
     const summary = await run(() => api.openProject(path))
     if (summary) {
@@ -105,6 +120,8 @@ export const actions = {
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
     state.previewServer = null
     state.plan = null
+    // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
+    void this.loadRecent()
   },
 
   async openContent(page: PageSummary) {

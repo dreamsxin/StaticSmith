@@ -127,6 +127,67 @@ h3 {
   color: var(--warn);
 }
 
+.welcome__recent {
+  width: min(44rem, 90vw);
+  margin-top: 2rem;
+  text-align: left;
+}
+
+.welcome__recent h2 {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.welcome__recent ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.welcome__recent li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.welcome__recent li:last-child {
+  border-bottom: none;
+}
+
+.welcome__recent-open {
+  display: flex;
+  flex: 1;
+  gap: 0.6rem;
+  align-items: baseline;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+}
+
+.welcome__recent-open code {
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__recent-forget {
+  font-size: 0.75rem;
+}
+
+.welcome__recent time {
+  font-size: 0.75rem;
+}
+
 .welcome__note {
   max-width: 32rem;
   color: var(--fg-muted);

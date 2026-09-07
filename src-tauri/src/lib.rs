@@ -2,6 +2,7 @@
 
 mod commands;
 mod error;
+mod recent;
 mod state;
 
 use state::AppState;
@@ -23,6 +24,8 @@ pub fn run() {
             commands::init_project,
             commands::is_project,
             commands::open_project,
+            commands::recent_projects,
+            commands::forget_project,
             commands::close_project,
             commands::project_summary,
             commands::read_config,

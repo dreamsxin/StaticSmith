@@ -12,6 +12,12 @@
 - `open_project(path) -> ProjectSummary`：打开项目并启动文件监听
 - `close_project()`：关闭项目，监听随之停止
 - `project_summary() -> ProjectSummary`：重新读取当前项目快照
+- `recent_projects() -> RecentEntry[]`：最近打开的站点，最新在前
+- `forget_project(path) -> RecentEntry[]`：从最近列表移除（不动磁盘）
+
+最近列表是唯一的**应用级**状态，存在 `app_config_dir()/recent.json`，上限 10 条，
+读取时自动剔除已被删除或移动的站点。读写失败一律降级（空列表 / 只记日志），
+不会让「打开项目」本身失败。
 
 `ProjectSummary` 含配置、页面列表、布局、组件、全部模板、最近 10 次构建记录与脏页面列表。
 
@@ -98,4 +104,5 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `build://progress`：载荷 `BuildProgress { phase, current, total }`
 - `deploy://progress`：载荷 `Progress { message, current, total }`
 
-事件发送失败只记日志，不会中断业务流程。
+三个事件都用 `emit_to(window.label(), …)` 定向投递，而不是广播——多窗口下广播会让
+A 站点的构建进度出现在 B 站点界面上。事件发送失败只记日志，不会中断业务流程。

@@ -181,6 +181,18 @@ export const isProject = (path: string) => invoke<boolean>('is_project', { path 
 
 export const openProject = (path: string) => invoke<ProjectSummary>('open_project', { path })
 
+/** 最近打开的站点，最新在前。 */
+export interface RecentEntry {
+  path: string
+  title: string
+  opened_at: string
+}
+
+export const recentProjects = () => invoke<RecentEntry[]>('recent_projects')
+
+export const forgetProject = (path: string) =>
+  invoke<RecentEntry[]>('forget_project', { path })
+
 export const closeProject = () => invoke<void>('close_project')
 
 export const projectSummary = () => invoke<ProjectSummary>('project_summary')
