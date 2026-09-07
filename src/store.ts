@@ -73,8 +73,6 @@ interface State {
   busy: boolean
   /** 保存后自动增量生成，让服务器预览与产物跟着变 */
   autoBuild: boolean
-  /** 每次生成后自增，用来把服务器预览的 iframe 顶掉重载 */
-  previewNonce: number
   error: string | null
   toasts: Toast[]
   /** 磁盘上被外部编辑器改动、界面尚未刷新的提示 */
@@ -107,7 +105,6 @@ const state = reactive<State>({
   progress: '',
   busy: false,
   autoBuild: localStorage.getItem(AUTO_BUILD_KEY) === '1',
-  previewNonce: 0,
   error: null,
   toasts: [],
   externalChange: false,
@@ -534,8 +531,8 @@ export const actions = {
       await this.loadOutputs()
       // 链接体检读产物，生成一次结论就过期了；只在用户已经看过时才重跑，避免白扫盘。
       if (state.links) await this.auditLinks()
-      // 服务器预览是 iframe 指向静态文件，产物变了不会自己重载，靠这个计数顶一下。
-      state.previewNonce += 1
+      // 服务器预览不用在这里做什么：预览服务器注入的脚本会发现版本号变了并自己刷新。
+
       if (!options.quiet) {
         notify(
           'success',

@@ -342,15 +342,16 @@ fn cmd_serve(project: &PathBuf, port: u16, build_first: bool, watch: bool) -> Re
     }
 
     println!("正在监听 content/ templates/ themes/，改动后自动增量生成");
+    println!("浏览器会自己刷新：预览响应里注入了轮询脚本，产物文件不受影响");
     println!("按 Ctrl+C 停止");
-    watch_and_rebuild(&mut builder)
+    watch_and_rebuild(&mut builder, &server)
 }
 
 /// 监听源文件，改动后增量重建。
 ///
 /// 构建要 `&mut Builder`，而监听回调跑在别的线程上，所以回调只把变更集丢进通道，
 /// 真正的构建留在主线程做——顺带保证同一时刻只有一次构建在跑。
-fn watch_and_rebuild(builder: &mut Builder) -> Result<()> {
+fn watch_and_rebuild(builder: &mut Builder, server: &PreviewServer) -> Result<()> {
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -381,6 +382,8 @@ fn watch_and_rebuild(builder: &mut Builder) -> Result<()> {
             continue;
         }
         println!("检测到 {changed} 处改动，已重新生成");
+        // 生成成功才提版本号：写坏模板时不该把浏览器刷成 404 或旧页面
+        server.bump();
     }
     Ok(())
 }

@@ -25,16 +25,14 @@ const targetUrl = computed(() => store.previewTarget ?? pageUrl.value)
 /**
  * 服务器预览地址。
  *
- * 带上 `_` 参数：iframe 指向的是静态文件，重新生成后不会自己刷新，
- * 地址不变则连请求都不会发。生成计数变化时 src 变化，才会重载。
+ * 不靠改 URL 顶掉重载：预览服务器会在 HTML 响应里注入一段轮询脚本，
+ * 产物变了页面自己刷新，并把滚动位置带回来——写长文时最烦的就是每次生成都跳回顶部。
  */
 const serverPageUrl = computed(() =>
   store.previewServer ? `${store.previewServer}${targetUrl.value}` : null,
 )
 
-const framePageUrl = computed(() =>
-  serverPageUrl.value ? `${serverPageUrl.value}?_=${store.previewNonce}` : null,
-)
+
 
 </script>
 
@@ -73,10 +71,10 @@ const framePageUrl = computed(() =>
     </header>
 
     <iframe
-      v-if="framePageUrl"
+      v-if="serverPageUrl"
       class="preview__frame"
       title="本地服务器预览"
-      :src="framePageUrl"
+      :src="serverPageUrl"
     />
 
     <iframe

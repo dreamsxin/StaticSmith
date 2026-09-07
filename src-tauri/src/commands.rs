@@ -400,6 +400,10 @@ pub fn run_build(
         );
 
         let report = session.builder.build(mode)?;
+        // 产物变了就提一下版本号：预览页面里的脚本据此自己刷新，并保留滚动位置
+        if let Some(server) = &session.preview {
+            server.bump();
+        }
         emit(
             &window,
             EVENT_BUILD_PROGRESS,
