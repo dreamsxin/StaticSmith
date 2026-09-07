@@ -53,6 +53,8 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `create_section`：建一层栏目目录并写好索引页（没有索引页的栏目打不开列表页）
 - `rename_section`：栏目改名。默认 `keep_aliases = true`，给每篇文章补旧地址，
   构建后老链接经重定向页继续可用
+- `move_content`：把一篇内容搬到另一个栏目，默认补旧地址。栏目索引页不能搬；
+  批量搬就逐篇调用
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物

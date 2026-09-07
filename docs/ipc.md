@@ -115,6 +115,23 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added }`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
 
+批量动作（逐篇独立，结果里分「改了哪些」与「跳过哪些及原因」）：
+
+- `batch_edit_tags(args: { sources, add, remove }) -> BatchReport`
+- `batch_set_draft(sources, draft) -> BatchReport`
+- `batch_move(args: { sources, to_section, keep_aliases }) -> BatchMoveReport`
+- `batch_delete(sources) -> BatchReport`：**不可撤销**，界面必须先二次确认
+
+`BatchReport`：`changed`（真正写了盘的源文件）、`skipped`（`{source, reason}`）、
+`plan`（增量计划，界面据此更新「待生成」标记，不必再单独请求一次）。
+`BatchMoveReport` 把 `changed` 换成 `moved`（`{from, to, alias_added}`）。
+
+加什么、去什么分开传是刻意的：整集合覆盖会把各篇原有的标签洗掉。
+`keep_aliases` 省略时按 `true`——搬动会改 URL，不补旧地址等于打断外部链接。
+这些命令会逐个 `note_self_write`（`batch_move` 还会 `note_self_tree` 目标栏目），
+避免批量改完之后界面弹「检测到外部修改」。
+
+
 `Section`：`path`（相对 `content/`，根目录为空串）、`title`（取索引页标题，
 否则目录名）、`url`、`index_source`（为 `null` 表示这个栏目打不开列表页）、
 `pages`（直属文章数）、`drafts`、`children`。

@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use tera::Context;
 
 use crate::assets::{AssetStore, SavedAsset};
+use crate::batch;
 use crate::config::{ProjectPaths, SiteConfig, Taxonomy as TaxonomyConfig};
 use crate::content::{self, NewContent, Page};
 use crate::error::{Error, Result};
@@ -205,6 +206,43 @@ impl Builder {
     /// 栏目清单（含根目录）：标题、地址、直属文章数、有没有索引页、子栏目。
     pub fn sections(&self) -> Vec<sections::Section> {
         sections::list(&self.pages)
+    }
+
+    /// 批量增删标签。逐篇独立，一篇失败不影响其余。
+    pub fn batch_edit_tags(
+        &mut self,
+        sources: &[String],
+        edit: &batch::TagEdit,
+    ) -> Result<batch::Outcome> {
+        let out = batch::edit_tags(&self.paths, sources, edit)?;
+        self.reload()?;
+        Ok(out)
+    }
+
+    /// 批量发布 / 收回草稿。
+    pub fn batch_set_draft(&mut self, sources: &[String], draft: bool) -> Result<batch::Outcome> {
+        let out = batch::set_draft(&self.paths, sources, draft)?;
+        self.reload()?;
+        Ok(out)
+    }
+
+    /// 批量搬到另一个栏目。`keep_aliases` 为真时补旧地址，老链接经重定向页继续可用。
+    pub fn batch_move(
+        &mut self,
+        sources: &[String],
+        to_section: &str,
+        keep_aliases: bool,
+    ) -> Result<batch::MoveOutcome> {
+        let out = batch::move_to_section(&self.paths, sources, to_section, keep_aliases)?;
+        self.reload()?;
+        Ok(out)
+    }
+
+    /// 批量删除内容文件。不可逆，界面必须先二次确认。
+    pub fn batch_delete(&mut self, sources: &[String]) -> Result<batch::Outcome> {
+        let out = batch::delete(&self.paths, sources)?;
+        self.reload()?;
+        Ok(out)
     }
 
     /// 新建栏目：建目录并写一张索引页，随后重新加载内容。

@@ -786,6 +786,43 @@ kbd {
   opacity: 1;
 }
 
+/* 批量动作条：选择态才出现，紧挨着筛选，不做浮层 */
+.page-list__batch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__batch-head {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+
+.page-list__batch-row {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.page-list__batch-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+/* 勾选框只在多选态出现，别在平时占掉标题的宽度 */
+.page-list__pick {
+  flex-shrink: 0;
+  margin: 0 0.1rem 0 0.35rem;
+}
+
 .page-list__rename {
   display: flex;
   flex-direction: column;

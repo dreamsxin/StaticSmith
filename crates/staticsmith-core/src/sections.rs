@@ -257,23 +257,18 @@ pub fn remove(paths: &ProjectPaths, path: &str) -> Result<()> {
 }
 
 /// 给一篇文章补上旧地址。已经写过就不重复加。
+///
+/// 规则本身在 `frontmatter::push_alias`：搬动单篇文章也要做同一件事，
+/// 两处各写一遍迟早会不一致。
 fn add_alias(file: &Path, old_url: &str) -> Result<bool> {
     let raw = std::fs::read_to_string(file).map_err(|e| Error::io(file, e))?;
-    let existing = frontmatter::read(&raw)?.aliases;
-    if existing.iter().any(|a| a == old_url) {
-        return Ok(false);
+    match frontmatter::push_alias(&raw, old_url)? {
+        Some(updated) => {
+            std::fs::write(file, updated).map_err(|e| Error::io(file, e))?;
+            Ok(true)
+        }
+        None => Ok(false),
     }
-    let mut aliases = existing;
-    aliases.push(old_url.to_string());
-    let updated = frontmatter::apply(
-        &raw,
-        &frontmatter::Patch {
-            aliases: Some(aliases),
-            ..frontmatter::Patch::default()
-        },
-    )?;
-    std::fs::write(file, updated).map_err(|e| Error::io(file, e))?;
-    Ok(true)
 }
 
 /// 目录路径，并确认它没有越出 `content/`。

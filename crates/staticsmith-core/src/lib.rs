@@ -24,6 +24,7 @@
 //! ```
 
 pub mod assets;
+pub mod batch;
 pub mod build;
 pub mod config;
 pub mod content;

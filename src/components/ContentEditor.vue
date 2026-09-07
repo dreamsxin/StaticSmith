@@ -13,6 +13,7 @@
 import { computed, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
+import { parseList } from '../text'
 import { highlight } from '../markdown-highlight'
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
@@ -74,11 +75,9 @@ const aliasText = computed(() => (fm.value?.aliases ?? []).join(', '))
 
 
 function parseTags(text: string): string[] {
-  return text
-    .split(/[,，]/)
-    .map((t) => t.trim())
-    .filter(Boolean)
+  return parseList(text)
 }
+
 
 /** 全站已用过的标签，给输入框做候选，避免同义标签越写越多。 */
 const knownTags = computed(() => {

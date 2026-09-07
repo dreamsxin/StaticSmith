@@ -261,6 +261,24 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "move_content",
+            title: "搬动内容",
+            description: "把一篇内容搬到另一个栏目。默认补 aliases（旧地址），构建后老链接经重定向页继续可用。栏目索引页不能搬（改结构用 rename_section）。批量搬就逐篇调用。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string" },
+                        "to_section": { "type": "string", "description": "目标栏目，根目录传空串" },
+                        "keep_aliases": { "type": "boolean", "description": "默认 true：补旧地址" }
+                    },
+                    "required": ["source", "to_section"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
             name: "create_section",
             title: "新建栏目",
             description: "在 content/ 下建一层目录并写好索引页（index.md）。没有索引页的栏目打不开列表页，所以两件事一起做。",
@@ -398,6 +416,7 @@ pub fn call(builder: &mut Builder, permissions: Permissions, name: &str, args: &
 
 fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, String> {
     match name {
+        "move_content" => move_content(builder, args),
         "site_info" => site_info(builder),
         "list_pages" => list_pages(builder, args),
         "read_content" => read_content(builder, args),
@@ -593,6 +612,36 @@ fn create_content(builder: &mut Builder, args: &Value) -> Result<String, String>
 
     let source = builder.create_content(&request).map_err(err)?;
     pretty(&json!({ "created": source, "draft": request.draft }))
+}
+
+/// 搬动一篇内容。
+///
+/// 底层用批量接口，但这里只搬一篇：搬不动就返回错误而不是「跳过」——
+/// Agent 明确要求搬某一篇，静默跳过会让它以为成功了。
+fn move_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    let source = require_str(args, "source")?.to_string();
+    let to_section = require_str(args, "to_section")?.to_string();
+    let keep_aliases = args
+        .get("keep_aliases")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    let out = builder
+        .batch_move(std::slice::from_ref(&source), &to_section, keep_aliases)
+        .map_err(err)?;
+    match out.moved.first() {
+        Some(moved) => pretty(&json!({
+            "from": moved.from,
+            "to": moved.to,
+            "alias_added": moved.alias_added,
+            "next": "旧地址的重定向页要下一次 build_site 才出现；改完看一眼 audit_links"
+        })),
+        None => Err(out
+            .skipped
+            .first()
+            .map(|s| format!("{}：{}", s.source, s.reason))
+            .unwrap_or_else(|| "没有搬动任何文件".to_string())),
+    }
 }
 
 /// SEO 体检。可按严重程度或单篇过滤——Agent 通常一次只修一批同类问题。

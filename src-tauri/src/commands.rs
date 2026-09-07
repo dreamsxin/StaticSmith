@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use staticsmith_core::batch::{Moved as BatchMoved, Skipped as BatchSkipped, TagEdit};
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
@@ -20,7 +21,7 @@ use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::error::{AppError, Result};
 use crate::recent;
-use crate::state::{AppState, EVENT_BUILD_PROGRESS, EVENT_DEPLOY_PROGRESS};
+use crate::state::{AppState, Session, EVENT_BUILD_PROGRESS, EVENT_DEPLOY_PROGRESS};
 
 /// 系统凭据管理器中的服务名。
 const KEYRING_SERVICE: &str = "StaticSmith";
@@ -286,6 +287,125 @@ pub fn stop_preview_server(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 pub fn preview_server_url(state: State<'_, AppState>) -> Result<Option<String>> {
     state.with_session(|session| Ok(session.preview.as_ref().map(|s| s.base_url())))
+}
+
+// ---------------------------------------------------------------- 批量动作
+
+/// 批量增删标签的参数。
+#[derive(Debug, Deserialize)]
+pub struct BatchTagsArgs {
+    pub sources: Vec<String>,
+    #[serde(default)]
+    pub add: Vec<String>,
+    #[serde(default)]
+    pub remove: Vec<String>,
+}
+
+/// 批量搬动的参数。
+#[derive(Debug, Deserialize)]
+pub struct BatchMoveArgs {
+    pub sources: Vec<String>,
+    pub to_section: String,
+    /// 省略时按 true：搬动会改 URL，不补旧地址等于打断外部链接。
+    #[serde(default = "keep_aliases_default")]
+    pub keep_aliases: bool,
+}
+
+/// 批量改 front matter 的结果 + 增量计划。
+///
+/// 顺带回传计划，界面就能立刻更新「待生成」标记，不必再单独发一次请求。
+#[derive(Debug, Serialize)]
+pub struct BatchReport {
+    pub changed: Vec<String>,
+    pub skipped: Vec<BatchSkipped>,
+    pub plan: BuildPlan,
+}
+
+/// 批量搬动的结果 + 增量计划。
+#[derive(Debug, Serialize)]
+pub struct BatchMoveReport {
+    pub moved: Vec<BatchMoved>,
+    pub skipped: Vec<BatchSkipped>,
+    pub plan: BuildPlan,
+}
+
+/// 批量增删标签。加什么、去什么分开传：整集合覆盖会把各篇原有的标签洗掉。
+#[tauri::command]
+pub fn batch_edit_tags(state: State<'_, AppState>, args: BatchTagsArgs) -> Result<BatchReport> {
+    state.with_session_mut(|session| {
+        note_batch(&state, session, &args.sources);
+        let out = session.builder.batch_edit_tags(
+            &args.sources,
+            &TagEdit {
+                add: args.add,
+                remove: args.remove,
+            },
+        )?;
+        Ok(BatchReport {
+            changed: out.changed,
+            skipped: out.skipped,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
+}
+
+/// 批量发布 / 收回草稿。
+#[tauri::command]
+pub fn batch_set_draft(
+    state: State<'_, AppState>,
+    sources: Vec<String>,
+    draft: bool,
+) -> Result<BatchReport> {
+    state.with_session_mut(|session| {
+        note_batch(&state, session, &sources);
+        let out = session.builder.batch_set_draft(&sources, draft)?;
+        Ok(BatchReport {
+            changed: out.changed,
+            skipped: out.skipped,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
+}
+
+/// 批量搬到另一个栏目，默认补旧地址。
+#[tauri::command]
+pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<BatchMoveReport> {
+    state.with_session_mut(|session| {
+        note_batch(&state, session, &args.sources);
+        // 目标目录会新增文件，一并登记，免得改完弹「检测到外部修改」
+        let target = content::resolve_source(&session.builder.paths.content, &args.to_section);
+        state.note_self_tree(&target);
+        let out = session
+            .builder
+            .batch_move(&args.sources, &args.to_section, args.keep_aliases)?;
+        Ok(BatchMoveReport {
+            moved: out.moved,
+            skipped: out.skipped,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
+}
+
+/// 批量删除内容。不可逆，界面必须先二次确认。
+#[tauri::command]
+pub fn batch_delete(state: State<'_, AppState>, sources: Vec<String>) -> Result<BatchReport> {
+    state.with_session_mut(|session| {
+        note_batch(&state, session, &sources);
+        let out = session.builder.batch_delete(&sources)?;
+        Ok(BatchReport {
+            changed: out.changed,
+            skipped: out.skipped,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
+}
+
+/// 批量动作会写很多文件，逐个登记自身写入，避免监听器把它们当成外部改动。
+fn note_batch(state: &State<'_, AppState>, session: &Session, sources: &[String]) {
+    for source in sources {
+        let path = content::resolve_source(&session.builder.paths.content, source);
+        state.note_self_write(&path);
+    }
 }
 
 // ---------------------------------------------------------------- 栏目

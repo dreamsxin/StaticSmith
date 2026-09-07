@@ -9,6 +9,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
+import { parseList } from '../text'
 import type { PageSummary, SeoSeverity } from '../api'
 
 const keyword = ref('')
@@ -163,7 +164,86 @@ async function create() {
   creating.value = false
 }
 
+// ---------------------------------------------------------------- 多选与批量
+
+/**
+ * 批量动作。
+ *
+ * 「把这十二篇都补上标签」「这一批放出去」是运营里最费手的操作，逐篇点开必然出错。
+ * 选择态是显式的：不开「多选」就不会有勾选框，避免误点把批量动作作用到看不见的条目上。
+ * 没有撤销栈——理由写在 store 的 afterBatch 上。
+ */
+const selecting = ref(false)
+const selected = ref(new Set<string>())
+
+function toggleSelecting() {
+  selecting.value = !selecting.value
+  if (!selecting.value) selected.value = new Set()
+}
+
+function toggleOne(source: string) {
+  const next = new Set(selected.value)
+  if (next.has(source)) next.delete(source)
+  else next.add(source)
+  selected.value = next
+}
+
+/** 只选当前可见（已按搜索与筛选过滤）的条目：所见即所选。 */
+function selectVisible() {
+  const next = new Set<string>()
+  for (const [, pages] of groups.value) for (const page of pages) next.add(page.source)
+  selected.value = next
+}
+
+const selectedList = computed(() => [...selected.value])
+
+/** 批量加标签时给出已有标签，避免同一个概念写出三种写法。 */
+const knownTags = computed(() =>
+  [...new Set((store.project?.pages ?? []).flatMap((p) => p.tags))].sort((a, b) =>
+    a.localeCompare(b),
+  ),
+)
+
+
+const batchTags = ref('')
+const batchSection = ref('')
+const batchKeepAliases = ref(true)
+const confirmingBatchDelete = ref(false)
+
+/** 每次批量动作后清空选择：文件可能已经改名、搬走或删掉，旧的选中集没有意义。 */
+function clearSelection() {
+  selected.value = new Set()
+  confirmingBatchDelete.value = false
+}
+
+async function applyTags(mode: 'add' | 'remove') {
+  const tags = parseList(batchTags.value)
+  if (!tags.length) return
+  const [add, remove] = mode === 'add' ? [tags, []] : [[], tags]
+  await actions.batchEditTags(selectedList.value, add, remove)
+  batchTags.value = ''
+  clearSelection()
+}
+
+async function setDraft(draft: boolean) {
+  await actions.batchSetDraft(selectedList.value, draft)
+  clearSelection()
+}
+
+async function moveSelected() {
+  const target = batchSection.value.trim()
+  await actions.batchMove(selectedList.value, target, batchKeepAliases.value)
+  batchSection.value = ''
+  clearSelection()
+}
+
+async function deleteSelected() {
+  await actions.batchDelete(selectedList.value)
+  clearSelection()
+}
+
 // ---------------------------------------------------------------- 栏目管理
+
 
 /**
  * 栏目就是 `content/` 下的一层目录，此前只能去文件管理器里建/改/删，
@@ -238,6 +318,15 @@ async function remove(page: PageSummary) {
       <span class="page-list__count">
         {{ normalized || filter !== 'all' ? `${matched} / ${total}` : total }}
       </span>
+      <button
+        type="button"
+        :class="{ active: selecting }"
+        :disabled="store.busy"
+        title="多选后批量改标签、发布、移动或删除"
+        @click="toggleSelecting"
+      >
+        多选
+      </button>
       <button type="button" :disabled="store.busy" title="新建栏目（content/ 下的一层目录）" @click="openCreateSection">
         栏目
       </button>
@@ -281,6 +370,95 @@ async function remove(page: PageSummary) {
       </button>
     </div>
 
+    <!-- 栏目候选在多处要用（新建内容、新建栏目、批量移动），放在外层只声明一次 -->
+    <datalist id="known-sections">
+      <option v-for="section in sections" :key="section" :value="section" />
+    </datalist>
+    <datalist id="batch-known-tags">
+      <option v-for="tag in knownTags" :key="tag" :value="tag" />
+    </datalist>
+
+    <div v-if="selecting" class="page-list__batch">
+      <p class="page-list__batch-head">
+        已选 {{ selected.size }} 篇
+        <span class="page-list__spacer" />
+        <button type="button" class="page-list__icon" @click="selectVisible">全选当前</button>
+        <button type="button" class="page-list__icon" @click="clearSelection">清空</button>
+      </p>
+
+      <template v-if="selected.size">
+        <div class="page-list__batch-row">
+          <input
+            v-model="batchTags"
+            type="text"
+            list="batch-known-tags"
+            placeholder="标签，逗号分隔"
+            aria-label="批量标签"
+          />
+          <button
+            type="button"
+            :disabled="store.busy || !batchTags.trim()"
+            title="加到每篇（原有标签保留）"
+            @click="applyTags('add')"
+          >
+            加
+          </button>
+          <button
+            type="button"
+            :disabled="store.busy || !batchTags.trim()"
+            title="从每篇去掉"
+            @click="applyTags('remove')"
+          >
+            去
+          </button>
+        </div>
+
+        <div class="page-list__batch-row">
+          <input
+            v-model="batchSection"
+            type="text"
+            list="known-sections"
+            placeholder="移动到栏目（留空为根目录）"
+            aria-label="目标栏目"
+          />
+          <button type="button" :disabled="store.busy" @click="moveSelected">移动</button>
+        </div>
+        <label class="page-list__keep">
+          <input v-model="batchKeepAliases" type="checkbox" />
+          移动后保留旧地址（生成重定向页）
+        </label>
+
+        <div class="page-list__batch-row">
+          <button type="button" :disabled="store.busy" @click="setDraft(false)">发布</button>
+          <button type="button" :disabled="store.busy" @click="setDraft(true)">设为草稿</button>
+          <span class="page-list__spacer" />
+          <template v-if="confirmingBatchDelete">
+            <button
+              type="button"
+              class="page-list__danger"
+              :disabled="store.busy"
+              @click="deleteSelected"
+            >
+              删除 {{ selected.size }} 篇
+            </button>
+            <button type="button" class="page-list__icon" @click="confirmingBatchDelete = false">
+              取消
+            </button>
+          </template>
+          <button
+            v-else
+            type="button"
+            class="page-list__icon"
+            title="删除选中的内容，不可撤销"
+            @click="confirmingBatchDelete = true"
+          >
+            删除…
+          </button>
+        </div>
+      </template>
+      <p v-else class="page-list__hint">勾选左侧条目，或点「全选当前」。</p>
+    </div>
+
     <form v-if="creatingSection" class="page-list__new" @submit.prevent="createSection">
       <h3>新建栏目</h3>
       <label>
@@ -321,9 +499,6 @@ async function remove(page: PageSummary) {
           placeholder="posts（留空为根目录）"
         />
       </label>
-      <datalist id="known-sections">
-        <option v-for="section in sections" :key="section" :value="section" />
-      </datalist>
       <div class="page-list__new-actions">
         <button type="submit" class="btn--primary" :disabled="store.busy || !newTitle.trim()">
           创建草稿
@@ -399,6 +574,14 @@ async function remove(page: PageSummary) {
       <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
         <li v-for="page in pages" :key="page.source">
+          <input
+            v-if="selecting"
+            type="checkbox"
+            class="page-list__pick"
+            :checked="selected.has(page.source)"
+            :aria-label="`选择 ${page.title}`"
+            @change="toggleOne(page.source)"
+          />
           <button
             type="button"
             :class="{ active: store.currentSource === page.source }"

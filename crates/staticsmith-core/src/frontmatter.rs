@@ -36,6 +36,27 @@ pub struct Patch {
     pub weight: Option<i64>,
 }
 
+/// 往 `aliases` 里追加一个旧地址。已经写过就返回 `None`（不必重写文件）。
+///
+/// 搬动文章与栏目改名都要做这件事，规则只能有一份：`aliases` 是有序的，
+/// 追加而不是排序，好让最近一次改名留在最后，看源文时能读出搬迁顺序。
+pub fn push_alias(raw: &str, url: &str) -> Result<Option<String>> {
+    let existing = read(raw)?.aliases;
+    if existing.iter().any(|a| a == url) {
+        return Ok(None);
+    }
+    let mut aliases = existing;
+    aliases.push(url.to_string());
+    let updated = apply(
+        raw,
+        &Patch {
+            aliases: Some(aliases),
+            ..Patch::default()
+        },
+    )?;
+    Ok(Some(updated))
+}
+
 /// 读出 front matter 字段，供表单回填。没有围栏时返回默认值而不是报错——
 /// 手写的内容文件可以完全没有 front matter。
 pub fn read(raw: &str) -> Result<FrontMatter> {

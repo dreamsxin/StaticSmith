@@ -207,6 +207,74 @@ export const actions = {
     await this.recomputePlan()
   },
 
+  // -------------------------------------------------------------- 批量动作
+
+  /**
+   * 批量动作的收尾：刷新页面清单与计划，把跳过的原因摊给用户。
+   *
+   * 没有撤销栈：批量改的是磁盘上的源文，做一份可靠的反向操作等于自己实现一个
+   * 小型版本控制，而这个项目里内容本来就该在 Git 下。所以宁可把「改了几篇、
+   * 跳过几篇、为什么」说清楚，让用户自己决定下一步。
+   */
+  async afterBatch(changed: number, skipped: api.BatchSkipped[], plan: BuildPlan) {
+    state.plan = plan
+    await this.refresh()
+    await this.loadSections()
+    if (state.seo) await this.auditSeo()
+    if (state.autoBuild && changed > 0) await this.build('incremental', { quiet: true })
+
+    if (skipped.length === 0) {
+      notify('success', `已处理 ${changed} 篇`)
+      return
+    }
+    // 只报第一条原因：十几条堆在提示里没人看，剩下的数量给出来就够了
+    const first = `${skipped[0].source}：${skipped[0].reason}`
+    const rest = skipped.length > 1 ? `，另有 ${skipped.length - 1} 篇被跳过` : ''
+    notify(changed > 0 ? 'info' : 'error', `已处理 ${changed} 篇；跳过 ${first}${rest}`)
+  },
+
+  /** 批量增删标签。 */
+  async batchEditTags(sources: string[], add: string[], remove: string[]) {
+    const report = await run(() => api.batchEditTags(sources, add, remove))
+    if (!report) return
+    await this.afterBatch(report.changed.length, report.skipped, report.plan)
+  },
+
+  /** 批量发布或收回草稿。 */
+  async batchSetDraft(sources: string[], draft: boolean) {
+    const report = await run(() => api.batchSetDraft(sources, draft))
+    if (!report) return
+    await this.afterBatch(report.changed.length, report.skipped, report.plan)
+  },
+
+  /** 批量搬到另一个栏目。默认补旧地址，老链接经重定向页继续可用。 */
+  async batchMove(sources: string[], toSection: string, keepAliases = true) {
+    const report = await run(() => api.batchMove(sources, toSection, keepAliases))
+    if (!report) return
+    // 当前打开的文章可能刚被搬走，源路径已经失效
+    if (report.moved.some((m) => m.from === state.currentSource)) {
+      state.currentSource = null
+      state.currentRaw = ''
+      state.savedRaw = ''
+      state.previewHtml = ''
+    }
+    await this.afterBatch(report.moved.length, report.skipped, report.plan)
+  },
+
+  /** 批量删除。不可逆，调用方必须已经二次确认。 */
+  async batchDelete(sources: string[]) {
+    const report = await run(() => api.batchDelete(sources))
+    if (!report) return
+    if (state.currentSource && report.changed.includes(state.currentSource)) {
+      state.currentSource = null
+      state.currentRaw = ''
+      state.savedRaw = ''
+      state.previewHtml = ''
+    }
+    await this.afterBatch(report.changed.length, report.skipped, report.plan)
+  },
+
+
   /**
    * 栏目改名。
    *

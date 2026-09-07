@@ -429,7 +429,53 @@ export interface LinkReport {
 /** 体检产物里的站内链接，需要先生成一次。 */
 export const auditLinks = () => invoke<LinkReport>('audit_links')
 
+// ---------------------------------------------------------------- 批量动作
+
+/** 跳过的一篇及原因。批量动作逐篇独立，跳过要说清为什么。 */
+export interface BatchSkipped {
+  source: string
+  reason: string
+}
+
+export interface BatchMoved {
+  from: string
+  to: string
+  /** 是否补了旧地址 */
+  alias_added: boolean
+}
+
+export interface BatchReport {
+  changed: string[]
+  skipped: BatchSkipped[]
+  plan: BuildPlan
+}
+
+export interface BatchMoveReport {
+  moved: BatchMoved[]
+  skipped: BatchSkipped[]
+  plan: BuildPlan
+}
+
+/** 批量增删标签。加什么、去什么分开传，避免把各篇原有标签洗掉。 */
+export const batchEditTags = (sources: string[], add: string[], remove: string[]) =>
+  invoke<BatchReport>('batch_edit_tags', { args: { sources, add, remove } })
+
+/** 批量发布（draft=false）或收回草稿（draft=true）。 */
+export const batchSetDraft = (sources: string[], draft: boolean) =>
+  invoke<BatchReport>('batch_set_draft', { sources, draft })
+
+/** 批量搬到另一个栏目，`keepAliases` 为真时补旧地址。 */
+export const batchMove = (sources: string[], toSection: string, keepAliases: boolean) =>
+  invoke<BatchMoveReport>('batch_move', {
+    args: { sources, to_section: toSection, keep_aliases: keepAliases },
+  })
+
+/** 批量删除内容。不可逆。 */
+export const batchDelete = (sources: string[]) =>
+  invoke<BatchReport>('batch_delete', { sources })
+
 // ---------------------------------------------------------------- 栏目
+
 
 export interface Section {
   /** 相对 content/ 的目录，根目录是空串 */
