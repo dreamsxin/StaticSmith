@@ -16,6 +16,7 @@ use crate::index::{AssetRecord, Index, PageRecord};
 use crate::links;
 use crate::media;
 use crate::outputs;
+use crate::sections;
 use crate::seo;
 use crate::taxonomy;
 use crate::templates::TemplateSet;
@@ -199,6 +200,39 @@ impl Builder {
     /// 而不是谎报零死链。
     pub fn audit_links(&self) -> Result<links::Report> {
         links::audit(&self.paths.output, &self.config.site.base_url)
+    }
+
+    /// 栏目清单（含根目录）：标题、地址、直属文章数、有没有索引页、子栏目。
+    pub fn sections(&self) -> Vec<sections::Section> {
+        sections::list(&self.pages)
+    }
+
+    /// 新建栏目：建目录并写一张索引页，随后重新加载内容。
+    ///
+    /// 一并建索引页是刻意的：没有索引页的栏目不生成列表页，
+    /// 「建完栏目却打不开」是最容易踩的坑。
+    pub fn create_section(&mut self, path: &str, title: &str) -> Result<sections::Created> {
+        let created = sections::create(&self.paths, path, title)?;
+        self.reload()?;
+        Ok(created)
+    }
+
+    /// 栏目改名。`keep_aliases` 为真时给每篇文章补旧地址，老链接经重定向页继续可用。
+    pub fn rename_section(
+        &mut self,
+        from: &str,
+        to: &str,
+        keep_aliases: bool,
+    ) -> Result<sections::Renamed> {
+        let report = sections::rename(&self.paths, from, to, keep_aliases)?;
+        self.reload()?;
+        Ok(report)
+    }
+
+    /// 删除空栏目。里面还有文章时报错而不是连带删除。
+    pub fn remove_section(&mut self, path: &str) -> Result<()> {
+        sections::remove(&self.paths, path)?;
+        self.reload()
     }
 
     /// 新建内容文件，返回其相对 `content/` 的路径。

@@ -199,3 +199,17 @@ cover = "/images/cover.png"
 删除某个 alias 后旧的重定向页不会被自动清理（与分页产物同样的已知行为），
 需要时做一次完整重建。
 
+## 栏目
+
+栏目不是配置项，而是 `content/` 下的一层目录：
+
+- 目录里的 `index.md` / `_index.md` 是**栏目索引页**，它决定列表页（`pages/list.html`）。
+  没有索引页的栏目，文章能访问，栏目地址本身是 404
+- 文章模板按位置约定推导（栏目里的普通文件用 `pages/post.html`），新增栏目不需要新模板
+- 列表页只收**同一层**的兄弟文章，不递归子栏目；分页由 `[build] page_size` 控制
+
+界面里在内容侧栏管理栏目：新建（同时生成索引页）、改名（默认给每篇文章补 `aliases`）、
+删除（仅空栏目）。Agent 侧对应 `list_sections` / `create_section` / `rename_section`，
+删栏目不开给 Agent。日常动作与取舍见 [站点运营手册](operations.md)。
+
+

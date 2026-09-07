@@ -37,6 +37,7 @@ pub mod links;
 pub mod media;
 pub mod outputs;
 pub mod scaffold;
+pub mod sections;
 pub mod seo;
 pub mod taxonomy;
 pub mod templates;
@@ -55,6 +56,7 @@ pub use graph::TemplateGraph;
 pub use index::Index;
 pub use links::{BrokenLink, Report as LinkReport};
 pub use outputs::{OutputFile, OutputKind};
+pub use sections::Section;
 pub use seo::{Issue as SeoIssue, Report as SeoReport, Severity as SeoSeverity};
 pub use templates::{TemplateKind, TemplateSet};
 

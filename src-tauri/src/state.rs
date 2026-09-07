@@ -20,13 +20,23 @@ pub const EVENT_DEPLOY_PROGRESS: &str = "deploy://progress";
 /// 监听器有 300 ms 去抖，再留出磁盘与 notify 的延迟，2 秒足够且不会长期压住真实的外部改动。
 const SELF_WRITE_TTL: Duration = Duration::from_secs(2);
 
+/// 目录级登记的有效期。
+///
+/// 栏目改名会一次性搬动整棵子树并逐篇补 front matter，事件会零散地陆续到达，
+/// 所以给的窗口比单文件宽一些。
+const SELF_TREE_TTL: Duration = Duration::from_secs(6);
+
 /// 应用自己刚写过的文件。
 ///
 /// `save_content` / `save_template` 写的正是被监听的目录，监听器分不清是谁改的，
 /// 于是每次保存都会给界面弹一条「检测到外部修改」——这条提示本意是提醒有别的编辑器在动文件，
 /// 结果变成了保存的副作用。这里登记自身写入，事件到达时对消掉。
 #[derive(Default, Clone)]
-struct SelfWrites(Arc<Mutex<Vec<(String, Instant)>>>);
+struct SelfWrites {
+    files: Arc<Mutex<Vec<(String, Instant)>>>,
+    /// 目录级登记：改栏目名这类动作会牵动整棵子树，逐个文件登记不现实。
+    trees: Arc<Mutex<Vec<(String, Instant)>>>,
+}
 
 impl SelfWrites {
     /// 大小写与 `\\?\` 前缀都可能与 notify 给出的路径不一致，统一成比较键。
@@ -37,15 +47,23 @@ impl SelfWrites {
     }
 
     fn note(&self, path: &Path) {
-        let mut guard = self.0.lock().expect("自身写入表锁被污染");
+        let mut guard = self.files.lock().expect("自身写入表锁被污染");
         let now = Instant::now();
         guard.retain(|(_, at)| now.duration_since(*at) < SELF_WRITE_TTL);
         guard.push((Self::key(path), now));
     }
 
+    /// 登记一整棵子树。与单文件登记不同，命中不消费——一次移动会产生很多事件。
+    fn note_tree(&self, dir: &Path) {
+        let mut guard = self.trees.lock().expect("自身写入表锁被污染");
+        let now = Instant::now();
+        guard.retain(|(_, at)| now.duration_since(*at) < SELF_TREE_TTL);
+        guard.push((Self::key(dir), now));
+    }
+
     /// 命中即消费掉：同一路径的下一次变更仍应被当作外部改动。
     fn take(&self, path: &Path) -> bool {
-        let mut guard = self.0.lock().expect("自身写入表锁被污染");
+        let mut guard = self.files.lock().expect("自身写入表锁被污染");
         let key = Self::key(path);
         let now = Instant::now();
         match guard
@@ -60,10 +78,20 @@ impl SelfWrites {
         }
     }
 
+    /// 路径是否落在某个仍在有效期内的目录登记之下。
+    fn under_noted_tree(&self, path: &Path) -> bool {
+        let guard = self.trees.lock().expect("自身写入表锁被污染");
+        let key = Self::key(path);
+        let now = Instant::now();
+        guard.iter().any(|(prefix, at)| {
+            now.duration_since(*at) < SELF_TREE_TTL && key.starts_with(prefix.as_str())
+        })
+    }
+
     /// 从变更集中剔除自身写入。返回剩余是否为空。
     fn filter(&self, set: &mut ChangeSet) -> bool {
         for bucket in [&mut set.templates, &mut set.content, &mut set.other] {
-            bucket.retain(|path| !self.take(path));
+            bucket.retain(|path| !self.take(path) && !self.under_noted_tree(path));
         }
         set.is_empty()
     }
@@ -94,6 +122,11 @@ impl AppState {
     /// 登记一次自身写盘，避免监听器把它当成外部改动。
     pub fn note_self_write(&self, path: &Path) {
         self.self_writes.note(path);
+    }
+
+    /// 登记一整棵自身改动的子树（栏目改名、批量搬动）。
+    pub fn note_self_tree(&self, dir: &Path) {
+        self.self_writes.note_tree(dir);
     }
 
     /// 打开项目并启动文件监听。事件只发给发起打开的那个窗口。
@@ -209,12 +242,49 @@ mod tests {
             .checked_sub(SELF_WRITE_TTL * 2)
             .expect("测试环境的单调时钟应能回溯几秒");
         writes
-            .0
+            .files
             .lock()
             .unwrap()
             .push((SelfWrites::key(Path::new("/site/content/a.md")), stale));
 
         let mut set = change_set(&["/site/content/a.md"]);
         assert!(!writes.filter(&mut set), "过期登记不该继续压住变更");
+    }
+
+    #[test]
+    fn a_noted_tree_swallows_every_path_under_it() {
+        let writes = SelfWrites::default();
+        // 栏目改名：整棵子树的事件都是自己造成的
+        writes.note_tree(Path::new("/site/content/blog"));
+
+        let mut set = change_set(&[
+            "/site/content/blog/index.md",
+            "/site/content/blog/2026/deep.md",
+        ]);
+        assert!(writes.filter(&mut set), "目录登记应覆盖其下所有文件");
+
+        // 目录登记不消费：同一次移动会产生很多事件
+        let mut again = change_set(&["/site/content/blog/index.md"]);
+        assert!(writes.filter(&mut again));
+
+        // 目录之外的改动照常上报
+        let mut outside = change_set(&["/site/content/notes/a.md"]);
+        assert!(!writes.filter(&mut outside));
+    }
+
+    #[test]
+    fn expired_tree_registrations_stop_swallowing() {
+        let writes = SelfWrites::default();
+        let stale = Instant::now()
+            .checked_sub(SELF_TREE_TTL * 2)
+            .expect("测试环境的单调时钟应能回溯几秒");
+        writes
+            .trees
+            .lock()
+            .unwrap()
+            .push((SelfWrites::key(Path::new("/site/content/blog")), stale));
+
+        let mut set = change_set(&["/site/content/blog/index.md"]);
+        assert!(!writes.filter(&mut set), "过期的目录登记同样要失效");
     }
 }

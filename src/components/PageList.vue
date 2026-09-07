@@ -61,17 +61,29 @@ function matchesFilter(page: PageSummary): boolean {
 
 const groups = computed(() => {
   const map = new Map<string, PageSummary[]>()
+  // 先把已知栏目摆上：空栏目也要看得见，否则新建完就「消失」了。
+  // 搜索或筛选时不补空栏目——那时用户要的是命中项，不是完整结构。
+  if (!normalized.value && filter.value === 'all') {
+    for (const section of store.sections) map.set(section.path, [])
+  }
   for (const page of store.project?.pages ?? []) {
     if (normalized.value && !`${page.title}\n${page.source}`.toLowerCase().includes(normalized.value))
       continue
     if (!matchesFilter(page as PageSummary)) continue
-    const key = page.section || '根目录'
-    const list = map.get(key) ?? []
+    const list = map.get(page.section) ?? []
     list.push(page as PageSummary)
-    map.set(key, list)
+    map.set(page.section, list)
   }
   return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
 })
+
+/** 栏目元信息（有没有索引页、直属篇数）按路径取用。 */
+const sectionOf = computed(() => new Map(store.sections.map((s) => [s.path, s])))
+
+function sectionLabel(path: string): string {
+  return path === '' ? '根目录' : path
+}
+
 
 const total = computed(() => store.project?.pages.length ?? 0)
 const matched = computed(() => groups.value.reduce((sum, [, pages]) => sum + pages.length, 0))
@@ -151,7 +163,59 @@ async function create() {
   creating.value = false
 }
 
-// ---------------------------------------------------------------- 删除
+// ---------------------------------------------------------------- 栏目管理
+
+/**
+ * 栏目就是 `content/` 下的一层目录，此前只能去文件管理器里建/改/删，
+ * 而改名之后老链接会全部 404。这里把三件事收进界面，并默认保留旧地址。
+ */
+const creatingSection = ref(false)
+const newSectionPath = ref('')
+const newSectionTitle = ref('')
+const sectionBox = ref<HTMLInputElement | null>(null)
+
+function openCreateSection() {
+  creatingSection.value = true
+  creating.value = false
+  requestAnimationFrame(() => sectionBox.value?.focus())
+}
+
+async function createSection() {
+  const path = newSectionPath.value.trim()
+  if (!path) return
+  await actions.createSection(path, newSectionTitle.value.trim())
+  newSectionPath.value = ''
+  newSectionTitle.value = ''
+  creatingSection.value = false
+}
+
+const renamingSection = ref<string | null>(null)
+const renameTo = ref('')
+const keepAliases = ref(true)
+
+function startRename(path: string) {
+  renamingSection.value = path
+  renameTo.value = path
+  confirmingSectionDelete.value = null
+}
+
+async function submitRename() {
+  const from = renamingSection.value
+  const to = renameTo.value.trim()
+  renamingSection.value = null
+  if (!from || !to || from === to) return
+  await actions.renameSection(from, to, keepAliases.value)
+}
+
+/** 删空栏目也是不可逆的，沿用列表里的就地确认，不用原生弹窗。 */
+const confirmingSectionDelete = ref<string | null>(null)
+
+async function removeSection(path: string) {
+  confirmingSectionDelete.value = null
+  await actions.removeSection(path)
+}
+
+// ---------------------------------------------------------------- 删除文章
 
 /**
  * 待确认删除的源路径。
@@ -174,6 +238,9 @@ async function remove(page: PageSummary) {
       <span class="page-list__count">
         {{ normalized || filter !== 'all' ? `${matched} / ${total}` : total }}
       </span>
+      <button type="button" :disabled="store.busy" title="新建栏目（content/ 下的一层目录）" @click="openCreateSection">
+        栏目
+      </button>
       <button type="button" class="btn--primary" :disabled="store.busy" @click="openCreate">
         新建
       </button>
@@ -214,6 +281,31 @@ async function remove(page: PageSummary) {
       </button>
     </div>
 
+    <form v-if="creatingSection" class="page-list__new" @submit.prevent="createSection">
+      <h3>新建栏目</h3>
+      <label>
+        目录名
+        <input
+          ref="sectionBox"
+          v-model="newSectionPath"
+          type="text"
+          list="known-sections"
+          placeholder="notes 或 posts/2026"
+        />
+      </label>
+      <label>
+        栏目标题
+        <input v-model="newSectionTitle" type="text" placeholder="留空则用目录名" />
+      </label>
+      <p class="page-list__hint">会同时生成索引页（index.md）——没有它，栏目列表页打不开。</p>
+      <div class="page-list__new-actions">
+        <button type="submit" class="btn--primary" :disabled="store.busy || !newSectionPath.trim()">
+          创建栏目
+        </button>
+        <button type="button" @click="creatingSection = false">取消</button>
+      </div>
+    </form>
+
     <form v-if="creating" class="page-list__new" @submit.prevent="create">
       <h3>新建内容</h3>
       <label>
@@ -241,7 +333,70 @@ async function remove(page: PageSummary) {
     </form>
 
     <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
-      <h3>{{ section }} <span class="page-list__count">{{ pages.length }}</span></h3>
+      <h3>
+        <span class="page-list__section-name">{{ sectionLabel(section) }}</span>
+        <span class="page-list__count">{{ pages.length }}</span>
+        <span
+          v-if="section !== '' && sectionOf.get(section) && !sectionOf.get(section)!.index_source"
+          class="badge badge--seo-warn"
+          title="没有索引页，栏目地址打不开列表页。新建一篇 slug 为 index 的内容即可"
+          >缺列表页</span
+        >
+        <span class="page-list__spacer" />
+        <template v-if="section !== ''">
+          <button
+            type="button"
+            class="page-list__icon"
+            title="栏目改名（默认保留旧地址）"
+            @click="startRename(section)"
+          >
+            改名
+          </button>
+          <template v-if="confirmingSectionDelete === section">
+            <button
+              type="button"
+              class="page-list__danger"
+              :disabled="store.busy"
+              title="只删空栏目：里面还有文章时会报错"
+              @click="removeSection(section)"
+            >
+              删除栏目
+            </button>
+            <button type="button" class="page-list__icon" @click="confirmingSectionDelete = null">
+              取消
+            </button>
+          </template>
+          <button
+            v-else
+            type="button"
+            class="page-list__icon"
+            title="删除空栏目"
+            @click="confirmingSectionDelete = section"
+          >
+            ×
+          </button>
+        </template>
+      </h3>
+
+      <form
+        v-if="renamingSection === section"
+        class="page-list__rename"
+        @submit.prevent="submitRename"
+      >
+        <input v-model="renameTo" type="text" aria-label="新栏目名" />
+        <label class="page-list__keep">
+          <input v-model="keepAliases" type="checkbox" />
+          保留旧地址（生成重定向页）
+        </label>
+        <div class="page-list__new-actions">
+          <button type="submit" class="btn--primary" :disabled="store.busy || !renameTo.trim()">
+            改名
+          </button>
+          <button type="button" @click="renamingSection = null">取消</button>
+        </div>
+      </form>
+
+      <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
         <li v-for="page in pages" :key="page.source">
           <button

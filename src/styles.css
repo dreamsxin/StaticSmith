@@ -751,12 +751,67 @@ kbd {
 }
 
 .page-list__group h3 {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
   margin: 0.8rem 0 0.25rem;
   color: var(--fg-muted);
   text-transform: uppercase;
   font-size: 0.75rem;
   letter-spacing: 0.04em;
 }
+
+.page-list__section-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-list__spacer {
+  flex: 1;
+}
+
+/* 栏目操作平时不抢眼，悬停或键盘聚焦到这一组时才显形——与删除文章同一套规矩 */
+.page-list__group h3 .page-list__icon,
+.page-list__group h3 .page-list__danger {
+  opacity: 0;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.page-list__group:hover h3 .page-list__icon,
+.page-list__group:hover h3 .page-list__danger,
+.page-list__group h3 .page-list__icon:focus-visible,
+.page-list__group h3 .page-list__danger:focus-visible {
+  opacity: 1;
+}
+
+.page-list__rename {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.page-list__keep {
+  flex-direction: row;
+  gap: 0.35rem;
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
+.page-list__hint {
+  padding: 0 0.5rem 0.3rem;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+
 
 
 .page-list ul {

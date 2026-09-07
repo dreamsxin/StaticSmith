@@ -22,6 +22,7 @@ import type {
   PageSummary,
   ProjectSummary,
   RecentEntry,
+  Section,
   SeoReport,
   SiteConfig,
   TemplateInfo,
@@ -62,6 +63,8 @@ interface State {
   assets: AssetRecord[]
   /** SEO 体检结论，保存或生成后刷新 */
   seo: SeoReport | null
+  /** 栏目清单（含根目录），打开项目与增删改栏目后刷新 */
+  sections: Section[]
   /** 媒体资源体检结论，按需刷新（要扫盘，不跟着每次保存跑） */
   media: MediaReport | null
   /** 站内链接体检结论，按需刷新（读产物，需要先生成过） */
@@ -97,6 +100,7 @@ const state = reactive<State>({
   outputs: [],
   assets: [],
   seo: null,
+  sections: [],
   media: null,
   links: null,
   plan: null,
@@ -175,6 +179,7 @@ export const actions = {
       state.externalChange = false
       await this.recomputePlan()
       await this.loadOutputs()
+      await this.loadSections()
       await this.auditSeo()
       notify('success', `已打开 ${summary.config.site.title}`)
     }
@@ -185,6 +190,61 @@ export const actions = {
     const files = await run(() => api.listOutputs())
     if (files) state.outputs = files
   },
+
+  /** 刷新栏目清单。栏目就是 content/ 下的目录，这里额外带上「有没有索引页」。 */
+  async loadSections() {
+    const sections = await run(() => api.listSections())
+    if (sections) state.sections = sections
+  },
+
+  /** 新建栏目：建目录并写一张索引页，否则栏目列表页打不开。 */
+  async createSection(path: string, title: string) {
+    const created = await run(() => api.createSection(path, title))
+    if (!created) return
+    notify('success', `已新建栏目 ${created.path}`)
+    await this.refresh()
+    await this.loadSections()
+    await this.recomputePlan()
+  },
+
+  /**
+   * 栏目改名。
+   *
+   * `keepAliases` 默认开着：整理结构不该顺手打断所有外部链接。它会给每篇文章
+   * 补上旧地址，构建后旧地址是一张重定向页。
+   */
+  async renameSection(from: string, to: string, keepAliases = true) {
+    const report = await run(() => api.renameSection(from, to, keepAliases))
+    if (!report) return
+    notify(
+      'success',
+      keepAliases
+        ? `已把 ${report.from} 改名为 ${report.to}，${report.aliases_added} 篇补了旧地址`
+        : `已把 ${report.from} 改名为 ${report.to}（未保留旧地址）`,
+    )
+    // 当前打开的文章可能刚被搬走，源路径已经失效
+    if (state.currentSource?.startsWith(`${report.from}/`)) {
+      state.currentSource = null
+      state.currentRaw = ''
+      state.savedRaw = ''
+      state.previewHtml = ''
+    }
+    await this.refresh()
+    await this.loadSections()
+    await this.recomputePlan()
+  },
+
+  /** 删除空栏目。里面还有文章时后端会报错，不会连带删除。 */
+  async removeSection(path: string) {
+    const sections = await run(() => api.removeSection(path))
+    if (!sections) return
+    state.sections = sections
+    notify('success', `已删除栏目 ${path}`)
+    await this.refresh()
+    await this.recomputePlan()
+  },
+
+
 
   /**
    * 预览某个产物（标签页、分页页、sitemap…）。

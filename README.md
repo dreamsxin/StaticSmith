@@ -128,6 +128,7 @@ my-site/
 ## 文档
 
 - [架构说明](docs/architecture.md)
+- [站点运营手册：日常动作、现有能力与缺口](docs/operations.md)
 - [界面布局与交互约定](docs/ui.md)
 - [统一模板与级联更新](docs/templates.md)
 - [媒体资源与目录结构](docs/assets.md)

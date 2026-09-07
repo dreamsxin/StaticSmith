@@ -110,6 +110,21 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 `broken`（`{href, url, referenced_by}`）。`built` 为 `false` 时其余字段都是 0，
 说明还没生成过——界面要提示「先生成」，不能显示成「零死链」。
 
+- `list_sections() -> Section[]`：栏目清单（含根目录）
+- `create_section(path, title) -> { path, index_source }`：建目录并写索引页
+- `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added }`
+- `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
+
+`Section`：`path`（相对 `content/`，根目录为空串）、`title`（取索引页标题，
+否则目录名）、`url`、`index_source`（为 `null` 表示这个栏目打不开列表页）、
+`pages`（直属文章数）、`drafts`、`children`。
+
+`rename_section` 的 `keep_aliases` 省略时按 `true`：给每篇文章补旧地址，
+构建后旧地址是重定向页。改名与删栏目都会牵动整棵子树，因此这几个命令会先
+`note_self_tree`，避免界面在自己的操作之后弹「检测到外部修改」。
+`remove_section` 只删空栏目，里面还有文章时报错而不是连带删除。
+
+
 
 
 

@@ -41,13 +41,18 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `audit_media`：媒体资源体检（没人引用的文件 / 引用了却不存在的地址）。
   删文件不开给 Agent，只能人在界面里确认
 - `audit_links`：站内死链体检。读产物，所以先 `build_site`；站外链接只计数，不发网络请求
+- `list_sections`：栏目清单（标题、地址、直属篇数、草稿数、有没有索引页、子栏目）。
+  没有索引页的栏目打不开列表页，报告里会点出来
 
 需要 `--allow-write`：
 
 - `create_content`：按标题生成 front matter 骨架，默认草稿
 - `write_content`：整文件覆盖写入，返回增量计划
-- `patch_front_matter`：只改指定字段（标题、描述、关键词、标签、日期、草稿…），
+- `patch_front_matter`：只改指定字段（标题、描述、关键词、标签、日期、旧地址、草稿…），
   正文与其他键原样保留。**补 SEO 字段用这个**，比整文覆盖安全
+- `create_section`：建一层栏目目录并写好索引页（没有索引页的栏目打不开列表页）
+- `rename_section`：栏目改名。默认 `keep_aliases = true`，给每篇文章补旧地址，
+  构建后老链接经重定向页继续可用
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物

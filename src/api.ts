@@ -429,6 +429,49 @@ export interface LinkReport {
 /** 体检产物里的站内链接，需要先生成一次。 */
 export const auditLinks = () => invoke<LinkReport>('audit_links')
 
+// ---------------------------------------------------------------- 栏目
+
+export interface Section {
+  /** 相对 content/ 的目录，根目录是空串 */
+  path: string
+  /** 有索引页就是它的标题，否则是目录名 */
+  title: string
+  url: string
+  /** 栏目索引页的源文件；为 null 表示这个栏目打不开列表页 */
+  index_source: string | null
+  /** 直属文章数（不含索引页与子栏目） */
+  pages: number
+  drafts: number
+  /** 直接子栏目的路径 */
+  children: string[]
+}
+
+export interface SectionCreated {
+  path: string
+  index_source: string
+}
+
+export interface SectionRenamed {
+  from: string
+  to: string
+  moved: number
+  /** 补了旧地址的文章数 */
+  aliases_added: number
+}
+
+export const listSections = () => invoke<Section[]>('list_sections')
+
+export const createSection = (path: string, title: string) =>
+  invoke<SectionCreated>('create_section', { path, title })
+
+/** 栏目改名。`keepAliases` 为真时给每篇文章补旧地址，老链接靠重定向页继续可用。 */
+export const renameSection = (from: string, to: string, keepAliases: boolean) =>
+  invoke<SectionRenamed>('rename_section', { args: { from, to, keep_aliases: keepAliases } })
+
+/** 删除空栏目，返回删除后的栏目清单。里面还有文章时后端报错，不会连带删除。 */
+export const removeSection = (path: string) => invoke<Section[]>('remove_section', { path })
+
+
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
 export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })
 

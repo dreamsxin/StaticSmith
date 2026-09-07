@@ -9,6 +9,7 @@ use staticsmith_core::graph::TemplateNode;
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
+use staticsmith_core::sections::{Created as SectionCreated, Renamed as SectionRenamed, Section};
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::{
     content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
@@ -67,6 +68,23 @@ pub struct BuildProgress {
 pub struct SaveContentArgs {
     pub source: String,
     pub raw: String,
+}
+
+/// 栏目改名的参数。
+///
+/// 用结构体而不是三个独立参数：`keep_aliases` 这种多词参数走结构体最不容易在
+/// 前后端命名约定上出岔子，也留了「省略即保留旧地址」的余地。
+#[derive(Debug, Deserialize)]
+pub struct RenameSectionArgs {
+    pub from: String,
+    pub to: String,
+    /// 省略时按 true：整理结构不该顺手打断所有外部链接。
+    #[serde(default = "keep_aliases_default")]
+    pub keep_aliases: bool,
+}
+
+fn keep_aliases_default() -> bool {
+    true
 }
 
 // ---------------------------------------------------------------- 项目生命周期
@@ -268,6 +286,59 @@ pub fn stop_preview_server(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 pub fn preview_server_url(state: State<'_, AppState>) -> Result<Option<String>> {
     state.with_session(|session| Ok(session.preview.as_ref().map(|s| s.base_url())))
+}
+
+// ---------------------------------------------------------------- 栏目
+
+/// 栏目清单（含根目录）。
+#[tauri::command]
+pub fn list_sections(state: State<'_, AppState>) -> Result<Vec<Section>> {
+    state.with_session(|session| Ok(session.builder.sections()))
+}
+
+/// 新建栏目：建目录并写一张索引页。
+#[tauri::command]
+pub fn create_section(
+    state: State<'_, AppState>,
+    path: String,
+    title: String,
+) -> Result<SectionCreated> {
+    state.with_session_mut(|session| {
+        let created = session.builder.create_section(&path, &title)?;
+        let index = content::resolve_source(&session.builder.paths.content, &created.index_source);
+        state.note_self_write(&index);
+        Ok(created)
+    })
+}
+
+/// 栏目改名。`keep_aliases` 为真时给每篇文章补旧地址，老链接经重定向页继续可用。
+#[tauri::command]
+pub fn rename_section(
+    state: State<'_, AppState>,
+    args: RenameSectionArgs,
+) -> Result<SectionRenamed> {
+    state.with_session_mut(|session| {
+        let content_root = session.builder.paths.content.clone();
+        // 整棵子树的变更都是自己造成的，别让「检测到外部修改」在改名后弹出来
+        for section in [&args.from, &args.to] {
+            let dir = content::resolve_source(&content_root, section);
+            state.note_self_tree(&dir);
+        }
+        Ok(session
+            .builder
+            .rename_section(&args.from, &args.to, args.keep_aliases)?)
+    })
+}
+
+/// 删除空栏目。里面还有文章时报错，不会连带删除。返回删除后的栏目清单。
+#[tauri::command]
+pub fn remove_section(state: State<'_, AppState>, path: String) -> Result<Vec<Section>> {
+    state.with_session_mut(|session| {
+        let dir = content::resolve_source(&session.builder.paths.content, &path);
+        state.note_self_tree(&dir);
+        session.builder.remove_section(&path)?;
+        Ok(session.builder.sections())
+    })
 }
 
 // ---------------------------------------------------------------- 媒体资源

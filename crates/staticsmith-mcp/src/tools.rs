@@ -217,6 +217,13 @@ pub fn all() -> Vec<ToolDef> {
             schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         ToolDef {
+            name: "list_sections",
+            title: "栏目清单",
+            description: "列出栏目（content/ 下的目录）：标题、地址、直属文章数、草稿数、有没有索引页、子栏目。没有索引页的栏目不会生成列表页。",
+            access: Access::Read,
+            schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        ToolDef {
             name: "audit_links",
             title: "站内链接体检",
             description: "扫描已生成的产物，找出点了会 404 的站内链接（改过 slug、删过旧文、写错相对路径）。不发网络请求，站外链接只计数。需要先 build，没生成过时返回 built=false。",
@@ -249,6 +256,44 @@ pub fn all() -> Vec<ToolDef> {
                         "weight": { "type": "integer" }
                     },
                     "required": ["source"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
+            name: "create_section",
+            title: "新建栏目",
+            description: "在 content/ 下建一层目录并写好索引页（index.md）。没有索引页的栏目打不开列表页，所以两件事一起做。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "path": { "type": "string", "description": "相对 content/ 的目录，如 notes 或 posts/2026" },
+                        "title": { "type": "string", "description": "栏目标题，留空则用目录名" }
+                    },
+                    "required": ["path"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
+            name: "rename_section",
+            title: "栏目改名",
+            description: "把栏目目录搬到新名字下。默认给每篇文章补 aliases（旧地址），构建后老链接仍可用；除非确认没有外部链接，不要关掉它。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "from": { "type": "string" },
+                        "to": { "type": "string" },
+                        "keep_aliases": {
+                            "type": "boolean",
+                            "description": "默认 true：给每篇文章补旧地址，生成重定向页"
+                        }
+                    },
+                    "required": ["from", "to"],
                     "additionalProperties": false
                 })
             },
@@ -363,6 +408,9 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "audit_seo" => audit_seo(builder, args),
         "audit_media" => audit_media(builder),
         "audit_links" => audit_links(builder),
+        "list_sections" => list_sections(builder),
+        "create_section" => create_section(builder, args),
+        "rename_section" => rename_section(builder, args),
         "create_content" => create_content(builder, args),
         "write_content" => write_content(builder, args),
         "patch_front_matter" => patch_front_matter(builder, args),
@@ -610,6 +658,61 @@ fn audit_links(builder: &Builder) -> Result<String, String> {
         "external": report.external,
         "broken": report.broken,
         "next": next
+    }))
+}
+
+/// 栏目清单。删栏目不开给 Agent——删目录不可逆，留给人在界面里确认。
+fn list_sections(builder: &Builder) -> Result<String, String> {
+    let sections = builder.sections();
+    let missing_index: Vec<&str> = sections
+        .iter()
+        .filter(|s| s.index_source.is_none())
+        .map(|s| s.path.as_str())
+        .collect();
+    let next = if missing_index.is_empty() {
+        "每个栏目都有索引页".to_string()
+    } else {
+        format!(
+            "这些栏目没有索引页，列表页打不开：{}。用 create_content 建一篇 slug=index 的内容，或 create_section",
+            missing_index.join("、")
+        )
+    };
+    pretty(&json!({ "sections": sections, "next": next }))
+}
+
+/// 新建栏目。
+fn create_section(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    let path = require_str(args, "path")?.to_string();
+    let title = args
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let created = builder.create_section(&path, &title).map_err(err)?;
+    pretty(&json!({
+        "path": created.path,
+        "index_source": created.index_source,
+        "next": "往栏目里写文章用 create_content，section 传这个 path"
+    }))
+}
+
+/// 栏目改名。默认补旧地址，避免整理结构把外部链接全打断。
+fn rename_section(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    let from = require_str(args, "from")?.to_string();
+    let to = require_str(args, "to")?.to_string();
+    let keep_aliases = args
+        .get("keep_aliases")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let report = builder
+        .rename_section(&from, &to, keep_aliases)
+        .map_err(err)?;
+    pretty(&json!({
+        "from": report.from,
+        "to": report.to,
+        "moved": report.moved,
+        "aliases_added": report.aliases_added,
+        "next": "旧地址的重定向页要下一次 build_site 才会出现；改完记得看 audit_links"
     }))
 }
 
@@ -911,6 +1014,60 @@ mod tests {
             .map(|b| b["url"].as_str().unwrap())
             .collect();
         assert!(urls.contains(&"/posts/nowhere/"), "{report}");
+    }
+
+    #[test]
+    fn sections_can_be_created_and_renamed_with_aliases() {
+        let (_dir, mut builder) = project();
+        let perms = Permissions {
+            write: true,
+            deploy: false,
+        };
+
+        let created = call(
+            &mut builder,
+            perms,
+            "create_section",
+            &json!({ "path": "notes", "title": "随手记" }),
+        );
+        assert_eq!(created["isError"], false, "{created}");
+
+        let listed = call(&mut builder, perms, "list_sections", &json!({}));
+        let text = listed["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        let paths: Vec<&str> = report["sections"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["path"].as_str().unwrap())
+            .collect();
+        assert!(paths.contains(&"notes"), "{paths:?}");
+        assert!(paths.contains(&"posts"), "{paths:?}");
+
+        // 改名默认补旧地址，老链接靠重定向页活着
+        let renamed = call(
+            &mut builder,
+            perms,
+            "rename_section",
+            &json!({ "from": "posts", "to": "blog" }),
+        );
+        assert_eq!(renamed["isError"], false, "{renamed}");
+        let text = renamed["content"][0]["text"].as_str().unwrap().to_string();
+        let report: Value = serde_json::from_str(&text).unwrap();
+        assert!(report["aliases_added"].as_u64().unwrap() >= 1, "{report}");
+
+        let raw = std::fs::read_to_string(
+            builder
+                .paths
+                .content
+                .join("blog")
+                .join("hello-staticsmith.md"),
+        )
+        .unwrap();
+        assert!(
+            raw.contains("aliases = [\"/posts/hello-staticsmith/\"]"),
+            "{raw}"
+        );
     }
 
     #[test]
