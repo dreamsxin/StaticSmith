@@ -16,19 +16,19 @@
 ┌───────┴────────────┐          ┌─────────────┴────────┐      │
 │ staticsmith-cli    │          │ staticsmith-core     │      │
 │ init/build/serve/  │─────────▶│ 配置 内容 模板 图    │      │
-│ deploy/check       │          │ 资源 索引 构建 预览  │      │
-└────────────────────┘          └───────────┬──────────┘      │
-                                            │                 ▼
-                                            │      ┌────────────────────────┐
-                                            │      │ staticsmith-deploy     │
-                                            │      │ Git · FTP · SFTP       │
-                                            │      └───────────┬────────────┘
-                                            ▼                  ▼
+│ deploy/check/mcp   │          │ 资源 索引 构建 预览  │      │
+└─────────┬──────────┘          └───────────┬──────────┘      │
+          │                                 │                 ▼
+┌─────────┴──────────┐                      │      ┌────────────────────────┐
+│ staticsmith-mcp    │──────────────────────┘      │ staticsmith-deploy     │
+│ JSON-RPC / 工具集  │                             │ Git · FTP · SFTP       │
+│ stdio · SSE        │                             └───────────┬────────────┘
+└────────────────────┘                                         │
                         本地文件系统 + .staticsmith/index.db   Git 仓库 / FTP 服务器
 ```
 
-桌面端与 CLI 是 `staticsmith-core` 的两个前端。core 不依赖 Tauri，也不依赖任何 GUI 能力，
-因此 CI 里编译 CLI 不需要 WebView 相关的系统库。
+桌面端、CLI 与 MCP 服务端是 `staticsmith-core` 的三个前端。core 不依赖 Tauri，
+也不依赖任何 GUI 能力，因此 CI 里编译 CLI 与 MCP 不需要 WebView 相关的系统库。
 
 ## 关键设计
 

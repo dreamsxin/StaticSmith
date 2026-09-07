@@ -4096,6 +4096,7 @@ dependencies = [
  "clap",
  "staticsmith-core",
  "staticsmith-deploy",
+ "staticsmith-mcp",
  "tempfile",
  "tracing",
  "tracing-subscriber",
@@ -4140,6 +4141,20 @@ dependencies = [
  "thiserror 1.0.69",
  "tracing",
  "walkdir",
+]
+
+[[package]]
+name = "staticsmith-mcp"
+version = "2.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "staticsmith-core",
+ "staticsmith-deploy",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tiny_http",
+ "tracing",
 ]
 
 [[package]]

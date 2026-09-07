@@ -1,0 +1,22 @@
+[package]
+name = "staticsmith-mcp"
+description = "StaticSmith 的 MCP 服务端：让 AI Agent 通过 stdio 或 SSE 操作站点"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+staticsmith-core.workspace = true
+staticsmith-deploy.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tiny_http.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

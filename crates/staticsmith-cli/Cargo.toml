@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 staticsmith-core = { workspace = true, features = ["serve"] }
 staticsmith-deploy.workspace = true
+staticsmith-mcp.workspace = true
 
 anyhow.workspace = true
 clap.workspace = true

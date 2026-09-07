@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/staticsmith-core", "crates/staticsmith-cli", "crates/staticsmith-deploy", "src-tauri"]
+members = ["crates/staticsmith-core", "crates/staticsmith-cli", "crates/staticsmith-deploy", "crates/staticsmith-mcp", "src-tauri"]
 
 [workspace.package]
 version = "2.0.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 license = "MIT"
 repository = "https://github.com/dreamsxin/StaticSmith"
 authors = ["dreamszhu <dreamsxin@qq.com>"]
@@ -13,6 +13,7 @@ authors = ["dreamszhu <dreamsxin@qq.com>"]
 [workspace.dependencies]
 staticsmith-core = { path = "crates/staticsmith-core" }
 staticsmith-deploy = { path = "crates/staticsmith-deploy" }
+staticsmith-mcp = { path = "crates/staticsmith-mcp" }
 
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }

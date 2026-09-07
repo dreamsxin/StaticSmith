@@ -22,6 +22,7 @@ cargo clippy --workspace --all-targets
 
 # CLI（不依赖 GUI 系统库）
 cargo run -p staticsmith-cli -- --help
+cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 ```
 
 `npm run tauri dev` 依赖 `dist-ui/`（`tauri.conf.json` 的 `frontendDist`）在生产构建时存在；
@@ -30,11 +31,13 @@ cargo run -p staticsmith-cli -- --help
 
 ## 代码组织约定
 
-- `staticsmith-core` 不允许依赖 Tauri 或任何 GUI 能力。它要能被 CLI / 服务端直接复用
+- `staticsmith-core` 不允许依赖 Tauri 或任何 GUI 能力。它要能被 CLI / MCP / 服务端直接复用
 - 路径在跨平台边界统一转为正斜杠（`util::to_slash`）。模板名与索引键都依赖这一点，
   否则 Windows 与 macOS 的索引不兼容
 - 新增 IPC 命令时同步三处：`commands.rs` 实现、`lib.rs` 的 `invoke_handler` 注册、
   `src/api.ts` 的类型声明
+- 新增 MCP 工具时同步两处：`tools.rs` 的定义表与 `execute` 分派
+- 发布凭证的环境变量规则只有一份，在 `staticsmith-deploy::credentials`，CLI 与 MCP 共用
 - 错误一律带上出错路径。`Error::io(path, source)` 就是为此存在的
 
 ## 测试策略

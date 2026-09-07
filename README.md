@@ -25,6 +25,7 @@
 - `sitemap.xml` 与 Atom 订阅（`feed.xml`）生成，可开关
 - 本地预览服务器（仅监听 127.0.0.1），预览与线上一致
 - 命令行工具 `staticsmith`：init / new / build / plan / serve / deploy / check，适合 CI
+- MCP 服务端：AI Agent 可通过 stdio 或 SSE 操作站点，权限默认只读
 - Git 发布（`git2`，产物独立仓库 + 强制推送产物分支）
 - FTP / SFTP 差异同步（按大小与修改时间比对，只传变化文件）
 - 凭证写入操作系统凭据管理器（Windows Credential Manager / macOS Keychain / Secret Service）
@@ -48,6 +49,9 @@ npm run tauri build         # 打包安装程序
 cargo run -p staticsmith-cli -- init ./my-site --title "我的站点"
 cargo run -p staticsmith-cli -- build --project ./my-site
 cargo run -p staticsmith-cli -- serve --project ./my-site
+
+# MCP 服务端（供 AI Agent 接入，默认只读）
+cargo run -p staticsmith-cli -- mcp --sse --project ./my-site
 ```
 
 首次运行界面后：**在空目录新建站点** → 自动写入 `templates/`、`themes/default/`、
@@ -78,6 +82,7 @@ StaticSmith/
 │   │   │   └── scaffold.rs       # 新建项目
 │   │   └── tests/build.rs        # 端到端构建测试
 │   ├── staticsmith-cli/          # 命令行工具（bin 名 staticsmith）
+│   ├── staticsmith-mcp/          # MCP 服务端（stdio / SSE，供 AI Agent 调用）
 │   └── staticsmith-deploy/
 │       └── src/
 │           ├── manifest.rs       # 本地清单与差异同步计划
@@ -125,6 +130,7 @@ my-site/
 - [媒体资源与目录结构](docs/assets.md)
 - [配置说明](docs/configuration.md)
 - [命令行工具](docs/cli.md)
+- [MCP：AI Agent 接入](docs/mcp.md)
 - [发布机制](docs/deploy.md)
 - [IPC 命令参考](docs/ipc.md)
 - [开发指引](docs/development.md)

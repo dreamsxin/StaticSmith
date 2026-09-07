@@ -6,16 +6,14 @@
 //! 凭证策略与桌面端不同：CLI 不碰系统凭据管理器（CI 环境里没有），只读环境变量。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
-use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer, SiteConfig};
-use staticsmith_deploy::{Credentials, DeployReport, Progress};
-
-/// Git Token / SSH 私钥口令的环境变量名。
-const ENV_GIT_TOKEN: &str = "STATICSMITH_GIT_TOKEN";
-const ENV_SSH_PASSPHRASE: &str = "STATICSMITH_SSH_PASSPHRASE";
+use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
+use staticsmith_deploy::{DeployReport, Progress};
+use staticsmith_mcp::{McpServer, Permissions};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -114,6 +112,24 @@ pub enum Command {
         #[command(flatten)]
         project: ProjectArgs,
     },
+
+    /// 启动 MCP 服务端，供 AI Agent 操作站点
+    Mcp {
+        /// 走 HTTP（POST /mcp 与 GET /sse）而不是 stdio
+        #[arg(long)]
+        sse: bool,
+        /// HTTP 端口，0 表示由系统分配，仅 --sse 时有效
+        #[arg(short = 'P', long, default_value_t = 5330)]
+        port: u16,
+        /// 允许 Agent 写内容与模板、生成产物
+        #[arg(long)]
+        allow_write: bool,
+        /// 允许 Agent 执行发布（会影响线上站点）
+        #[arg(long)]
+        allow_deploy: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
 }
 
 fn main() -> Result<()> {
@@ -158,6 +174,21 @@ pub fn run(cli: Cli) -> Result<()> {
             project,
         } => cmd_deploy(&project.project, check_only, build),
         Command::Check { project } => cmd_check(&project.project),
+        Command::Mcp {
+            sse,
+            port,
+            allow_write,
+            allow_deploy,
+            project,
+        } => cmd_mcp(
+            &project.project,
+            sse,
+            port,
+            Permissions {
+                write: allow_write,
+                deploy: allow_deploy,
+            },
+        ),
     }
 }
 
@@ -305,6 +336,32 @@ fn cmd_check(project: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// 启动 MCP 服务端。
+///
+/// stdio 是默认传输：客户端把本进程当子进程拉起，最省配置。
+/// 走 stdio 时**不能**往 stdout 写任何非协议内容，因此提示信息一律走 stderr。
+fn cmd_mcp(project: &PathBuf, sse: bool, port: u16, permissions: Permissions) -> Result<()> {
+    // 先确认项目能打开，免得 Agent 连上来才发现路径错了。
+    let _ = open(project)?;
+    let server = McpServer::open(project, permissions).context("MCP 服务端初始化失败")?;
+
+    if !sse {
+        eprintln!("MCP（stdio）已就绪：{}", permissions.summary());
+        return staticsmith_mcp::serve_stdio(&server).context("stdio 传输异常");
+    }
+
+    let http = staticsmith_mcp::serve_http(Arc::new(server), port)
+        .context("MCP HTTP 服务器启动失败（端口可能被占用）")?;
+    println!("MCP（HTTP）已就绪：{}", permissions.summary());
+    println!("  Streamable HTTP : {}", http.mcp_endpoint());
+    println!("  SSE（旧版传输） : {}", http.sse_endpoint());
+    println!("按 Ctrl+C 停止");
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    }
+}
+
 fn open(project: &PathBuf) -> Result<Builder> {
     if !scaffold::is_project(project) {
         bail!(
@@ -315,54 +372,12 @@ fn open(project: &PathBuf) -> Result<Builder> {
     Builder::open(project).with_context(|| format!("打开项目失败：{}", project.display()))
 }
 
-/// CLI 的凭证只来自环境变量，便于在 CI 中注入。
-///
-/// - Git Token：`STATICSMITH_GIT_TOKEN`
-/// - SSH 私钥口令：`STATICSMITH_SSH_PASSPHRASE`
-/// - FTP 密码：配置里 `password_env` 指定的变量名
-pub fn credentials_from_env(config: &SiteConfig) -> Result<Credentials> {
-    use staticsmith_core::config::DeployKind;
-
-    match config.deploy.r#type {
-        DeployKind::None => bail!("deploy.type 为 none，请先在 staticsmith.toml 里配置发布方式"),
-        DeployKind::Git => {
-            let git = config
-                .deploy
-                .git
-                .as_ref()
-                .context("缺少 [deploy.git] 配置段")?;
-            if git.auth_type == "ssh" {
-                let key = git
-                    .ssh_key_path
-                    .clone()
-                    .context("auth_type = \"ssh\" 时需要填写 ssh_key_path")?;
-                return Ok(Credentials::SshKey {
-                    username: "git".to_string(),
-                    private_key: key,
-                    passphrase: std::env::var(ENV_SSH_PASSPHRASE).ok(),
-                });
-            }
-            let token = std::env::var(ENV_GIT_TOKEN)
-                .with_context(|| format!("请设置环境变量 {ENV_GIT_TOKEN}"))?;
-            Ok(Credentials::UserPassword {
-                username: "staticsmith".to_string(),
-                password: token,
-            })
-        }
-        DeployKind::Ftp => {
-            let ftp = config
-                .deploy
-                .ftp
-                .as_ref()
-                .context("缺少 [deploy.ftp] 配置段")?;
-            let key = ftp.password_env.as_deref().unwrap_or("FTP_PASSWORD");
-            let password = std::env::var(key).with_context(|| format!("请设置环境变量 {key}"))?;
-            Ok(Credentials::UserPassword {
-                username: ftp.username.clone(),
-                password,
-            })
-        }
-    }
+/// CLI 的凭证只来自环境变量，便于在 CI 中注入。实现在 `staticsmith-deploy`，
+/// 与 MCP 服务端共用同一套规则，避免两处各写一份而慢慢分叉。
+fn credentials_from_env(
+    config: &staticsmith_core::SiteConfig,
+) -> Result<staticsmith_deploy::Credentials> {
+    staticsmith_deploy::credentials::from_env(config).map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]
@@ -447,26 +462,58 @@ mod tests {
     }
 
     #[test]
-    fn credentials_require_env_vars() {
-        let mut config = SiteConfig::default();
-        config.deploy.r#type = staticsmith_core::config::DeployKind::Git;
-        config.deploy.git = Some(staticsmith_core::config::GitDeploy {
-            remote: "https://example.com/r.git".into(),
-            branch: "main".into(),
-            commit_message: "x".into(),
-            auth_type: "token".into(),
-            ssh_key_path: None,
-        });
-
-        // 测试进程里不设置该变量，应给出可操作的提示。
-        std::env::remove_var(ENV_GIT_TOKEN);
-        let err = credentials_from_env(&config).unwrap_err();
-        assert!(err.to_string().contains(ENV_GIT_TOKEN), "{err}");
+    fn mcp_defaults_to_stdio_and_read_only() {
+        let cli = Cli::try_parse_from(["staticsmith", "mcp"]).unwrap();
+        match cli.command {
+            Command::Mcp {
+                sse,
+                allow_write,
+                allow_deploy,
+                port,
+                ..
+            } => {
+                assert!(!sse, "默认走 stdio");
+                assert!(!allow_write, "默认只读");
+                assert!(!allow_deploy);
+                assert_eq!(port, 5330);
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
     }
 
     #[test]
-    fn deploy_type_none_is_rejected_early() {
-        let err = credentials_from_env(&SiteConfig::default()).unwrap_err();
+    fn mcp_permissions_are_opt_in() {
+        let cli = Cli::try_parse_from([
+            "staticsmith",
+            "mcp",
+            "--sse",
+            "--port",
+            "0",
+            "--allow-write",
+            "--allow-deploy",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Mcp {
+                sse,
+                port,
+                allow_write,
+                allow_deploy,
+                ..
+            } => {
+                assert!(sse);
+                assert_eq!(port, 0);
+                assert!(allow_write);
+                assert!(allow_deploy);
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn credentials_come_from_the_deploy_crate() {
+        // 具体规则在 staticsmith-deploy::credentials 里有完整测试，这里只确认接线正确。
+        let err = credentials_from_env(&staticsmith_core::SiteConfig::default()).unwrap_err();
         assert!(err.to_string().contains("deploy.type"));
     }
 }

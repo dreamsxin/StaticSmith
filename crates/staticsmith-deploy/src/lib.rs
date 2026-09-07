@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
+pub mod credentials;
 pub mod manifest;
 
 #[cfg(feature = "git")]
