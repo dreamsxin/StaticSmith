@@ -121,6 +121,14 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `batch_set_draft(sources, draft) -> BatchReport`
 - `batch_move(args: { sources, to_section, keep_aliases }) -> BatchMoveReport`
 - `batch_delete(sources) -> BatchReport`：**不可撤销**，界面必须先二次确认
+- `batch_preview(sources, action) -> BatchPreview`：干跑，不碰磁盘
+
+`action` 是带标签的枚举：`{ kind: "tags", add, remove }`、`{ kind: "draft", draft }`、
+`{ kind: "move", to_section }`、`{ kind: "delete" }`。`BatchPreview` 给
+`changes`（`{source, changes, effect}`）与 `affected`（真会改动的篇数），
+`effect` 是人能读的一句话（「搬到 notes/a.md，旧地址 /posts/a/」「已经是目标状态」）。
+判断与执行共用一份逻辑，所以预览说会改的，执行就会改。
+
 
 `BatchReport`：`changed`（真正写了盘的源文件）、`skipped`（`{source, reason}`）、
 `plan`（增量计划，界面据此更新「待生成」标记，不必再单独请求一次）。

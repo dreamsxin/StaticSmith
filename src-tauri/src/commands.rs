@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use staticsmith_core::batch::{Moved as BatchMoved, Skipped as BatchSkipped, TagEdit};
+use staticsmith_core::batch::{
+    Action as BatchAction, Moved as BatchMoved, Preview as BatchPreview, Skipped as BatchSkipped,
+    TagEdit,
+};
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
@@ -398,6 +401,49 @@ pub fn batch_delete(state: State<'_, AppState>, sources: Vec<String>) -> Result<
             plan: session.builder.plan(BuildMode::Incremental)?,
         })
     })
+}
+
+/// 干跑一个批量动作：算出每篇会发生什么，不碰磁盘。
+///
+/// 只有搬动与删除会走这一步——它们不可逆或会改地址；加标签、切草稿反手就能改回来，
+/// 多一次确认只是白点一下。
+#[tauri::command]
+pub fn batch_preview(
+    state: State<'_, AppState>,
+    sources: Vec<String>,
+    action: BatchActionArgs,
+) -> Result<BatchPreview> {
+    state.with_session(|session| Ok(session.builder.batch_preview(&sources, &action.into())?))
+}
+
+/// 界面传过来的动作。用带标签的枚举，前端只发一个 `kind` 字段就能选中分支。
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BatchActionArgs {
+    Tags {
+        #[serde(default)]
+        add: Vec<String>,
+        #[serde(default)]
+        remove: Vec<String>,
+    },
+    Draft {
+        draft: bool,
+    },
+    Move {
+        to_section: String,
+    },
+    Delete,
+}
+
+impl From<BatchActionArgs> for BatchAction {
+    fn from(args: BatchActionArgs) -> Self {
+        match args {
+            BatchActionArgs::Tags { add, remove } => BatchAction::Tags(TagEdit { add, remove }),
+            BatchActionArgs::Draft { draft } => BatchAction::Draft(draft),
+            BatchActionArgs::Move { to_section } => BatchAction::Move { to_section },
+            BatchActionArgs::Delete => BatchAction::Delete,
+        }
+    }
 }
 
 /// 批量动作会写很多文件，逐个登记自身写入，避免监听器把它们当成外部改动。

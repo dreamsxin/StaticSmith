@@ -240,6 +240,17 @@ export const actions = {
     await this.afterBatch(report.changed.length, report.skipped, report.plan)
   },
 
+  /**
+   * 干跑一个批量动作，返回每篇会发生什么。
+   *
+   * 只给搬动与删除用：它们不可逆或会改地址，值得先看一眼；加标签、切草稿
+   * 反手就能改回来，多一次确认只是白点。
+   */
+  async batchPreview(sources: string[], action: api.BatchAction) {
+    return await run(() => api.batchPreview(sources, action))
+  },
+
+
   /** 批量发布或收回草稿。 */
   async batchSetDraft(sources: string[], draft: boolean) {
     const report = await run(() => api.batchSetDraft(sources, draft))

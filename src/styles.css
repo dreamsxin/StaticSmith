@@ -823,6 +823,43 @@ kbd {
   margin: 0 0.1rem 0 0.35rem;
 }
 
+/* 干跑结果：逐条说明会怎么变；不会动的那些压暗，视线自然落在真会改的行上 */
+.page-list__dry {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.page-list__dry-list {
+  max-height: 12rem;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.page-list__dry-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  padding: 0.2rem 0.1rem;
+  font-size: 0.75rem;
+}
+
+.page-list__dry-list li.skip {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .page-list__rename {
   display: flex;
   flex-direction: column;

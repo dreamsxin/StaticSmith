@@ -245,6 +245,17 @@ impl Builder {
         Ok(out)
     }
 
+    /// 干跑一个批量动作：算出每篇会发生什么，不碰磁盘。
+    ///
+    /// 判断与真正执行共用一份逻辑，所以预览说会改的，执行就会改。
+    pub fn batch_preview(
+        &self,
+        sources: &[String],
+        action: &batch::Action,
+    ) -> Result<batch::Preview> {
+        batch::preview(&self.paths, sources, action)
+    }
+
     /// 新建栏目：建目录并写一张索引页，随后重新加载内容。
     ///
     /// 一并建索引页是刻意的：没有索引页的栏目不生成列表页，

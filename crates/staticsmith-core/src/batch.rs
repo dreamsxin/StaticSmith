@@ -69,39 +69,45 @@ pub struct TagEdit {
 
 /// 批量增删标签。原有顺序保留，新标签追加在后面。
 pub fn edit_tags(paths: &ProjectPaths, sources: &[String], edit: &TagEdit) -> Result<Outcome> {
-    let add: Vec<&str> = edit
-        .add
-        .iter()
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-        .collect();
-    let remove: Vec<&str> = edit
-        .remove
-        .iter()
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-        .collect();
-    if add.is_empty() && remove.is_empty() {
-        return Err(Error::Other("没有要增删的标签".to_string()));
-    }
-
+    let (add, remove) = clean_tag_edit(edit)?;
     each(paths, sources, |raw| {
-        let mut tags = frontmatter::read(raw)?.tags;
-        let before = tags.clone();
-        tags.retain(|t| !remove.iter().any(|r| r == t));
-        for tag in &add {
-            if !tags.iter().any(|t| t == tag) {
-                tags.push((*tag).to_string());
-            }
-        }
-        if tags == before {
-            return Ok(None);
-        }
-        Ok(Some(Patch {
+        Ok(tags_after(raw, &add, &remove)?.map(|tags| Patch {
             tags: Some(tags),
             ..Patch::default()
         }))
     })
+}
+
+/// 清洗并校验标签增删：两边都空就是没让人干活，直接报错而不是静默无事发生。
+fn clean_tag_edit(edit: &TagEdit) -> Result<(Vec<String>, Vec<String>)> {
+    let clean = |items: &[String]| -> Vec<String> {
+        items
+            .iter()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty())
+            .collect()
+    };
+    let add = clean(&edit.add);
+    let remove = clean(&edit.remove);
+    if add.is_empty() && remove.is_empty() {
+        return Err(Error::Other("没有要增删的标签".to_string()));
+    }
+    Ok((add, remove))
+}
+
+/// 增删之后的标签集合。`None` 表示这篇没有变化。
+///
+/// 预览与真正写盘共用这一份判断——两处各算一遍，迟早会出现「预览说改，执行却跳过」。
+fn tags_after(raw: &str, add: &[String], remove: &[String]) -> Result<Option<Vec<String>>> {
+    let before = frontmatter::read(raw)?.tags;
+    let mut tags = before.clone();
+    tags.retain(|t| !remove.contains(t));
+    for tag in add {
+        if !tags.contains(tag) {
+            tags.push(tag.clone());
+        }
+    }
+    Ok(if tags == before { None } else { Some(tags) })
 }
 
 /// 批量设置草稿开关。已经是目标状态的会被跳过，不会白写一次盘。
@@ -154,6 +160,43 @@ pub fn move_to_section(
     Ok(out)
 }
 
+/// 搬一篇的判断结果。预览与执行共用，避免「预览说能搬、执行却跳过」。
+enum MoveDecision {
+    /// 本来就在目标栏目。
+    Same,
+    /// 不能搬，附原因。
+    Blocked(String),
+    Go {
+        new_source: String,
+        old_url: String,
+    },
+}
+
+fn move_decision(paths: &ProjectPaths, page: &Page, target: &str) -> MoveDecision {
+    if page.section == target {
+        return MoveDecision::Same;
+    }
+    // 栏目索引页搬走会让原栏目失去列表页，同时在新栏目里撞上人家的索引页
+    if page.is_index {
+        return MoveDecision::Blocked("栏目索引页不能搬动，请改栏目名或新建栏目".to_string());
+    }
+    let Some(file_name) = page.source.rsplit('/').next() else {
+        return MoveDecision::Blocked(format!("源路径异常: {}", page.source));
+    };
+    let new_source = if target.is_empty() {
+        file_name.to_string()
+    } else {
+        format!("{target}/{file_name}")
+    };
+    if content::resolve_source(&paths.content, &new_source).exists() {
+        return MoveDecision::Blocked(format!("{new_source} 已存在同名文件"));
+    }
+    MoveDecision::Go {
+        new_source,
+        old_url: page.url.clone(),
+    }
+}
+
 /// 搬一篇。返回 `None` 表示本来就在目标栏目。
 fn move_one(
     paths: &ProjectPaths,
@@ -161,31 +204,17 @@ fn move_one(
     target: &str,
     keep_aliases: bool,
 ) -> Result<Option<Moved>> {
-    if page.section == target {
-        return Ok(None);
-    }
-    let file_name = page
-        .source
-        .rsplit('/')
-        .next()
-        .ok_or_else(|| Error::Other(format!("源路径异常: {}", page.source)))?;
-    // 栏目索引页搬走会让原栏目失去列表页，同时在新栏目里撞上人家的索引页
-    if page.is_index {
-        return Err(Error::Other(
-            "栏目索引页不能搬动，请改栏目名或新建栏目".to_string(),
-        ));
-    }
-
-    let new_source = if target.is_empty() {
-        file_name.to_string()
-    } else {
-        format!("{target}/{file_name}")
+    let (new_source, old_url) = match move_decision(paths, page, target) {
+        MoveDecision::Same => return Ok(None),
+        MoveDecision::Blocked(reason) => return Err(Error::Other(reason)),
+        MoveDecision::Go {
+            new_source,
+            old_url,
+        } => (new_source, old_url),
     };
+
     let from_path = content::resolve_source(&paths.content, &page.source);
     let to_path = content::resolve_source(&paths.content, &new_source);
-    if to_path.exists() {
-        return Err(Error::Other(format!("{new_source} 已存在同名文件")));
-    }
     if let Some(parent) = to_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
@@ -193,7 +222,7 @@ fn move_one(
 
     let mut alias_added = false;
     if keep_aliases {
-        alias_added = add_alias(&to_path, &page.url)?;
+        alias_added = add_alias(&to_path, &old_url)?;
     }
     Ok(Some(Moved {
         from: page.source.clone(),
@@ -223,6 +252,165 @@ pub fn delete(paths: &ProjectPaths, sources: &[String]) -> Result<Outcome> {
         }
     }
     Ok(out)
+}
+
+/// 要预览的动作。
+///
+/// 与执行用的四个函数一一对应，判断逻辑共用，避免「预览说改、执行却跳过」。
+#[derive(Debug, Clone)]
+pub enum Action {
+    Tags(TagEdit),
+    Draft(bool),
+    Move { to_section: String },
+    Delete,
+}
+
+/// 预览里的一条：这篇会发生什么。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Change {
+    pub source: String,
+    /// 是否真的会改动。为假时 `effect` 说明为什么不动。
+    pub changes: bool,
+    /// 人能读的一句话：「加标签 运营」「搬到 notes/」「已经是草稿」。
+    pub effect: String,
+}
+
+/// 干跑结果。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Preview {
+    pub changes: Vec<Change>,
+    /// 真的会改动的篇数。
+    pub affected: usize,
+}
+
+/// 干跑：算出每篇会发生什么，不碰磁盘。
+///
+/// 只给「不可逆或会改地址」的动作用（搬动、删除）就够了——加标签、切草稿这类
+/// 反手就能改回来的动作，多一步确认只是白点一下。
+pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Result<Preview> {
+    let mut out = Preview::default();
+    let pages = match action {
+        Action::Move { .. } => content::load_all(&paths.content)?,
+        _ => Vec::new(),
+    };
+    let tag_edit = match action {
+        Action::Tags(edit) => Some(clean_tag_edit(edit)?),
+        _ => None,
+    };
+    let target = match action {
+        Action::Move { to_section } => util::sanitize_relative_dir(to_section),
+        _ => String::new(),
+    };
+
+    for source in sources {
+        let path = content::resolve_source(&paths.content, source);
+        if !under_content(paths, &path) {
+            out.changes.push(Change {
+                source: source.clone(),
+                changes: false,
+                effect: "不在内容目录内".to_string(),
+            });
+            continue;
+        }
+
+        let change = match action {
+            Action::Delete => Change {
+                source: source.clone(),
+                changes: path.is_file(),
+                effect: if path.is_file() {
+                    "删除，不可撤销".to_string()
+                } else {
+                    "文件不存在".to_string()
+                },
+            },
+            Action::Move { .. } => match pages.iter().find(|p| &p.source == source) {
+                None => Change {
+                    source: source.clone(),
+                    changes: false,
+                    effect: "找不到这篇内容".to_string(),
+                },
+                Some(page) => match move_decision(paths, page, &target) {
+                    MoveDecision::Same => Change {
+                        source: source.clone(),
+                        changes: false,
+                        effect: "已经在这个栏目里".to_string(),
+                    },
+                    MoveDecision::Blocked(reason) => Change {
+                        source: source.clone(),
+                        changes: false,
+                        effect: reason,
+                    },
+                    MoveDecision::Go {
+                        new_source,
+                        old_url,
+                    } => Change {
+                        source: source.clone(),
+                        changes: true,
+                        effect: format!("搬到 {new_source}，旧地址 {old_url}"),
+                    },
+                },
+            },
+            Action::Tags(_) | Action::Draft(_) => {
+                let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e));
+                match raw {
+                    Err(err) => Change {
+                        source: source.clone(),
+                        changes: false,
+                        effect: err.to_string(),
+                    },
+                    Ok(raw) => describe_patch(source, &raw, action, tag_edit.as_ref()),
+                }
+            }
+        };
+        if change.changes {
+            out.affected += 1;
+        }
+        out.changes.push(change);
+    }
+    Ok(out)
+}
+
+/// front matter 类动作的一句话说明。
+fn describe_patch(
+    source: &str,
+    raw: &str,
+    action: &Action,
+    tag_edit: Option<&(Vec<String>, Vec<String>)>,
+) -> Change {
+    let described = match action {
+        Action::Tags(_) => {
+            let (add, remove) = tag_edit.expect("标签动作一定带着清洗后的增删表");
+            tags_after(raw, add, remove)
+                .map(|after| after.map(|tags| format!("标签改为 {}", tags.join("、"))))
+        }
+        Action::Draft(draft) => frontmatter::read(raw).map(|fm| {
+            if fm.draft == *draft {
+                None
+            } else if *draft {
+                Some("收回为草稿".to_string())
+            } else {
+                Some("发布".to_string())
+            }
+        }),
+        _ => Ok(None),
+    };
+    match described {
+        Err(err) => Change {
+            source: source.to_string(),
+            changes: false,
+            effect: err.to_string(),
+        },
+        Ok(None) => Change {
+            source: source.to_string(),
+            changes: false,
+            effect: "已经是目标状态".to_string(),
+        },
+        Ok(Some(effect)) => Change {
+            source: source.to_string(),
+            changes: true,
+            effect,
+        },
+    }
 }
 
 /// 逐篇读源文、算出补丁、写回。补丁为 `None` 表示这篇无需改动。
@@ -316,6 +504,100 @@ mod tests {
 
     fn read(f: &Fixture, source: &str) -> String {
         std::fs::read_to_string(content::resolve_source(&f.paths.content, source)).unwrap()
+    }
+
+    #[test]
+    fn preview_tells_what_would_change_without_touching_disk() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\ndraft = true\n+++\n");
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        write(&f, "notes/a.md", "+++\ntitle = \"同名\"\n+++\n");
+
+        let sources = vec![
+            "posts/a.md".to_string(),
+            "posts/index.md".to_string(),
+            "posts/missing.md".to_string(),
+        ];
+
+        // 搬动：一篇能搬（撞名的目标除外）、索引页拒绝、找不到的报出来
+        let moving = preview(
+            &f.paths,
+            &sources,
+            &Action::Move {
+                to_section: "notes".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(moving.affected, 0, "{moving:?}");
+        assert!(moving.changes[0].effect.contains("已存在同名文件"));
+        assert!(moving.changes[1].effect.contains("索引页不能搬动"));
+        assert!(moving.changes[2].effect.contains("找不到"));
+
+        let moving = preview(
+            &f.paths,
+            &["posts/a.md".to_string()],
+            &Action::Move {
+                to_section: "essays".to_string(),
+            },
+        )
+        .unwrap();
+        assert_eq!(moving.affected, 1);
+        assert!(
+            moving.changes[0].effect.contains("搬到 essays/a.md"),
+            "{:?}",
+            moving.changes
+        );
+        assert!(
+            moving.changes[0].effect.contains("/posts/a/"),
+            "要说清旧地址"
+        );
+
+        // 发布：草稿那篇会变，非草稿的说明「已经是目标状态」
+        let publishing = preview(
+            &f.paths,
+            &["posts/a.md".to_string(), "notes/a.md".to_string()],
+            &Action::Draft(false),
+        )
+        .unwrap();
+        assert_eq!(publishing.affected, 1);
+        assert_eq!(publishing.changes[0].effect, "发布");
+        assert_eq!(publishing.changes[1].effect, "已经是目标状态");
+
+        // 干跑不写盘
+        assert!(
+            std::fs::read_to_string(content::resolve_source(&f.paths.content, "posts/a.md"))
+                .unwrap()
+                .contains("draft = true")
+        );
+        assert!(!content::resolve_source(&f.paths.content, "essays/a.md").exists());
+    }
+
+    #[test]
+    fn preview_and_apply_agree_on_tags() {
+        let f = fixture();
+        write(
+            &f,
+            "posts/a.md",
+            "+++\ntitle = \"甲\"\ntags = [\"模板\"]\n+++\n",
+        );
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\ntags = [\"模板\"]\n+++\n",
+        );
+
+        let sources = vec!["posts/a.md".to_string(), "posts/b.md".to_string()];
+        let edit = TagEdit {
+            add: vec!["模板".into()],
+            remove: Vec::new(),
+        };
+        // 两篇都已经有这个标签：预览说不会变，执行也该一篇都不改
+        let dry = preview(&f.paths, &sources, &Action::Tags(edit.clone())).unwrap();
+        assert_eq!(dry.affected, 0, "{dry:?}");
+
+        let out = edit_tags(&f.paths, &sources, &edit).unwrap();
+        assert!(out.changed.is_empty());
+        assert_eq!(out.skipped.len(), 2);
     }
 
     #[test]

@@ -474,6 +474,32 @@ export const batchMove = (sources: string[], toSection: string, keepAliases: boo
 export const batchDelete = (sources: string[]) =>
   invoke<BatchReport>('batch_delete', { sources })
 
+/** 要干跑的动作。与四个批量命令一一对应。 */
+export type BatchAction =
+  | { kind: 'tags'; add: string[]; remove: string[] }
+  | { kind: 'draft'; draft: boolean }
+  | { kind: 'move'; to_section: string }
+  | { kind: 'delete' }
+
+export interface BatchChange {
+  source: string
+  /** 是否真的会改动。为假时 effect 说明为什么不动 */
+  changes: boolean
+  /** 人能读的一句话：「搬到 notes/a.md，旧地址 /posts/a/」「已经是目标状态」 */
+  effect: string
+}
+
+export interface BatchPreview {
+  changes: BatchChange[]
+  /** 真的会改动的篇数 */
+  affected: number
+}
+
+/** 干跑：算出每篇会发生什么，不碰磁盘。判断与执行同源。 */
+export const batchPreview = (sources: string[], action: BatchAction) =>
+  invoke<BatchPreview>('batch_preview', { sources, action })
+
+
 // ---------------------------------------------------------------- 栏目
 
 

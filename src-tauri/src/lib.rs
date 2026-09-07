@@ -55,6 +55,7 @@ pub fn run() {
             commands::batch_set_draft,
             commands::batch_move,
             commands::batch_delete,
+            commands::batch_preview,
             commands::remove_media,
             commands::list_templates,
             commands::template_tree,
