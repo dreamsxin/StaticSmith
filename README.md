@@ -127,6 +127,16 @@ my-site/
 
 ## 文档
 
+先读哪一篇取决于你是谁：
+
+- 要写东西 → [上手：从零到线上](docs/getting-started.md)（不假设懂 Markdown 与命令行）
+- 在维护一个站点 → [站点运营手册](docs/operations.md)
+- 在做主题 → [统一模板与级联更新](docs/templates.md)
+- 在改这个项目 → [架构说明](docs/architecture.md) + [开发指引](docs/development.md)
+
+全部文档：
+
+- [上手：从零到线上](docs/getting-started.md)
 - [架构说明](docs/architecture.md)
 - [站点运营手册：日常动作、现有能力与缺口](docs/operations.md)
 - [界面设计：菜单与操作流程](docs/ui-design.md)
@@ -141,6 +151,7 @@ my-site/
 - [IPC 命令参考](docs/ipc.md)
 - [开发指引](docs/development.md)
 - [常见问题](docs/faq.md)
+- [变更日志](CHANGELOG.md)
 
 ## 许可
 

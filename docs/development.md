@@ -79,6 +79,14 @@ URL 白名单为空，于是每次调用都被拒绝，前端如果没接错误�
 
 结论：加权限时不要只看命令名，要确认对应的 scope 也给了。前端调用一定要有错误出口。
 
+## 变更日志与版本号
+
+用户能感知的改动（新功能、行为变化、修掉的毛病）写进 [CHANGELOG.md](../CHANGELOG.md)
+的「未发布」一节；纯内部重构与文档措辞不写——那些查 `git log` 更准。
+
+发版时：把「未发布」改成版本号 + 日期，并同时改两处版本号——`Cargo.toml`（workspace）
+与 `package.json`。两处不一致的话，桌面端显示的版本与 `staticsmith --version` 会互相打脸。
+
 ## 持续集成
 
 `.github/workflows/ci.yml` 两个 job：
