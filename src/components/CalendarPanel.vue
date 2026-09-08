@@ -3,13 +3,13 @@
  * 发布节奏：把 `date` 摊在月历上。
  *
  * 定时发布（`publish_future = false`）能让文章排队上线，但「这个月发了几篇、
- * 下周排了什么」此前只能自己数日期。这一页纯呈现，不新增任何判断：
+ * 下周排了什么」此前只能自己数日期。日期的判断不在这里做：
  * 「会不会进这次产物」由 Rust 侧算好后随 `PageSummary.scheduled` 一起送来，
- * 界面只按日期分格。
+ * 界面只按日期分格；能改的也只有 `date` 这一个字段，走的是属性面板那条同一条路。
  */
 import { computed, ref } from 'vue'
 
-import { actions, store } from '../store'
+import { actions, isDirty, store } from '../store'
 import type { PageSummary } from '../api'
 
 /** 点条目要跳到对应文章，编辑器只在内容标签页里。 */
@@ -137,6 +137,42 @@ async function open(page: PageSummary) {
   await actions.requestOpenContent(page)
   emit('open')
 }
+
+/**
+ * 改发布日期：从「看节奏」到「排节奏」。
+ *
+ * 以前这一页是纯呈现，看得见「下周排了什么」，想把某篇挪到下周三却得回内容页、
+ * 打开属性面板、改日期、保存四步。这里合成一步。
+ *
+ * 走的仍是现成那条路（打开 → 改 front matter → 保存），没有新增后端动作：
+ * 排期改的就是文章的 `date` 字段，与属性面板改的是同一处，不该有第二种写法。
+ * 副作用是这篇会被打开——这是好事，用户能看见到底改了哪一篇。
+ */
+const editingDate = ref<string | null>(null)
+const dateDraft = ref('')
+
+function startDate(page: PageSummary) {
+  editingDate.value = page.source
+  dateDraft.value = dayOf(page) ?? keyOf(new Date())
+}
+
+async function submitDate(page: PageSummary) {
+  const day = dateDraft.value
+  editingDate.value = null
+  if (!day) return
+  // 有未保存改动时不动手：requestOpenContent 会弹拦截，排期这一步会卡在半路，
+  // 用户只看到「点了没反应」。说清楚比替他决定要好
+  if (isDirty.value) {
+    actions.notify('error', '当前文章有未保存改动，先保存或放弃再改排期')
+    return
+  }
+  await actions.requestOpenContent(page)
+  if (store.currentSource !== page.source) return
+  // 只写日期部分，时间沿用 front matter 的写法（缺时间就按当天零点算）
+  await actions.patchFrontMatter({ date: day })
+  await actions.saveContent()
+}
+
 </script>
 
 <template>
@@ -201,6 +237,13 @@ async function open(page: PageSummary) {
           </button>
           <span v-if="row.page.draft" class="badge badge--draft">草稿</span>
           <span v-else-if="row.page.scheduled" class="badge badge--draft">定时</span>
+          <!-- 排期在列表里改，不在七列的格子里改：格子太窄，放不下一个日期输入框 -->
+          <template v-if="editingDate === row.page.source">
+            <input v-model="dateDraft" type="date" aria-label="发布日期" />
+            <button type="button" :disabled="store.busy" @click="submitDate(row.page)">改期</button>
+            <button type="button" @click="editingDate = null">取消</button>
+          </template>
+          <button v-else type="button" @click="startDate(row.page)">改期…</button>
         </li>
       </ul>
     </div>
@@ -217,6 +260,12 @@ async function open(page: PageSummary) {
           <button type="button" class="calendar__link" @click="open(page)">{{ page.title }}</button>
           <span v-if="page.draft" class="badge badge--draft">草稿</span>
           <code class="build__muted">{{ page.source }}</code>
+          <template v-if="editingDate === page.source">
+            <input v-model="dateDraft" type="date" aria-label="发布日期" />
+            <button type="button" :disabled="store.busy" @click="submitDate(page)">写入日期</button>
+            <button type="button" @click="editingDate = null">取消</button>
+          </template>
+          <button v-else type="button" @click="startDate(page)">补日期…</button>
         </li>
       </ul>
     </div>
