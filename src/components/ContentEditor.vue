@@ -280,6 +280,7 @@ const editorCommands: EditorCommands = {
   quote: () => prefixLines('> '),
   bullet: () => prefixLines('- '),
   pickFile: () => filePicker.value?.click(),
+  assets: () => void toggleAssets(),
 }
 
 /**
@@ -405,8 +406,15 @@ onBeforeUnmount(() => {
       <button type="button" @click="actions.resolvePending('cancel')">留在本页</button>
     </p>
 
+    <!-- 提示文案与「编辑 / 插入」菜单里的那几项逐字一致：同一个动作在两处叫不同名字，
+         用户会以为是两个功能（见 ui-design.md 6.5） -->
     <div class="editor__toolbar">
-      <button type="button" title="标题（H2）" aria-label="标题（H2）" @click="editorCommands.heading()">
+      <button
+        type="button"
+        title="标题（二级）"
+        aria-label="标题（二级）"
+        @click="editorCommands.heading()"
+      >
         H2
       </button>
       <button type="button" title="加粗 Ctrl+B" aria-label="加粗" @click="editorCommands.bold()">
@@ -427,7 +435,7 @@ onBeforeUnmount(() => {
       </button>
       <button
         type="button"
-        title="插入图片（也可直接粘贴或拖入）"
+        title="图片或附件…（也可直接粘贴或拖入）"
         aria-label="插入图片或附件"
         @click="editorCommands.pickFile()"
       >
@@ -436,8 +444,9 @@ onBeforeUnmount(() => {
       <button
         type="button"
         :class="{ active: showAssets }"
-        title="复用已上传的资源"
-        @click="toggleAssets"
+        title="媒体库：复用已上传的资源"
+        aria-label="媒体库"
+        @click="editorCommands.assets()"
       >
         媒体库
       </button>

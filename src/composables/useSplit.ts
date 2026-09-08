@@ -25,12 +25,38 @@ export function useSplit(options: SplitOptions) {
 
   restore()
 
+  /**
+   * 写盘防抖。
+   *
+   * 拖一次分隔条会连续触发几十上百次 `pointermove`，每一次都 `JSON.stringify` +
+   * `localStorage.setItem` 是同步写：拖动手感会变涩，而中间那些宽度没人关心。
+   * 只有停手之后那个值值得记住。
+   */
+  let saveTimer: ReturnType<typeof setTimeout> | null = null
+
   watch([listWidth, previewWidth], () => {
-    localStorage.setItem(
-      options.key,
-      JSON.stringify({ list: listWidth.value, preview: previewWidth.value }),
-    )
+    if (saveTimer !== null) clearTimeout(saveTimer)
+    saveTimer = setTimeout(() => {
+      saveTimer = null
+      localStorage.setItem(
+        options.key,
+        JSON.stringify({ list: listWidth.value, preview: previewWidth.value }),
+      )
+    }, 200)
   })
+
+  /**
+   * 窗口变窄时重新夹取。
+   *
+   * `clampPreview` 的上限依赖 `window.innerWidth`，所以只在拖动时夹一次是不够的：
+   * 把窗口从 1920 拖到 1280，预览栏会保持原来的宽度，把编辑器挤到只剩一条缝。
+   */
+  function reclamp() {
+    listWidth.value = clampList(listWidth.value)
+    previewWidth.value = clampPreview(previewWidth.value)
+  }
+
+  window.addEventListener('resize', reclamp)
 
   function restore() {
     try {
@@ -81,7 +107,18 @@ export function useSplit(options: SplitOptions) {
     document.body.style.cursor = 'col-resize'
   }
 
-  onBeforeUnmount(() => stop?.())
+  onBeforeUnmount(() => {
+    stop?.()
+    window.removeEventListener('resize', reclamp)
+    // 卸载时把还没落盘的宽度补写一次，否则拖完立刻关站点会丢掉这次调整
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer)
+      localStorage.setItem(
+        options.key,
+        JSON.stringify({ list: listWidth.value, preview: previewWidth.value }),
+      )
+    }
+  })
 
   return { listWidth, previewWidth, startDrag }
 }

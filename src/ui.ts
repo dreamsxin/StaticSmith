@@ -28,6 +28,8 @@ export interface EditorCommands {
   bullet(): void
   /** 打开文件选择器插入图片或附件 */
   pickFile(): void
+  /** 开合媒体库：复用已上传过的资源 */
+  assets(): void
 }
 
 export const ui = reactive({

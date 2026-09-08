@@ -322,6 +322,13 @@ export function menus(): Menu[] {
           disabled: noEditor(),
           run: () => ui.editor?.pickFile(),
         },
+        {
+          id: 'insert.assets',
+          label: '媒体库',
+          hint: '复用已上传的资源',
+          disabled: noEditor(),
+          run: () => ui.editor?.assets(),
+        },
       ],
     },
     {
