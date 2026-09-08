@@ -113,25 +113,32 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     </header>
 
     <nav class="app__tabs" aria-label="工作区">
-      <template v-for="(group, index) in tabGroups" :key="group.label">
-        <span v-if="index > 0" class="app__tabs-sep" aria-hidden="true" />
-        <span class="app__tabs-group">{{ group.label }}</span>
+      <div
+        v-for="group in tabGroups"
+        :key="group.label"
+        class="app__tabs-cluster"
+        role="group"
+        :aria-label="group.label"
+      >
+        <span class="app__tabs-group" aria-hidden="true">{{ group.label }}</span>
         <button
           v-for="item in group.tabs"
           :key="item.id"
           type="button"
           class="app__tab"
           :class="{ active: ui.tab === item.id }"
+          :aria-current="ui.tab === item.id ? 'page' : undefined"
           :title="item.hint"
           @click="ui.tab = item.id"
         >
           {{ item.label }}
         </button>
-      </template>
+      </div>
       <span class="app__spacer" />
       <!-- 当前页说明并入标签栏：单独占一行会再吃掉 26px，而工作区已经很挤 -->
       <span class="app__tabs-hint">{{ hint }}</span>
     </nav>
+
 
 
     <p v-if="store.externalChange" class="app__banner">

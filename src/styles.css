@@ -372,6 +372,12 @@ h3 {
   border-color: transparent;
 }
 
+.app__menu-title:focus-visible,
+.app__menu-command:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* 下拉浮在内容之上，比 toast 低一层：报错提示不该被菜单盖住 */
 .app__menu-drop {
   position: absolute;
@@ -441,30 +447,48 @@ h3 {
 .app__tabs {
   display: flex;
   flex: none;
-  gap: 0.2rem;
-  align-items: center;
-  padding: 0 0.6rem;
+  align-items: stretch;
+  padding: 0 0.4rem;
   border-bottom: 1px solid var(--border);
 }
 
-/* 组名是「这几个标签算一伙」的唯一线索，做小做淡，不跟标签抢注意力 */
-.app__tabs-group {
-  padding: 0 0.2rem 0 0.4rem;
-  color: var(--fg-muted);
-  font-size: 0.7rem;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
+/*
+ * 一组 = 组名 + 它的标签。
+ *
+ * 分清「分类」与「按钮」靠三层对比，缺一层就会读成一串连续的词：
+ * ① 间距（格式塔接近性）：组内 2px，组间 10px + 竖线，组名紧贴自己的标签；
+ * ② 色彩：标签用正文色，组名用次要色——原先两者同色是最主要的病根；
+ * ③ 字号与字重：标签 0.85rem/500，组名 0.68rem/400 且加字距，看起来就不像能点。
+ */
+.app__tabs-cluster {
+  display: flex;
+  gap: 0.1rem;
+  align-items: center;
+  padding: 0 0.5rem;
+  border-left: 1px solid var(--border);
 }
 
-.app__tabs-sep {
-  width: 1px;
-  height: 1.1rem;
-  margin: 0 0.3rem;
-  background: var(--border);
+.app__tabs-cluster:first-of-type {
+  padding-left: 0.2rem;
+  border-left: none;
+}
+
+/* 组名不可点：去掉 hover、禁止选中，鼠标也不变手型 */
+.app__tabs-group {
+  padding-right: 0.1rem;
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+  opacity: 0.75;
 }
 
 /* 当前页说明并入标签栏右侧：单独一行会再吃掉 26px，而三栏工作区已经很挤 */
 .app__tabs-hint {
+  align-self: center;
   padding-right: 0.4rem;
   color: var(--fg-muted);
   font-size: 0.78rem;
@@ -489,19 +513,29 @@ h3 {
 
 
 
+/* 标签是按钮：用正文色 + 稍大字号，与组名分开两个层级 */
 .app__tab {
-  padding: 0.4rem 0.7rem;
-  color: var(--fg-muted);
+  padding: 0.35rem 0.6rem;
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-weight: 500;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   border-radius: 0;
+  opacity: 0.75;
 }
 
 .app__tab:hover:not(:disabled) {
-  color: var(--fg);
   background: var(--bg-subtle);
   border-color: transparent;
+  opacity: 1;
+}
+
+/* 键盘用户也要看得见焦点：轮廓画在内侧，不撑开行高 */
+.app__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .app__tab.active {
@@ -509,6 +543,7 @@ h3 {
   background: none;
   border-bottom-color: var(--accent);
   font-weight: 600;
+  opacity: 1;
 }
 
 .app__spacer {
