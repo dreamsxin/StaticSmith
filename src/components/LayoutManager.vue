@@ -124,6 +124,12 @@ async function runThemeImport() {
           <button type="button" @click="actions.openTemplate(layout as TemplateInfo)">编辑</button>
         </li>
       </ul>
+      <!-- 空态按原因给出路（见 ui-design.md 6.9）：列表为空是常态，
+           留一个孤零零的标题会被当成加载失败 -->
+      <p v-if="layouts.length === 0" class="empty-hint">
+        <code>templates/</code> 下还没有 <code>layout_*.html</code>。主布局决定所有页面的骨架，
+        最快的办法是在下面装一个主题包。
+      </p>
 
       <h3>全局共享组件</h3>
       <ul class="layouts__list">
@@ -132,6 +138,10 @@ async function runThemeImport() {
           <button type="button" @click="actions.openTemplate(component as TemplateInfo)">编辑</button>
         </li>
       </ul>
+      <p v-if="components.length === 0" class="empty-hint">
+        还没有被多个页面共用的组件。把页头、页脚这类片段拆成
+        <code>templates/partials/</code> 里的文件，改一处就能全站生效。
+      </p>
 
       <h3>页面模板</h3>
       <ul class="layouts__list">
@@ -140,6 +150,10 @@ async function runThemeImport() {
           <button type="button" @click="actions.openTemplate(tpl as TemplateInfo)">编辑</button>
         </li>
       </ul>
+      <p v-if="pageTemplates.length === 0" class="empty-hint">
+        还没有页面级模板（<code>page.html</code>、<code>list.html</code> 这些）。
+        没有它们，文章会退回到主布局直接渲染。
+      </p>
     </div>
 
     <div class="layouts__column">
@@ -152,6 +166,13 @@ async function runThemeImport() {
           </span>
         </li>
       </ul>
+      <p v-if="flatTree.length === 0" class="empty-hint">
+        {{
+          layouts.length === 0
+            ? '有了主布局之后，这里会画出谁继承谁——改一处能看清影响哪些页面。'
+            : '在左边选一个主布局，这里就会展开它的继承结构。'
+        }}
+      </p>
 
       <details class="layouts__theme">
         <summary>主题包：打包当前外观 / 装入别人的</summary>

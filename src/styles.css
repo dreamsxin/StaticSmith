@@ -1582,6 +1582,16 @@ kbd {
   font-size: 0.85rem;
 }
 
+/* 列表空态：说明「接下来做什么」，与列表项拉开层级，不与标题争视线。
+   跨面板共用一个类名（而不是每块各写一份 xxx__empty）：空态的写法只该有一种 */
+.empty-hint {
+  margin: 0 0 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+
 .build__panel,
 .deploy__panel,
 .settings__panel,

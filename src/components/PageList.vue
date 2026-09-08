@@ -892,9 +892,17 @@ async function copyText(text: string) {
       </ul>
     </div>
 
-    <div v-if="filter === 'all' && sitePages.length" class="page-list__group">
-      <h3>站点页面（生成）<span class="page-list__count">{{ sitePages.length }}</span></h3>
-      <ul>
+    <!-- 没有产物时不整组隐藏（见 ui-design.md 6.9）：隐藏让人以为没有这个功能。
+         但全新空站点（还没有任何文章）不提这一段，那时该先写第一篇 -->
+    <div
+      v-if="filter === 'all' && (sitePages.length > 0 || (!normalized && total > 0))"
+      class="page-list__group"
+    >
+      <h3>
+        站点页面（生成）
+        <span v-if="sitePages.length" class="page-list__count">{{ sitePages.length }}</span>
+      </h3>
+      <ul v-if="sitePages.length">
         <li v-for="item in sitePages" :key="item.path">
           <button
             type="button"
@@ -909,6 +917,10 @@ async function copyText(text: string) {
           </button>
         </li>
       </ul>
+      <p v-else class="empty-hint">
+        还没生成过，所以标签页与分页页还不存在。按 <kbd>Ctrl+Enter</kbd> 生成一次，
+        它们会出现在这里，点一下用本地服务器预览。
+      </p>
     </div>
 
     <p v-if="normalized && matched === 0 && !sitePages.length" class="page-list__empty">

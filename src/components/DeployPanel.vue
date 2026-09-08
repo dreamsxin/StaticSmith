@@ -113,6 +113,11 @@ async function removeSecret() {
           {{ warning }}
         </p>
       </template>
+      <!-- 未发布时不让结果区整块消失（见 ui-design.md 6.9）：消失让人以为功能不存在 -->
+      <p v-else class="empty-hint">
+        本次会话还没发布过。发布只上传 <code>dist/</code> 里变化的文件，
+        完成后这里会列出目标、上传与跳过的数量、耗时，Git 方式还会给出提交号。
+      </p>
     </div>
   </section>
 </template>

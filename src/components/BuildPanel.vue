@@ -148,6 +148,11 @@ async function showOutput(url: string) {
           {{ record.duration_ms }} ms
         </li>
       </ul>
+      <!-- 空表看起来像坏了：说清生成之后这里会出现什么（见 ui-design.md 6.9） -->
+      <p v-if="(store.project?.recent_builds ?? []).length === 0" class="empty-hint">
+        这个站点还没有生成记录。每次生成都会在这里留下时间、模式、页数与耗时，
+        用来对比「这次为什么比上次慢」。
+      </p>
     </div>
   </section>
 </template>
