@@ -13,7 +13,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
-import { ui } from '../ui'
+import { ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
 import { highlight } from '../markdown-highlight'
 
@@ -251,14 +251,31 @@ function onKeydown(event: KeyboardEvent) {
   const key = event.key.toLowerCase()
   const handlers: Record<string, () => void> = {
     s: () => void actions.saveContent(),
-    b: () => wrap('**'),
-    i: () => wrap('*'),
-    k: insertLink,
+    b: editorCommands.bold,
+    i: editorCommands.italic,
+    k: editorCommands.link,
   }
   const handler = handlers[key]
   if (!handler) return
   event.preventDefault()
   handler()
+}
+
+/**
+ * 选区类命令只定义一份。
+ *
+ * 工具条按钮、快捷键、菜单栏三处都调这个对象：以前工具条直接写 `wrap('**')`、
+ * 菜单栏另写一份，加一个「删除线」只会加在一处，两边迟早不一致。
+ */
+const editorCommands: EditorCommands = {
+  bold: () => wrap('**'),
+  italic: () => wrap('*'),
+  code: () => wrap('`'),
+  link: () => insertLink(),
+  heading: () => prefixLines('## '),
+  quote: () => prefixLines('> '),
+  bullet: () => prefixLines('- '),
+  pickFile: () => filePicker.value?.click(),
 }
 
 /**
@@ -269,16 +286,7 @@ function onKeydown(event: KeyboardEvent) {
  * 否则点了会作用在一个已经不存在的输入框上。
  */
 onMounted(() => {
-  ui.editor = {
-    bold: () => wrap('**'),
-    italic: () => wrap('*'),
-    code: () => wrap('`'),
-    link: insertLink,
-    heading: () => prefixLines('## '),
-    quote: () => prefixLines('> '),
-    bullet: () => prefixLines('- '),
-    pickFile: () => filePicker.value?.click(),
-  }
+  ui.editor = editorCommands
 })
 
 onBeforeUnmount(() => {
@@ -394,14 +402,31 @@ onBeforeUnmount(() => {
     </p>
 
     <div class="editor__toolbar">
-      <button type="button" title="标题（H2）" @click="prefixLines('## ')">H2</button>
-      <button type="button" title="加粗 Ctrl+B" @click="wrap('**')"><b>B</b></button>
-      <button type="button" title="斜体 Ctrl+I" @click="wrap('*')"><i>I</i></button>
-      <button type="button" title="行内代码" @click="wrap('`')">&lt;/&gt;</button>
-      <button type="button" title="引用" @click="prefixLines('> ')">❝</button>
-      <button type="button" title="无序列表" @click="prefixLines('- ')">•</button>
-      <button type="button" title="链接 Ctrl+K" @click="insertLink">🔗</button>
-      <button type="button" title="插入图片（也可直接粘贴或拖入）" @click="filePicker?.click()">
+      <button type="button" title="标题（H2）" aria-label="标题（H2）" @click="editorCommands.heading()">
+        H2
+      </button>
+      <button type="button" title="加粗 Ctrl+B" aria-label="加粗" @click="editorCommands.bold()">
+        <b>B</b>
+      </button>
+      <button type="button" title="斜体 Ctrl+I" aria-label="斜体" @click="editorCommands.italic()">
+        <i>I</i>
+      </button>
+      <button type="button" title="行内代码" aria-label="行内代码" @click="editorCommands.code()">
+        &lt;/&gt;
+      </button>
+      <button type="button" title="引用" aria-label="引用" @click="editorCommands.quote()">❝</button>
+      <button type="button" title="无序列表" aria-label="无序列表" @click="editorCommands.bullet()">
+        •
+      </button>
+      <button type="button" title="链接 Ctrl+K" aria-label="插入链接" @click="editorCommands.link()">
+        🔗
+      </button>
+      <button
+        type="button"
+        title="插入图片（也可直接粘贴或拖入）"
+        aria-label="插入图片或附件"
+        @click="editorCommands.pickFile()"
+      >
         图片
       </button>
       <button

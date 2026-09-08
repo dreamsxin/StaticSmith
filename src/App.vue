@@ -23,7 +23,7 @@ import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, store } from './store'
-import { tabGroups, tabHint, ui } from './ui'
+import { applyResponsive, tabGroups, tabHint, ui } from './ui'
 
 const { listWidth, previewWidth, startDrag } = useSplit({
   key: 'staticsmith.split',
@@ -77,8 +77,20 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+function onResize() {
+  applyResponsive(window.innerWidth)
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  window.addEventListener('resize', onResize)
+  onResize()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('resize', onResize)
+})
 </script>
 
 <template>
@@ -176,12 +188,14 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <span v-if="store.busy">处理中…</span>
       <span v-else-if="store.progress">{{ store.progress }}</span>
       <span v-else>就绪</span>
+      <!-- 「待生成」是级联更新的唯一实时体现，排在左侧视线起点；
+           预览地址这类环境信息才靠右 -->
+      <span v-if="store.plan" class="app__status-plan">
+        待生成 {{ store.plan.pages.length }} / {{ store.plan.total_pages }}
+      </span>
       <span v-if="isDirty" class="app__status-dirty">● 未保存</span>
       <span class="app__spacer" />
       <span v-if="store.previewServer">预览 {{ store.previewServer }}</span>
-      <span v-if="store.plan">
-        待生成 {{ store.plan.pages.length }} / {{ store.plan.total_pages }}
-      </span>
     </footer>
   </div>
 

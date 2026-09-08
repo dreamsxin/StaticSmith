@@ -38,6 +38,13 @@ export const ui = reactive({
   showList: true,
   /** 内容页右侧预览栏是否显示。 */
   showPreview: true,
+  /**
+   * 用户是否在「视图」菜单里手动开关过窗格。
+   *
+   * 手动动过之后就不再自动收放：窗口一变化就把人的选择改掉，比不响应式更烦人。
+   */
+  listOverride: false,
+  previewOverride: false,
   /** 编辑器注册的选区命令；没打开文章时为 null。 */
   editor: null as EditorCommands | null,
   /**
@@ -112,4 +119,21 @@ export function tabHint(tab: Tab): string {
 
 export function goTo(tab: Tab) {
   ui.tab = tab
+}
+
+/**
+ * 按窗口宽度自动收放窗格。
+ *
+ * 三栏是 260 + 460 = 720px 的固定占用：1366 宽只剩约 600px 给编辑器，
+ * 1024 宽就只剩约 250px——基本没法写。所以窄窗口先收预览，再收列表。
+ *
+ * 手动动过的那一栏不再自动收放（`listOverride` / `previewOverride`）：
+ * 窗口一变就把人的选择改掉，比不响应式更烦人。
+ */
+export const PREVIEW_MIN_WIDTH = 1200
+export const LIST_MIN_WIDTH = 900
+
+export function applyResponsive(width: number) {
+  if (!ui.previewOverride) ui.showPreview = width >= PREVIEW_MIN_WIDTH
+  if (!ui.listOverride) ui.showList = width >= LIST_MIN_WIDTH
 }

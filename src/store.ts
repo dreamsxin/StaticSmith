@@ -572,9 +572,19 @@ export const actions = {
    * 读的是内存里的页面，不看产物，所以保存后立刻反映；
    * 与 MCP 的 `audit_seo` 同源，界面结论和 AI Agent 拿到的完全一致。
    */
-  async auditSeo() {
+  async auditSeo(options: { announce?: boolean } = {}) {
     const report = await run(() => api.auditSeo())
-    if (report) state.seo = report
+    if (!report) return
+    state.seo = report
+    // 只有「人主动点」的那次才报结果：保存、构建、批量动作都会顺带重跑体检，
+    // 在那些路径上弹通知就是噪音（违 6.8 的另一半）。
+    if (!options.announce) return
+    notify(
+      'success',
+      report.issues.length > 0
+        ? `SEO 体检：${report.issues.length} 处待处理`
+        : 'SEO 体检：没有发现问题',
+    )
   },
 
   /**
@@ -583,9 +593,17 @@ export const actions = {
    * 要遍历资源目录与全部内容/模板文本，比 SEO 体检重，所以只在打开面板或
    * 手动刷新时跑，不挂在每次保存上。
    */
-  async auditMedia() {
+  async auditMedia(options: { announce?: boolean } = {}) {
     const report = await run(() => api.auditMedia())
-    if (report) state.media = report
+    if (!report) return
+    state.media = report
+    if (!options.announce) return
+    notify(
+      'success',
+      report.unused.length + report.missing.length > 0
+        ? `媒体体检：${report.unused.length} 个没人用、${report.missing.length} 处地址不存在`
+        : `媒体体检：${report.total} 个文件都在用`,
+    )
   },
 
   /**
@@ -594,9 +612,21 @@ export const actions = {
    * 读产物而不是源文件——只有产物才知道分页页、标签页与 slug 覆盖后的真实
    * 地址。所以没生成过时报告里 `built = false`，面板据此提示「先生成一次」。
    */
-  async auditLinks() {
+  async auditLinks(options: { announce?: boolean } = {}) {
     const report = await run(() => api.auditLinks())
-    if (report) state.links = report
+    if (!report) return
+    state.links = report
+    if (!options.announce) return
+    if (!report.built) {
+      notify('error', '死链体检：还没生成过产物，先生成一次')
+      return
+    }
+    notify(
+      'success',
+      report.broken.length > 0
+        ? `死链体检：${report.broken.length} 条站内链接指向不存在的页面`
+        : `死链体检：${report.internal} 条站内链接都能打开`,
+    )
   },
 
 

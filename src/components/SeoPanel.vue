@@ -116,7 +116,9 @@ async function openReferrer(url: string) {
     <div class="build__panel">
       <div class="build__head">
         <h3>SEO 体检</h3>
-        <button type="button" :disabled="store.busy" @click="actions.auditSeo()">重新检查</button>
+        <button type="button" :disabled="store.busy" @click="actions.auditSeo({ announce: true })">
+          重新检查
+        </button>
       </div>
 
       <template v-if="report">
@@ -161,7 +163,13 @@ async function openReferrer(url: string) {
     <div class="build__panel">
       <div class="build__head">
         <h3>媒体资源</h3>
-        <button type="button" :disabled="store.busy" @click="actions.auditMedia()">重新扫描</button>
+        <button
+          type="button"
+          :disabled="store.busy"
+          @click="actions.auditMedia({ announce: true })"
+        >
+          重新扫描
+        </button>
       </div>
 
       <template v-if="media">
@@ -227,7 +235,13 @@ async function openReferrer(url: string) {
     <div class="build__panel">
       <div class="build__head">
         <h3>站内链接</h3>
-        <button type="button" :disabled="store.busy" @click="actions.auditLinks()">重新扫描</button>
+        <button
+          type="button"
+          :disabled="store.busy"
+          @click="actions.auditLinks({ announce: true })"
+        >
+          重新扫描
+        </button>
       </div>
 
       <template v-if="links">

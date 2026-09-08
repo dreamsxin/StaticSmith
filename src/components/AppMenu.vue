@@ -10,7 +10,7 @@
  * Esc 或点空白处关闭，方向键在项目间移动。不可用的项**置灰而不是隐藏**——
  * 隐藏会让人以为这个功能没有。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { isSeparator, menus, type Command } from '../commands'
 
@@ -20,8 +20,22 @@ const root = ref<HTMLElement | null>(null)
 /** 每次展开都重算：禁用态、勾选态、最近站点都跟着当前状态变。 */
 const list = computed(() => menus())
 
+/**
+ * 展开后把焦点放到第一个可用项。
+ *
+ * 不这么做的话，方向键在刚展开时没有起点（焦点还在菜单标题上），
+ * 键盘用户会以为方向键坏了。
+ */
+async function focusFirst() {
+  await nextTick()
+  root.value
+    ?.querySelector<HTMLButtonElement>('.app__menu-drop .app__menu-command:not(:disabled)')
+    ?.focus()
+}
+
 function toggle(index: number) {
   openIndex.value = openIndex.value === index ? null : index
+  if (openIndex.value !== null) void focusFirst()
 }
 
 /** 展开状态下划过标题就切换，这是桌面菜单的既有习惯；没展开时不响应悬停。 */
@@ -72,11 +86,12 @@ onBeforeUnmount(() => {
 
 <template>
   <nav ref="root" class="app__menu" aria-label="主菜单">
-    <div v-for="(menu, index) in list" :key="menu.label" class="app__menu-item">
+    <div v-for="(menu, index) in list" :key="menu.label" class="app__menu-item" role="none">
       <button
         type="button"
         class="app__menu-title"
         :class="{ open: openIndex === index }"
+        aria-haspopup="menu"
         :aria-expanded="openIndex === index"
         @click="toggle(index)"
         @mouseenter="hover(index)"
@@ -84,15 +99,23 @@ onBeforeUnmount(() => {
         {{ menu.label }}
       </button>
 
-      <div v-if="openIndex === index" class="app__menu-drop" @keydown="onMenuKeydown">
+      <div
+        v-if="openIndex === index"
+        class="app__menu-drop"
+        role="menu"
+        :aria-label="menu.label"
+        @keydown="onMenuKeydown"
+      >
         <template v-for="(entry, at) in menu.items">
-          <hr v-if="isSeparator(entry)" :key="`sep-${at}`" class="app__menu-sep" />
+          <hr v-if="isSeparator(entry)" :key="`sep-${at}`" class="app__menu-sep" role="separator" />
           <button
             v-else
             :key="entry.id"
             type="button"
             class="app__menu-command"
             :class="{ danger: entry.danger }"
+            :role="entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'"
+            :aria-checked="entry.checked === undefined ? undefined : entry.checked"
             :disabled="entry.disabled"
             :title="entry.hint"
             @click="run(entry)"

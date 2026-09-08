@@ -260,6 +260,7 @@ function onDeployKindChange() {
         type="button"
         class="settings__nav-item"
         :class="{ active: section === item.id }"
+        :aria-current="section === item.id ? 'page' : undefined"
         :title="item.hint"
         @click="section = item.id"
       >

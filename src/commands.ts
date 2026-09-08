@@ -228,6 +228,8 @@ export function menus(): Menu[] {
           label: '内容列表栏',
           checked: ui.showList,
           run: () => {
+            // 手动动过之后不再随窗口宽度自动收放
+            ui.listOverride = true
             ui.showList = !ui.showList
           },
         },
@@ -236,6 +238,7 @@ export function menus(): Menu[] {
           label: '预览栏',
           checked: ui.showPreview,
           run: () => {
+            ui.previewOverride = true
             ui.showPreview = !ui.showPreview
           },
         },
@@ -301,9 +304,10 @@ export function menus(): Menu[] {
 /** 三种体检都先切到「体检」页再跑：结果显示在那里，跑完却停在别处等于没反馈。 */
 async function runAudit(kind: 'seo' | 'links' | 'media') {
   goTo('audit')
-  if (kind === 'seo') await actions.auditSeo()
-  else if (kind === 'links') await actions.auditLinks()
-  else await actions.auditMedia()
+  // announce：人主动点的这次要报结果，自动重跑的那些保持安静
+  if (kind === 'seo') await actions.auditSeo({ announce: true })
+  else if (kind === 'links') await actions.auditLinks({ announce: true })
+  else await actions.auditMedia({ announce: true })
 }
 
 /** 命令面板用的扁平列表：菜单里的每一项都能被搜到，分隔符与置灰项除外。 */

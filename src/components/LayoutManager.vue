@@ -153,11 +153,12 @@ async function runThemeImport() {
         </li>
       </ul>
 
-      <h3>主题包</h3>
-      <p class="build__muted">
-        把左边这些模板与主题静态资源打成一个 zip 带走，或装一个别人做好的。
-        <strong>包里不含 content/ 与 static/</strong>——文章与上传的图片是站点的，不是主题的。
-      </p>
+      <details class="layouts__theme">
+        <summary>主题包：打包当前外观 / 装入别人的</summary>
+        <p class="build__muted">
+          把左边这些模板与主题静态资源打成一个 zip 带走，或装一个别人做好的。
+          <strong>包里不含 content/ 与 static/</strong>——文章与上传的图片是站点的，不是主题的。
+        </p>
       <div class="settings__import-row">
         <input
           v-model="themeMeta.name"
@@ -228,7 +229,9 @@ async function runThemeImport() {
         </div>
         <p class="build__muted">装完记得整站重新生成：换外观等于所有页面的模板都变了。</p>
       </template>
+      </details>
     </div>
+
 
     <div class="layouts__column layouts__column--wide">
       <h3>{{ store.currentTemplate ?? '模板源码' }}</h3>

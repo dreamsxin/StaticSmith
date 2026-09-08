@@ -462,9 +462,10 @@ h3 {
  */
 .app__tabs-cluster {
   display: flex;
-  gap: 0.1rem;
+  /* 刻度对齐 ui.md：组内 2px，组间 10px（两侧各 5px）+ 一条竖线 */
+  gap: 0.125rem;
   align-items: center;
-  padding: 0 0.5rem;
+  padding: 0 0.3125rem;
   border-left: 1px solid var(--border);
 }
 
@@ -477,7 +478,7 @@ h3 {
 .app__tabs-group {
   padding-right: 0.1rem;
   color: var(--fg-muted);
-  font-size: 0.68rem;
+  font-size: 0.7rem;
   font-weight: 400;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -517,7 +518,7 @@ h3 {
 .app__tab {
   padding: 0.35rem 0.6rem;
   color: var(--fg);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
   background: none;
   border: none;
@@ -565,6 +566,12 @@ h3 {
 .app__status-dirty {
   color: var(--accent);
 }
+
+/* 待生成排在左侧视线起点，字色回到正文：它是级联更新的实时体现，不是环境信息 */
+.app__status-plan {
+  color: var(--fg);
+}
+
 
 .app__body {
   display: grid;
@@ -1700,10 +1707,20 @@ kbd {
   font-size: 0.85rem;
 }
 
+/* 分段导航是「导航」而不是「动作」：选中态用主色下边框 + 字重，不用实心填充
+   （填充是按下的语义，见 ui-design.md 6.1） */
 .settings__nav-item.active {
-  color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--fg);
+  background: none;
+  border-color: var(--border);
+  border-bottom: 2px solid var(--accent);
+  border-radius: 4px 4px 0 0;
+  font-weight: 600;
+}
+
+.settings__nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .settings__nav-hint {
@@ -1920,6 +1937,24 @@ kbd {
   cursor: pointer;
 }
 
+
+/* 主题包默认折叠：它换的是整套外观，用得不频繁，
+   而它一展开就把上面的继承结构树顶出视野 */
+.layouts__theme {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.layouts__theme > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.layouts__theme > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 /* ---------------------------------------------------------------- SEO 体检 */
 
