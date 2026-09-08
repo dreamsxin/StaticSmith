@@ -62,6 +62,21 @@
 因为 iframe 的 `srcdoc` 没有文件访问权限；需要完整效果时启动这个服务器。
 它随项目关闭一起停止。
 
+## AI 接入（MCP）
+
+- `start_mcp_server({ allow_write, allow_deploy, port? }) -> McpStatus`
+- `stop_mcp_server()`
+- `mcp_server_status() -> McpStatus | null`
+
+`McpStatus` 给出 `port` / `endpoint`（POST）/ `sseEndpoint` / `allowWrite` / `allowDeploy`。
+权限是**启动参数**：`start` 会先停掉正在跑的那个再按新权限起，否则会出现
+「界面上勾了写入、服务端其实只读」。状态一律从正在跑的服务端读回来，前端不自己记。
+
+服务端持有**自己那份** `Builder`，与界面各读各的内存状态：共用一个就得把每次 Agent
+调用塞进界面的锁里，一次 `build_site` 会让界面卡住整段时间。代价是 Agent 改完盘后
+界面要刷新，而这条路已经有人走——文件监听会发现外部改动并给出横幅。
+它同样只监听 127.0.0.1，并随项目关闭一起停止。
+
 `source` 是相对 `content/` 的正斜杠路径，如 `posts/hello.md`。
 
 ## 媒体资源

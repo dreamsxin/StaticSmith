@@ -19,6 +19,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 staticsmith-core.workspace = true
 staticsmith-deploy.workspace = true
+# MCP 服务端内嵌进桌面端：AI 接入不该只能从终端开（见 docs/mcp.md）
+staticsmith-mcp.workspace = true
 
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

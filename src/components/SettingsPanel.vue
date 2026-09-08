@@ -63,7 +63,7 @@ async function runImport() {
  * 之前是一张长表单从站点信息一路滚到分类与导航，找一项要滚半屏，也看不出
  * 哪些字段是一伙的。现在按「一个问题一段」切开，一次只显示一段。
  */
-type Section = 'site' | 'build' | 'assets' | 'taxonomy' | 'menu' | 'deploy' | 'import'
+type Section = 'site' | 'build' | 'assets' | 'taxonomy' | 'menu' | 'deploy' | 'import' | 'ai'
 
 const sections: Array<{ id: Section; label: string; hint: string }> = [
   { id: 'site', label: '站点信息', hint: '标题、描述、地址、语言——模板里的 site.* 就是这些' },
@@ -73,9 +73,46 @@ const sections: Array<{ id: Section; label: string; hint: string }> = [
   { id: 'menu', label: '导航菜单', hint: '头部导航的顺序与地址，加栏目改这里就够了' },
   { id: 'deploy', label: '发布', hint: '发布方式与目标；密码只存变量名，不写进配置文件' },
   { id: 'import', label: '导入内容', hint: '一次性动作：把 Hugo / Jekyll 的内容搬进来' },
+  { id: 'ai', label: 'AI 接入', hint: '开一个只监听本机的端点，让 AI 助手读写这个站点' },
 ]
 
 const section = ref<Section>('site')
+
+/**
+ * AI 接入的两个权限开关。
+ *
+ * 只是启动参数的暂存，不是状态：正在跑的那个端点开着什么权限由 `store.mcp` 说，
+ * 从服务端读回来。前端记住权限的话，重启应用后会显示上次的勾选而服务端并没在跑。
+ */
+const mcpAllowWrite = ref(false)
+const mcpAllowDeploy = ref(false)
+
+// 不允许「不给写、只给发布」：发布的是产物，而产物来自内容与模板，
+// 只开发布等于给一个改不了东西却能把旧产物推上线的权限，说不通
+watch(mcpAllowWrite, (allowed) => {
+  if (!allowed) mcpAllowDeploy.value = false
+})
+
+// 进到这一段时问一次真实状态（服务端跟着 Session 活，可能早就停了）
+watch(
+  section,
+  (current) => {
+    if (current === 'ai') void actions.loadMcpStatus()
+  },
+  { immediate: true },
+)
+
+async function copyEndpoint() {
+  const endpoint = store.mcp?.endpoint
+  if (!endpoint) return
+  try {
+    await navigator.clipboard.writeText(endpoint)
+    actions.notify('success', `已复制 ${endpoint}`)
+  } catch {
+    actions.notify('error', '复制失败，请手动选中地址复制')
+  }
+}
+
 
 const sectionHint = computed(
   () => sections.find((item) => item.id === section.value)?.hint ?? '',
@@ -518,7 +555,73 @@ function onDeployKindChange() {
       </template>
     </div>
 
-    <div v-if="section !== 'import'" class="settings__save">
+    <!-- AI 接入：会话级动作，不写进 staticsmith.toml，所以也不参与「保存设置」 -->
+    <div v-if="section === 'ai'" class="build__panel">
+      <h3>AI 接入（MCP）</h3>
+      <p class="build__muted">
+        开一个<strong>只监听本机</strong>（127.0.0.1）的端点，让 Claude、Cursor 这类支持 MCP
+        的助手直接读写这个站点：查文章、补 SEO 字段、批量改标签、跑体检。
+        它跟着当前站点活——换站点或关掉应用就停。
+      </p>
+
+      <template v-if="store.mcp">
+        <ul class="build__stats">
+          <li>
+            端点（填进客户端配置）：<code>{{ store.mcp.endpoint }}</code>
+          </li>
+          <li>
+            需要服务端推送时用：<code>{{ store.mcp.sseEndpoint }}</code>
+          </li>
+          <li>
+            当前权限：{{
+              store.mcp.allowDeploy
+                ? '可读写并发布'
+                : store.mcp.allowWrite
+                  ? '可读写内容与模板'
+                  : '只读'
+            }}
+          </li>
+        </ul>
+        <div class="settings__import-row">
+          <button type="button" :disabled="store.busy" @click="copyEndpoint">复制端点地址</button>
+          <button type="button" :disabled="store.busy" @click="actions.stopMcp()">
+            关闭 AI 接入
+          </button>
+        </div>
+        <p class="build__muted">
+          Agent 改的是磁盘上的文件，界面这边不会自动跟着变——改完之后顶部会出现
+          「检测到磁盘上被外部修改」，点一下刷新即可。
+        </p>
+      </template>
+
+      <template v-else>
+        <label class="settings__checkbox">
+          <input v-model="mcpAllowWrite" type="checkbox" />
+          允许改内容与模板（新建、改写、删除、生成）
+        </label>
+        <label class="settings__checkbox">
+          <input v-model="mcpAllowDeploy" type="checkbox" :disabled="!mcpAllowWrite" />
+          允许执行发布（把产物推到线上）
+        </label>
+        <p class="build__muted">
+          默认<strong>只读</strong>：不开这两项时，助手只能看与体检，改不了任何东西。
+          两项都是不可逆动作的开关——删掉的文章没有回收站，发上线的稿子撤不回来，
+          所以要显式打开，而且权限只在启动时决定（改权限会重启这个端点）。
+        </p>
+        <div class="settings__import-row">
+          <button
+            type="button"
+            class="btn--primary"
+            :disabled="store.busy"
+            @click="actions.startMcp(mcpAllowWrite, mcpAllowDeploy)"
+          >
+            开启 AI 接入
+          </button>
+        </div>
+      </template>
+    </div>
+
+    <div v-if="section !== 'import' && section !== 'ai'" class="settings__save">
       <button type="button" class="btn--primary" :disabled="store.busy" @click="save">
         保存设置
       </button>

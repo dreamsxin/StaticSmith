@@ -56,11 +56,20 @@ pub struct McpHttpServer {
     addr: SocketAddr,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// 留一份服务端引用，只为回答「现在开的是什么权限」。
+    ///
+    /// 桌面端要在界面上显示这一点，而权限是启动参数：让调用方自己记着的话，
+    /// 迟早出现「界面显示可写、服务端其实只读」。状态的唯一来源应该是正在跑的那个服务端。
+    server: Arc<McpServer>,
 }
 
 impl McpHttpServer {
     pub fn addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    pub fn permissions(&self) -> crate::Permissions {
+        self.server.permissions()
     }
 
     pub fn port(&self) -> u16 {
@@ -114,6 +123,7 @@ pub fn serve_http(server: Arc<McpServer>, port: u16) -> Result<McpHttpServer> {
     let stop = Arc::new(AtomicBool::new(false));
     let stop_flag = stop.clone();
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
+    let kept = server.clone();
 
     let thread = std::thread::spawn(move || {
         while !stop_flag.load(Ordering::Relaxed) {
@@ -137,6 +147,7 @@ pub fn serve_http(server: Arc<McpServer>, port: u16) -> Result<McpHttpServer> {
         addr,
         stop,
         thread: Some(thread),
+        server: kept,
     })
 }
 

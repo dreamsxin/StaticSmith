@@ -17,6 +17,7 @@ import type {
   FrontMatter,
   FrontMatterPatch,
   LinkReport,
+  McpStatus,
   MediaReport,
   OutputFile,
   PageSummary,
@@ -57,6 +58,8 @@ interface State {
   previewHtml: string
   /** 本地预览服务器地址，未启动时为 null */
   previewServer: string | null
+  /** MCP 服务端状态（AI 接入），未启动时为 null。权限由服务端回报，前端不自己记 */
+  mcp: McpStatus | null
   /** 正在预览的产物地址（标签页、分页页等非内容页），null 表示预览当前文章 */
   previewTarget: string | null
   /** 产物清单，生成后刷新 */
@@ -107,6 +110,7 @@ const state = reactive<State>({
   savedTemplateSource: '',
   previewHtml: '',
   previewServer: null,
+  mcp: null,
   previewTarget: null,
   outputs: [],
   assets: [],
@@ -509,6 +513,8 @@ export const actions = {
     state.previewHtml = ''
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
     state.previewServer = null
+    // MCP 服务端同理：它挂在 Session 上，关站点就停了
+    state.mcp = null
     state.previewTarget = null
     state.outputs = []
     state.assets = []
@@ -746,6 +752,43 @@ export const actions = {
   async openInBrowser(url: string) {
     await run(() => openUrl(url))
   },
+
+  // -------------------------------------------------------------- AI 接入（MCP）
+
+  /**
+   * 读回 MCP 服务端的当前状态。
+   *
+   * 打开面板时调一次：服务端跟着 Session 活，切站点、重启应用都会停掉，
+   * 前端自己记状态就会显示一个已经不存在的端点。
+   */
+  async loadMcpStatus() {
+    const status = await run(() => api.mcpServerStatus())
+    if (status !== undefined) state.mcp = status
+  },
+
+  /**
+   * 启动 MCP 服务端。权限是启动参数，改权限等于重启（Rust 侧会先停再起）。
+   *
+   * 通知里带上权限：这条命令的后果是「谁能改我的站点」，不能只说「已启动」。
+   */
+  async startMcp(allowWrite: boolean, allowDeploy: boolean) {
+    const status = await run(() => api.startMcpServer(allowWrite, allowDeploy))
+    if (!status) return
+    state.mcp = status
+    const scope = status.allowDeploy
+      ? '可读写并发布'
+      : status.allowWrite
+        ? '可读写内容与模板'
+        : '只读'
+    notify('success', `AI 接入已开启（${scope}）：${status.endpoint}`)
+  },
+
+  async stopMcp() {
+    await run(() => api.stopMcpServer())
+    state.mcp = null
+    notify('info', 'AI 接入已关闭')
+  },
+
 
   /** 在文件管理器中定位输出目录。 */
   async revealOutput() {

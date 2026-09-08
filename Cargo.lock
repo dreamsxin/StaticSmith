@@ -4099,6 +4099,7 @@ dependencies = [
  "serde_json",
  "staticsmith-core",
  "staticsmith-deploy",
+ "staticsmith-mcp",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

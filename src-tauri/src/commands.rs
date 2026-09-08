@@ -28,6 +28,7 @@ use staticsmith_core::{
     SiteConfig,
 };
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
+use staticsmith_mcp::Permissions as McpPermissions;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::error::{AppError, Result};
@@ -335,6 +336,89 @@ pub fn stop_preview_server(state: State<'_, AppState>) -> Result<()> {
 #[tauri::command]
 pub fn preview_server_url(state: State<'_, AppState>) -> Result<Option<String>> {
     state.with_session(|session| Ok(session.preview.as_ref().map(|s| s.base_url())))
+}
+
+// ---------------------------------------------------------------- AI 接入（MCP）
+
+/// MCP 服务端的运行状态，给界面显示与复制端点用。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpStatus {
+    pub port: u16,
+    /// 客户端配置里填的那个地址（POST）。
+    pub endpoint: String,
+    /// 需要服务端推送时用这个（SSE）。
+    pub sse_endpoint: String,
+    pub allow_write: bool,
+    pub allow_deploy: bool,
+}
+
+fn mcp_status(server: &staticsmith_mcp::McpHttpServer, perms: McpPermissions) -> McpStatus {
+    McpStatus {
+        port: server.port(),
+        endpoint: server.mcp_endpoint(),
+        sse_endpoint: server.sse_endpoint(),
+        allow_write: perms.write,
+        allow_deploy: perms.deploy,
+    }
+}
+
+/// 启动 MCP 服务端的参数。与其他多参数命令一样走 `args` 结构体，
+/// 免得依赖 Tauri 对 camelCase 参数名的自动转换。
+#[derive(Debug, Deserialize)]
+pub struct McpStartArgs {
+    pub allow_write: bool,
+    pub allow_deploy: bool,
+    pub port: Option<u16>,
+}
+
+/// 启动 MCP 服务端，让 AI Agent 能操作这个站点。
+///
+/// 以前这件事只有 CLI 能做（`staticsmith mcp`），而「把重复劳动交给 AI」是这个产品
+/// 主推的用法之一——预设用户要开终端才用得上，等于这条路不存在。
+///
+/// 权限默认只读，写入与发布要显式打开：Agent 会误删、会把没写完的稿子发上线，
+/// 这两件事都不可逆。只绑 127.0.0.1（`serve_http` 保证），不暴露到局域网。
+#[tauri::command]
+pub fn start_mcp_server(state: State<'_, AppState>, args: McpStartArgs) -> Result<McpStatus> {
+    state.with_session_mut(|session| {
+        // 已经开着就先停掉再按新权限起：权限是启动参数，改权限只能重启。
+        // 直接返回旧状态会出现「界面上勾了写入，实际还是只读」。
+        session.mcp = None;
+        let perms = McpPermissions {
+            write: args.allow_write,
+            deploy: args.allow_deploy,
+        };
+        let server = staticsmith_mcp::McpServer::open(&session.root, perms)?;
+        let http =
+            staticsmith_mcp::serve_http(std::sync::Arc::new(server), args.port.unwrap_or(0))?;
+        let status = mcp_status(&http, perms);
+        session.mcp = Some(http);
+        Ok(status)
+    })
+}
+
+#[tauri::command]
+pub fn stop_mcp_server(state: State<'_, AppState>) -> Result<()> {
+    state.with_session_mut(|session| {
+        // drop 即停止：McpHttpServer 的 Drop 会置停止标记并 join 线程
+        session.mcp = None;
+        Ok(())
+    })
+}
+
+/// 当前 MCP 状态，未启动时返回 null。
+///
+/// 权限从服务端自己那份配置读回来，不由前端记着——前端记的话，
+/// 重启应用后界面会显示上一次的勾选，而服务端其实没在跑。
+#[tauri::command]
+pub fn mcp_server_status(state: State<'_, AppState>) -> Result<Option<McpStatus>> {
+    state.with_session(|session| {
+        Ok(session
+            .mcp
+            .as_ref()
+            .map(|http| mcp_status(http, http.permissions())))
+    })
 }
 
 // ---------------------------------------------------------------- 导入

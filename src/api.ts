@@ -463,6 +463,33 @@ export interface LinkReport {
 /** 体检产物里的站内链接，需要先生成一次。 */
 export const auditLinks = () => invoke<LinkReport>('audit_links')
 
+// ---------------------------------------------------------------- AI 接入（MCP）
+
+/**
+ * MCP 服务端状态。
+ *
+ * 权限从正在跑的那个服务端读回来，前端不自己记：记的话重启应用后界面会显示
+ * 上一次的勾选，而服务端其实没在跑。
+ */
+export interface McpStatus {
+  port: number
+  /** 客户端配置里填的地址（POST） */
+  endpoint: string
+  /** 需要服务端推送时用这个（SSE） */
+  sseEndpoint: string
+  allowWrite: boolean
+  allowDeploy: boolean
+}
+
+export const startMcpServer = (allowWrite: boolean, allowDeploy: boolean, port?: number) =>
+  invoke<McpStatus>('start_mcp_server', {
+    args: { allow_write: allowWrite, allow_deploy: allowDeploy, port },
+  })
+
+export const stopMcpServer = () => invoke<void>('stop_mcp_server')
+
+export const mcpServerStatus = () => invoke<McpStatus | null>('mcp_server_status')
+
 // ---------------------------------------------------------------- 导入
 
 /** 一篇待导入的内容。`front_matter` 是转换后的围栏，供预览。 */

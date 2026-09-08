@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use staticsmith_core::watch::{ChangeSet, ProjectWatcher};
 use staticsmith_core::{Builder, PreviewServer};
+use staticsmith_mcp::McpHttpServer;
 use tauri::{Emitter, Manager, Window};
 
 use crate::error::{AppError, Result};
@@ -103,6 +104,13 @@ pub struct Session {
     pub builder: Builder,
     /// 本地预览服务器，未启动时为 None。随 Session 一起 drop。
     pub preview: Option<PreviewServer>,
+    /// MCP 服务端（给 AI Agent 用），未启动时为 None。随 Session 一起 drop。
+    ///
+    /// 它持有**自己那份** `Builder`：Agent 与界面各读各的一份内存状态。
+    /// 这不是疏忽——两边共用一个 `Builder` 就得把每次 Agent 调用都塞进界面的锁里，
+    /// 一次 `build_site` 会让界面卡住整段时间。代价是 Agent 改完盘之后界面要刷新，
+    /// 而这条路已经有人走：文件监听会发现外部改动并给出「重新读取」的横幅。
+    pub mcp: Option<McpHttpServer>,
     /// 监听器随 Session 一起 drop，从而自动停止后台线程。
     _watcher: Option<ProjectWatcher>,
 }
@@ -158,6 +166,7 @@ impl AppState {
             root: root.to_path_buf(),
             builder,
             preview: None,
+            mcp: None,
             _watcher: Some(watcher),
         });
         Ok(())
