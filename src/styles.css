@@ -1,3 +1,10 @@
+/*
+ * 色彩令牌是唯一的取色来源（规则见 docs/ui-design.md 6.11）。
+ *
+ * 每个令牌必须成对给值：浅色在 :root，深色在下面的 prefers-color-scheme 分支里覆盖。
+ * 只给一套值的令牌迟早在另一套主题下失效——之前 --accent（砖红 #b7410e）没有深色值，
+ * 落在近黑底上对比度不到 3:1，而「当前选中」全靠它表达。
+ */
 :root {
   --fg: #1f2328;
   --fg-muted: #656d76;
@@ -7,6 +14,17 @@
   --bg-subtle: #f6f8fa;
   --warn: #9a6700;
   --danger: #b3261e;
+  --success: #1a7f37;
+  /* 主色的低饱和底色：用于「选中但不是主动作」的行（产物清单里正在预览的那一条）。
+     不用 --accent 实心：一屏最多一个主色实心（6.2） */
+  --accent-soft: #fbe9e2;
+  /* 实心色块（主色按钮、危险按钮）上的文字色：深色模式下色块变亮，文字要跟着变深 */
+  --on-solid: #ffffff;
+  /* 源文与模板着色：规则里只引用这四个，不写字面值 */
+  --tok-literal: #0a7d6b;
+  --tok-meta: #8a6d1f;
+  --tok-directive: #9a4a06;
+  --tok-attr: #6b5bd6;
   color-scheme: light dark;
 }
 
@@ -14,10 +32,20 @@
   :root {
     --fg: #e6edf3;
     --fg-muted: #9198a1;
+    /* 砖红提亮到能在近黑底上过 3:1，色相保持一致，界面还认得出是同一个主色 */
+    --accent: #ff7b47;
     --border: #30363d;
     --bg: #0d1117;
     --bg-subtle: #161b22;
+    --warn: #d29922;
     --danger: #f85149;
+    --success: #3fb950;
+    --accent-soft: #3a1e14;
+    --on-solid: #14181d;
+    --tok-literal: #6ed7c0;
+    --tok-meta: #d9bd6a;
+    --tok-directive: #e5a06a;
+    --tok-attr: #a99bf0;
   }
 }
 
@@ -57,7 +85,7 @@ button:disabled {
 }
 
 button.active {
-  color: #fff;
+  color: var(--on-solid);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -87,9 +115,19 @@ code {
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
+/*
+ * 标题的字号与字重都显式写，不吃浏览器默认值。
+ *
+ * `<h2>` 的默认 `font-weight: 700` 超出「400 / 500 / 600」三档字重，
+ * 而默认 `1.5em` 也落在字号刻度之外（见 docs/ui-design.md 6.2）。
+ * 这个界面里 h2 / h3 都是面板标题，同一档就够。
+ */
+h1,
+h2,
 h3 {
   margin: 1rem 0 0.5rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
+  font-weight: 600;
 }
 
 .warn {
@@ -98,7 +136,7 @@ h3 {
 
 /* 主操作用实心，其余保持轻量——一屏里只该有一个「最该点的按钮」 */
 .btn--primary {
-  color: #fff;
+  color: var(--on-solid);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -121,13 +159,13 @@ h3 {
 
 .card h2 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .card__desc {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   line-height: 1.55;
 }
 
@@ -151,7 +189,7 @@ h3 {
   border: 1px solid var(--border);
   border-left: 3px solid var(--warn);
   border-radius: 6px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /* ---------------------------------------------------------------- 起始页 */
@@ -182,7 +220,7 @@ h3 {
 .welcome__brand p {
   margin: 0.2rem 0 0;
   color: var(--fg-muted);
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .welcome__columns {
@@ -256,7 +294,7 @@ h3 {
   padding: 0;
   background: none;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -264,7 +302,7 @@ h3 {
 .welcome__recent time {
   flex: none;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -327,7 +365,7 @@ h3 {
 
 .app__title {
   flex: none;
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .app__root {
@@ -335,7 +373,7 @@ h3 {
   padding: 0;
   background: none;
   color: var(--fg-muted);
-  font-size: 0.76rem;
+  font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -363,7 +401,7 @@ h3 {
   background: none;
   border: none;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .app__menu-title:hover:not(:disabled),
@@ -401,7 +439,7 @@ h3 {
   background: none;
   border: none;
   border-radius: 4px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   text-align: left;
 }
 
@@ -417,7 +455,7 @@ h3 {
 }
 
 .app__menu-command.danger:not(:disabled) {
-  color: var(--danger, #b3261e);
+  color: var(--danger);
 }
 
 /* 勾选位固定宽度，有没有勾文字都对齐 */
@@ -433,7 +471,7 @@ h3 {
 
 .app__menu-hint {
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   white-space: nowrap;
 }
 
@@ -492,7 +530,7 @@ h3 {
   align-self: center;
   padding-right: 0.4rem;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   /* 窄窗口下先截断说明，别把标签挤走 */
   overflow: hidden;
   white-space: nowrap;
@@ -506,7 +544,7 @@ h3 {
   align-items: center;
   max-width: 22rem;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -560,7 +598,7 @@ h3 {
   margin: 0;
   background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .app__status-dirty {
@@ -631,7 +669,7 @@ h3 {
 
 .palette__input {
   padding: 0.7rem 0.9rem;
-  font-size: 0.95rem;
+  font-size: 1rem;
   background: var(--bg);
   border: none;
   border-bottom: 1px solid var(--border);
@@ -658,7 +696,7 @@ h3 {
   padding: 0.35rem 0.9rem 0.2rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   background: var(--bg-subtle);
 }
 
@@ -697,7 +735,7 @@ h3 {
   max-width: 45%;
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -707,7 +745,7 @@ h3 {
   padding: 0.5rem 0.9rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 .palette__foot {
@@ -739,15 +777,15 @@ h3 {
   border-left: 3px solid var(--fg-muted);
   border-radius: 6px;
   box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .toast--success {
-  border-left-color: #1a7f37;
+  border-left-color: var(--success);
 }
 
 .toast--error {
-  border-left-color: #b3261e;
+  border-left-color: var(--danger);
 }
 
 .toast--info {
@@ -773,7 +811,9 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 3px;
   font-family: inherit;
-  font-size: 0.72em;
+  /* 唯一一个相对单位：快捷键提示嵌在按钮、菜单项、状态栏等不同字号的文字里，
+     写成固定 rem 会在小字里显得过大。它不算第四档字号，因为它没有自己的绝对值 */
+  font-size: 0.85em;
 }
 
 /* ---------------------------------------------------------------- 内容区 */
@@ -798,13 +838,13 @@ kbd {
 .page-list__head h2 {
   flex: none;
   margin: 0;
-  font-size: 0.9rem;
+  font-size: 1rem;
 }
 
 .page-list__count {
   flex: 1;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-variant-numeric: tabular-nums;
 }
 
@@ -825,7 +865,7 @@ kbd {
   flex: 1;
   min-width: 0;
   padding-left: 1.7rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /*
@@ -840,7 +880,7 @@ kbd {
   align-items: center;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 .page-list__filter-label {
@@ -852,7 +892,7 @@ kbd {
   flex: 1;
   min-width: 0;
   padding: 0.15rem 0.3rem;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 /* 正在筛选时给个视觉提示：否则「列表怎么少了一半」会被当成 bug */
@@ -868,7 +908,7 @@ kbd {
   left: 0.95rem;
   transform: translateY(-50%);
   opacity: 0.55;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   pointer-events: none;
 }
 
@@ -905,7 +945,7 @@ kbd {
 .page-list__empty {
   padding: 0.6rem;
   color: var(--fg-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .page-list__new {
@@ -916,14 +956,14 @@ kbd {
 
 .page-list__new h3 {
   margin: 0 0 0.4rem;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
 }
 
 .page-list__new label {
   gap: 0.15rem;
   margin-bottom: 0.4rem;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 .page-list__new-actions {
@@ -943,7 +983,7 @@ kbd {
   margin: 0.8rem 0 0.25rem;
   color: var(--fg-muted);
   text-transform: uppercase;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   letter-spacing: 0.04em;
 }
 
@@ -988,7 +1028,7 @@ kbd {
   align-items: center;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 .page-list__batch-row {
@@ -1033,7 +1073,7 @@ kbd {
   flex-direction: column;
   gap: 0.05rem;
   padding: 0.2rem 0.1rem;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 .page-list__dry-list li.skip {
@@ -1062,14 +1102,14 @@ kbd {
   align-items: center;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 .page-list__hint {
   padding: 0 0.5rem 0.3rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 
 
@@ -1188,7 +1228,7 @@ kbd {
 
 .badge--ok {
   border: 1px solid currentcolor;
-  color: #1a7f37;
+  color: var(--success);
 }
 
 
@@ -1205,7 +1245,7 @@ kbd {
   margin: 0;
   background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .editor__toolbar {
@@ -1219,7 +1259,7 @@ kbd {
 .editor__toolbar button {
   min-width: 2rem;
   padding: 0.15rem 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .editor__toolbar button.active {
@@ -1239,11 +1279,11 @@ kbd {
   gap: 0.15rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 .editor__prop input[type='text'] {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /* 标题、描述、标签值都长，占满整行才不至于处处截断 */
@@ -1289,7 +1329,7 @@ kbd {
   overflow: hidden;
   max-width: 9rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   line-height: 1.6;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1352,7 +1392,7 @@ kbd {
   margin: 0;
   padding: 0.75rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   line-height: 1.6;
   tab-size: 2;
   white-space: pre-wrap;
@@ -1396,7 +1436,7 @@ kbd {
 }
 
 .tok-code {
-  color: #0a7d6b;
+  color: var(--tok-literal);
 }
 
 .tok-quote {
@@ -1404,6 +1444,8 @@ kbd {
   font-style: italic;
 }
 
+/* 700 在 chrome 里不许用（字重三档到 600 为止），但这里画的是**正文内容**：
+   源文里加粗的那段字，就该看起来比 600 更重 */
 .tok-strong {
   font-weight: 700;
 }
@@ -1423,7 +1465,7 @@ kbd {
 
 .tok-fm,
 .tok-fm-value {
-  color: #8a6d1f;
+  color: var(--tok-meta);
 }
 
 .tok-fm-key {
@@ -1438,11 +1480,11 @@ kbd {
 
 .tok-stmt,
 .tok-expr {
-  color: #9a4a06;
+  color: var(--tok-directive);
 }
 
 .tok-keyword {
-  color: #9a4a06;
+  color: var(--tok-directive);
   font-weight: 600;
 }
 
@@ -1451,11 +1493,11 @@ kbd {
 }
 
 .tok-attr {
-  color: #6b5bd6;
+  color: var(--tok-attr);
 }
 
 .tok-string {
-  color: #0a7d6b;
+  color: var(--tok-literal);
 }
 
 /* 模板编辑器的高亮层与内容编辑器共用一组尺寸声明，这里只补它自己的撑满行为 */
@@ -1463,33 +1505,8 @@ kbd {
   min-height: 12rem;
 }
 
-
-@media (prefers-color-scheme: dark) {
-  .tok-code {
-    color: #6ed7c0;
-  }
-
-  .tok-fm,
-  .tok-fm-value {
-    color: #d9bd6a;
-  }
-
-  .tok-stmt,
-  .tok-expr,
-  .tok-keyword {
-    color: #e5a06a;
-  }
-
-  .tok-attr {
-    color: #a99bf0;
-  }
-
-  .tok-string {
-    color: #6ed7c0;
-  }
-}
-
-
+/* 着色的深色分支不在这里：颜色都走 --tok-* 令牌，令牌自己有两套值。
+   原先这里有一份 .tok-* 的深色覆盖，等于同一组颜色写了两遍规则。 */
 
 .editor--empty,
 .preview__empty {
@@ -1506,13 +1523,15 @@ kbd {
   padding: 0.35rem 0.5rem;
   color: var(--fg-muted);
   border-top: 1px solid var(--border);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
 }
 
 .preview__frame {
   flex: 1;
   width: 100%;
   border: none;
+  /* 这一处白色不是取自令牌，也不该跟着深色模式变：iframe 里是站点自己的页面，
+     背景该由它自己的样式决定，垫白只为避免加载瞬间闪一下黑 */
   background: #fff;
 }
 
@@ -1582,7 +1601,7 @@ kbd {
 .layouts__impact,
 .build__muted {
   color: var(--fg-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /* 列表空态：说明「接下来做什么」，与列表项拉开层级，不与标题争视线。
@@ -1590,7 +1609,7 @@ kbd {
 .empty-hint {
   margin: 0 0 0.5rem;
   color: var(--fg-muted);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   line-height: 1.5;
 }
 
@@ -1631,7 +1650,7 @@ kbd {
 .build__outputs h4 {
   margin: 0.75rem 0 0.25rem;
   color: var(--fg-muted);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
 }
 
@@ -1668,7 +1687,7 @@ kbd {
 }
 
 .build__output.active {
-  background: var(--accent-soft, rgba(127, 127, 127, 0.18));
+  background: var(--accent-soft);
   border-radius: 4px;
 }
 
@@ -1683,7 +1702,7 @@ kbd {
   overflow: hidden;
   max-width: 16rem;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1717,7 +1736,7 @@ kbd {
 .settings__nav-item {
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /* 分段导航是「导航」而不是「动作」：选中态用主色下边框 + 字重，不用实心填充
@@ -1796,7 +1815,7 @@ kbd {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .settings__import-list li {
@@ -1885,7 +1904,7 @@ kbd {
 }
 
 .calendar__day {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   color: var(--fg-muted);
 }
 
@@ -1898,7 +1917,7 @@ kbd {
   border-radius: 3px;
   background: var(--bg-subtle);
   color: inherit;
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   text-align: left;
   /* 一格里可能挤几篇，标题截断也比撑破格子好 */
   overflow: hidden;
@@ -1960,7 +1979,7 @@ kbd {
 
 .layouts__theme > summary {
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 500;
 }
 
@@ -1988,7 +2007,7 @@ kbd {
 }
 
 .seo__score strong {
-  font-size: 1.6rem;
+  font-size: 1.5rem;
 }
 
 .seo__issues {
@@ -2040,7 +2059,7 @@ kbd {
   padding: 0;
   margin: 0.25rem 0 0;
   list-style: none;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 .seo__media li {
@@ -2089,7 +2108,7 @@ kbd {
 
 /* 删除媒体文件不可撤销，确认按钮必须一眼看出是危险动作 */
 .btn--danger {
-  color: #fff;
+  color: var(--on-solid);
   background: var(--danger);
   border-color: var(--danger);
 }
