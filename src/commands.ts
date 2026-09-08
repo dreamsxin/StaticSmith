@@ -9,6 +9,7 @@
  * 菜单里没有」的分裂，而那正是用户抱怨「不知道能干什么」的来源。
  */
 import { open } from '@tauri-apps/plugin-dialog'
+import { reactive } from 'vue'
 
 import { isProject } from './api'
 import { actions, isDirty, store } from './store'
@@ -37,6 +38,38 @@ export interface Menu {
 
 export function isSeparator(entry: MenuEntry): entry is { separator: true } {
   return 'separator' in entry
+}
+
+/**
+ * 右键菜单（上下文菜单）。
+ *
+ * 与菜单栏共用 `MenuEntry` 这一套形状：项目怎么画、禁用怎么表现、危险项怎么标红
+ * 只有一份实现。设计文档原先写「不做右键」，理由是「两处入口不一致的维护成本」——
+ * 共用形状 + 由调用方现场组装条目，正是消掉那份成本的办法，所以改成做。
+ *
+ * 只放**针对某个对象**的动作（这一篇、这个栏目）。全局动作留在菜单栏：
+ * 右键是看不见的入口，把只在这里出现的功能藏进去等于没做。
+ */
+export const contextMenu = reactive({
+  open: false,
+  x: 0,
+  y: 0,
+  items: [] as MenuEntry[],
+})
+
+export function openContextMenu(event: MouseEvent, items: MenuEntry[]) {
+  // 阻止 WebView 的原生菜单：那份菜单里只有「重新加载」这类对用户无意义的项
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenu.items = items
+  contextMenu.x = event.clientX
+  contextMenu.y = event.clientY
+  contextMenu.open = true
+}
+
+export function closeContextMenu() {
+  contextMenu.open = false
+  contextMenu.items = []
 }
 
 /** 选目录。新建 / 打开站点都要它。 */

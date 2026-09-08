@@ -13,6 +13,7 @@ import BuildPanel from './components/BuildPanel.vue'
 import CalendarPanel from './components/CalendarPanel.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ContentEditor from './components/ContentEditor.vue'
+import ContextMenu from './components/ContextMenu.vue'
 import DeployPanel from './components/DeployPanel.vue'
 import LayoutManager from './components/LayoutManager.vue'
 import PageList from './components/PageList.vue'
@@ -200,5 +201,6 @@ onBeforeUnmount(() => {
   </div>
 
   <CommandPalette :open="ui.paletteOpen" @close="ui.paletteOpen = false" />
+  <ContextMenu />
   <ToastStack />
 </template>

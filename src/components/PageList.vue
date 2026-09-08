@@ -8,6 +8,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
+import { openContextMenu, type MenuEntry } from '../commands'
 import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
 import { ui } from '../ui'
@@ -420,6 +421,94 @@ async function remove(page: PageSummary) {
   confirmingDelete.value = null
   await actions.deleteContent(page)
 }
+
+/**
+ * 右键菜单：只放针对这一篇的动作。
+ *
+ * 行上原先挂着一个「×」，删除以外的动作全靠批量条。现在「×」换成「⋯」，
+ * 同一份菜单既由右键触发也由「⋯」触发——右键是看不见的入口，必须有个可见的孪生入口。
+ * 删除仍走就地确认，菜单只负责把那一行切进确认态：菜单里直接删等于绕过拦阻。
+ */
+function pageMenu(page: PageSummary): MenuEntry[] {
+  return [
+    { id: 'page.open', label: '打开编辑', run: () => actions.requestOpenContent(page) },
+    {
+      id: 'page.preview',
+      label: '在预览里打开',
+      hint: page.url,
+      run: () => actions.previewOutput(page.url),
+    },
+    { separator: true },
+    {
+      id: 'page.draft',
+      label: page.draft ? '发布（取消草稿）' : '设为草稿',
+      run: () => actions.batchSetDraft([page.source], !page.draft),
+    },
+    {
+      id: 'page.copy',
+      label: '复制源文件路径',
+      hint: page.source,
+      run: () => copyText(page.source),
+    },
+    { separator: true },
+    {
+      id: 'page.delete',
+      label: '删除…',
+      hint: '还要再确认一次',
+      danger: true,
+      run: () => {
+        confirmingDelete.value = page.source
+      },
+    },
+  ]
+}
+
+/** 分组头的右键菜单：栏目级动作。根目录不能改名也不能删，那两项直接不出现。 */
+function sectionMenu(path: string): MenuEntry[] {
+  const section = sectionOf.value.get(path)
+  const items: MenuEntry[] = [
+    {
+      id: 'section.new',
+      label: '在此栏目新建文章…',
+      run: () => {
+        newSection.value = path
+        openCreate()
+      },
+    },
+    { separator: true },
+    {
+      id: 'section.meta',
+      label: '栏目信息（标题 / 简介 / 排序）…',
+      run: () => startMeta(path),
+    },
+  ]
+  if (path === '') return items
+  items.push(
+    { id: 'section.rename', label: '栏目改名…', hint: '默认保留旧地址', run: () => startRename(path) },
+    { separator: true },
+    {
+      id: 'section.remove',
+      label: '删除空栏目…',
+      hint: (section?.pages ?? 0) > 0 ? '里面还有文章' : '还要再确认一次',
+      danger: true,
+      disabled: (section?.pages ?? 0) > 0,
+      run: () => {
+        confirmingSectionDelete.value = path
+      },
+    },
+  )
+  return items
+}
+
+/** 复制到剪贴板。写不进去（无权限、旧 WebView）就说清楚，别假装成功。 */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    actions.notify('success', `已复制 ${text}`)
+  } catch {
+    actions.notify('error', '复制失败：这个环境不允许写剪贴板')
+  }
+}
 </script>
 
 <template>
@@ -640,7 +729,7 @@ async function remove(page: PageSummary) {
     </form>
 
     <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
-      <h3>
+      <h3 @contextmenu="openContextMenu($event, sectionMenu(section))">
         <span class="page-list__section-name">{{ sectionLabel(section) }}</span>
         <span class="page-list__count">{{ pages.length }}</span>
         <span
@@ -658,39 +747,30 @@ async function remove(page: PageSummary) {
         >
           信息
         </button>
-        <template v-if="section !== ''">
+        <template v-if="confirmingSectionDelete === section">
           <button
             type="button"
-            class="page-list__icon"
-            title="栏目改名（默认保留旧地址）"
-            @click="startRename(section)"
+            class="page-list__danger"
+            :disabled="store.busy"
+            title="只删空栏目：里面还有文章时会报错"
+            @click="removeSection(section)"
           >
-            改名
+            删除栏目
           </button>
-          <template v-if="confirmingSectionDelete === section">
-            <button
-              type="button"
-              class="page-list__danger"
-              :disabled="store.busy"
-              title="只删空栏目：里面还有文章时会报错"
-              @click="removeSection(section)"
-            >
-              删除栏目
-            </button>
-            <button type="button" class="page-list__icon" @click="confirmingSectionDelete = null">
-              取消
-            </button>
-          </template>
-          <button
-            v-else
-            type="button"
-            class="page-list__icon"
-            title="删除空栏目"
-            @click="confirmingSectionDelete = section"
-          >
-            ×
+          <button type="button" class="page-list__icon" @click="confirmingSectionDelete = null">
+            取消
           </button>
         </template>
+        <button
+          v-else
+          type="button"
+          class="page-list__icon"
+          title="更多动作（也可在这一行上右键）"
+          aria-label="更多栏目动作"
+          @click="openContextMenu($event, sectionMenu(section))"
+        >
+          ⋯
+        </button>
       </h3>
 
       <form
@@ -741,7 +821,11 @@ async function remove(page: PageSummary) {
 
       <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
-        <li v-for="page in pages" :key="page.source">
+        <li
+          v-for="page in pages"
+          :key="page.source"
+          @contextmenu="openContextMenu($event, pageMenu(page as PageSummary))"
+        >
           <input
             v-if="selecting"
             type="checkbox"
@@ -802,10 +886,11 @@ async function remove(page: PageSummary) {
             v-else
             type="button"
             class="page-list__icon"
-            title="删除这篇内容"
-            @click="confirmingDelete = page.source"
+            title="更多动作（也可在这一行上右键）"
+            aria-label="更多动作"
+            @click="openContextMenu($event, pageMenu(page as PageSummary))"
           >
-            ×
+            ⋯
           </button>
         </li>
       </ul>
