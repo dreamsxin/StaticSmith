@@ -62,18 +62,62 @@ async function runImport() {
  *
  * 之前是一张长表单从站点信息一路滚到分类与导航，找一项要滚半屏，也看不出
  * 哪些字段是一伙的。现在按「一个问题一段」切开，一次只显示一段。
+ *
+ * `config` 区分两类分段：写进 `staticsmith.toml` 的（要「保存设置」）与
+ * 会话级动作（导入、AI 接入，做完即生效）。这个字段是唯一来源——
+ * 保存条据此显示，不再写成一串 `section !== 'x'`。
  */
 type Section = 'site' | 'build' | 'assets' | 'taxonomy' | 'menu' | 'deploy' | 'import' | 'ai'
 
-const sections: Array<{ id: Section; label: string; hint: string }> = [
-  { id: 'site', label: '站点信息', hint: '标题、描述、地址、语言——模板里的 site.* 就是这些' },
-  { id: 'build', label: '构建', hint: '目录、分页、压缩、sitemap / 订阅、定时发布' },
-  { id: 'assets', label: '媒体', hint: '编辑器插入的图片存哪、怎么命名、地址前缀' },
-  { id: 'taxonomy', label: '分类维度', hint: '标签、分类……每个维度生成一套总览页与词条页' },
-  { id: 'menu', label: '导航菜单', hint: '头部导航的顺序与地址，加栏目改这里就够了' },
-  { id: 'deploy', label: '发布', hint: '发布方式与目标；密码只存变量名，不写进配置文件' },
-  { id: 'import', label: '导入内容', hint: '一次性动作：把 Hugo / Jekyll 的内容搬进来' },
-  { id: 'ai', label: 'AI 接入', hint: '开一个只监听本机的端点，让 AI 助手读写这个站点' },
+const sections: Array<{ id: Section; label: string; hint: string; config: boolean }> = [
+  {
+    id: 'site',
+    label: '站点信息',
+    hint: '标题、描述、地址、语言——模板里的 site.* 就是这些',
+    config: true,
+  },
+  {
+    id: 'build',
+    label: '构建',
+    hint: '目录、分页、压缩、sitemap / 订阅、定时发布',
+    config: true,
+  },
+  {
+    id: 'assets',
+    label: '媒体',
+    hint: '编辑器插入的图片存哪、怎么命名、地址前缀',
+    config: true,
+  },
+  {
+    id: 'taxonomy',
+    label: '分类维度',
+    hint: '标签、分类……每个维度生成一套总览页与词条页',
+    config: true,
+  },
+  {
+    id: 'menu',
+    label: '导航菜单',
+    hint: '头部导航的顺序与地址，加栏目改这里就够了',
+    config: true,
+  },
+  {
+    id: 'deploy',
+    label: '发布',
+    hint: '发布方式与目标；密码只存变量名，不写进配置文件',
+    config: true,
+  },
+  {
+    id: 'import',
+    label: '导入内容',
+    hint: '一次性动作：把 Hugo / Jekyll 的内容搬进来',
+    config: false,
+  },
+  {
+    id: 'ai',
+    label: 'AI 接入',
+    hint: '开一个只监听本机的端点，让 AI 助手读写这个站点',
+    config: false,
+  },
 ]
 
 const section = ref<Section>('site')
@@ -114,9 +158,8 @@ async function copyEndpoint() {
 }
 
 
-const sectionHint = computed(
-  () => sections.find((item) => item.id === section.value)?.hint ?? '',
-)
+/** 当前分段。标题与说明都从这里取，面板里不再各写一个 `<h3>` 重复分段名。 */
+const current = computed(() => sections.find((item) => item.id === section.value) ?? sections[0])
 
 
 
@@ -290,6 +333,8 @@ function onDeployKindChange() {
 
 <template>
   <section class="settings">
+    <!-- 分段导航竖排在左侧：八段横排会在窄一点的窗口折成两行，
+         而且药丸形状看起来像动作。竖排 + 选中态左边框才读成「导航」 -->
     <nav class="settings__nav" aria-label="设置分段">
       <button
         v-for="item in sections"
@@ -297,17 +342,24 @@ function onDeployKindChange() {
         type="button"
         class="settings__nav-item"
         :class="{ active: section === item.id }"
-        :aria-current="section === item.id ? 'page' : undefined"
-        :title="item.hint"
+        :aria-current="section === item.id ? 'true' : undefined"
         @click="section = item.id"
       >
         {{ item.label }}
       </button>
     </nav>
-    <p class="build__muted settings__nav-hint">{{ sectionHint }}</p>
+
+    <!-- 右列：段标题 + 一句说明 + 表单 + 保存条。它们必须叠在一起，
+         此前四者都是 .settings 的直接子元素，而 .settings 是多列网格
+         （分段之前同时铺多张面板时留下的），于是被排成「导航 | 说明 | 表单」，
+         保存条掉到左下角 —— 按钮离开了它要保存的表单 -->
+    <div class="settings__body">
+      <header class="settings__head">
+        <h3>{{ current.label }}</h3>
+        <p class="settings__hint">{{ current.hint }}</p>
+      </header>
 
     <div v-if="section === 'site'" class="settings__panel">
-      <h3>站点信息</h3>
       <label>标题<input v-model="form.site.title" type="text" /></label>
       <label>描述<input v-model="form.site.description" type="text" /></label>
       <label>站点地址<input v-model="form.site.base_url" type="text" /></label>
@@ -317,8 +369,8 @@ function onDeployKindChange() {
       </p>
     </div>
 
+
     <div v-if="section === 'build'" class="settings__panel">
-      <h3>构建</h3>
       <label>内容目录<input v-model="form.build.content_dir" type="text" /></label>
       <label>模板目录<input v-model="form.build.template_dir" type="text" /></label>
       <label>主题目录<input v-model="form.build.theme_dir" type="text" /></label>
@@ -354,7 +406,6 @@ function onDeployKindChange() {
     </div>
 
     <div v-if="section === 'assets'" class="settings__panel">
-      <h3>媒体资源</h3>
       <label>
         存放子目录（相对静态资源目录）
         <input v-model="form.assets.dir" type="text" />
@@ -383,7 +434,6 @@ function onDeployKindChange() {
     </div>
 
     <div v-if="section === 'taxonomy'" class="settings__panel">
-      <h3>分类维度</h3>
       <p class="build__muted">
         每个维度读一个 front matter 字段，生成总览页与词条页（分页沿用「每页条数」）。
         标签、分类、专栏都是同一种东西，只是字段与 URL 不同。
@@ -413,7 +463,6 @@ function onDeployKindChange() {
     </div>
 
     <div v-if="section === 'menu'" class="settings__panel">
-      <h3>导航菜单</h3>
       <p class="build__muted">
         头部导航按这里的顺序渲染，加栏目不用改模板。分类维度（在「分类维度」那段配）由模板
         自己列出，不必在这里重复登记。站内地址要以 <code>/</code> 开头。
@@ -452,7 +501,6 @@ function onDeployKindChange() {
     </div>
 
     <div v-if="section === 'deploy'" class="settings__panel">
-      <h3>发布</h3>
       <label>
         方式
         <select v-model="form.deploy.type" @change="onDeployKindChange">
@@ -492,8 +540,7 @@ function onDeployKindChange() {
       </p>
     </div>
 
-    <div v-if="section === 'import'" class="build__panel">
-      <h3>从别的站点导入内容</h3>
+    <div v-if="section === 'import'" class="settings__panel">
       <p class="build__muted">
         递归找 <code>.md</code> / <code>.markdown</code>，把 Hugo / Jekyll 的 YAML front matter
         转成 TOML。<strong>正文一个字节都不动</strong>；转不了的字段会写成注释留在文件里，
@@ -556,8 +603,7 @@ function onDeployKindChange() {
     </div>
 
     <!-- AI 接入：会话级动作，不写进 staticsmith.toml，所以也不参与「保存设置」 -->
-    <div v-if="section === 'ai'" class="build__panel">
-      <h3>AI 接入（MCP）</h3>
+    <div v-if="section === 'ai'" class="settings__panel">
       <p class="build__muted">
         开一个<strong>只监听本机</strong>（127.0.0.1）的端点，让 Claude、Cursor 这类支持 MCP
         的助手直接读写这个站点：查文章、补 SEO 字段、批量改标签、跑体检。
@@ -621,11 +667,16 @@ function onDeployKindChange() {
       </template>
     </div>
 
-    <div v-if="section !== 'import' && section !== 'ai'" class="settings__save">
-      <button type="button" class="btn--primary" :disabled="store.busy" @click="save">
-        保存设置
-      </button>
-      <span class="build__muted">保存的是整份 staticsmith.toml，不只当前这一段。</span>
+      <!-- 保存条常驻在右列底部（sticky）：「构建」那一段有九个输入框加四个勾选，
+           保存按钮跟着内容滚走的话，主动作会离开视野。
+           显示与否问 `current.config`，不写成 `section !== 'import' && …` 的黑名单——
+           每加一个会话级分段都要回来补一个 !==，漏一个就会出现「点了保存但这段没什么可存」 -->
+      <div v-if="current.config" class="settings__save">
+        <button type="button" class="btn--primary" :disabled="store.busy" @click="save">
+          保存设置
+        </button>
+        <span class="build__muted">保存的是整份 staticsmith.toml，不只当前这一段。</span>
+      </div>
     </div>
   </section>
 </template>

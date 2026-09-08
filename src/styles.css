@@ -1578,15 +1578,126 @@ kbd {
 .layouts,
 .build,
 .deploy,
+/*
+ * 设置页：左边一列分段导航，右边一列表单。
+ *
+ * 不跟 .build / .deploy 共用那条 auto-fit 多列：那条是「同时铺多张面板」时的排法，
+ * 而设置页一次只显示一段。共用的后果是导航、说明、表单被排成三列、
+ * 保存条掉到左下角——按钮离开了它要保存的表单。
+ */
 .settings {
   display: grid;
   grid-column: 1 / -1;
-  gap: 1rem;
-  padding: 1rem;
-  align-content: start;
-  overflow: auto;
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+  /* 高度交给内层：右列自己滚，导航留在原处不跟着走 */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
   background: var(--bg-subtle);
 }
+
+/* 分段导航竖排：八段横排会在窄窗口折成两行，占掉一整条纵向空间 */
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.625rem 0.375rem;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+
+.settings__nav-item {
+  padding: 0.25rem 0.625rem;
+  font-size: 0.8rem;
+  text-align: left;
+  /* 选中态用左边框而不是填充：填充是动作的语言，这里是导航（6.4） */
+  border-left: 2px solid transparent;
+  border-radius: 0;
+}
+
+.settings__nav-item.active {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--bg);
+  border-left-color: var(--accent);
+}
+
+/* 右列：段标题 + 说明 + 表单 + 保存条，从上到下一条视线 */
+.settings__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.625rem 1rem 0;
+  overflow: auto;
+}
+
+.settings__head {
+  /* 分段名只出现一次：导航里选中的那条 + 这里的标题，面板内不再重复写 h3 */
+  max-width: 44rem;
+}
+
+.settings__head h3 {
+  margin: 0;
+}
+
+.settings__hint {
+  margin: 0.125rem 0 0.625rem;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+
+/* 表单不铺满整个宽屏：一行输入框拉到 80rem 宽，眼睛要从标签走很远才到值 */
+.settings__panel {
+  max-width: 44rem;
+  margin-bottom: 0.625rem;
+}
+
+/*
+ * 保存条常驻底部。
+ *
+ * 「构建」那一段有九个输入框加四个勾选，保存按钮跟着内容滚走的话，
+ * 填到一半时主动作已经不在视野里了。
+ */
+.settings__save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 0.625rem;
+  align-items: center;
+  max-width: 44rem;
+  padding: 0.625rem 0;
+  margin-top: auto;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+}
+
+/* 窄窗口回到单列：导航横排在上面，右列变成下面一整块 */
+@media (max-width: 60rem) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: 0.375rem 0.625rem;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings__nav-item {
+    /* 横排时左边框读不出「选中」，改回底边框，与标签栏一致 */
+    border-left-color: transparent;
+    border-bottom: 2px solid transparent;
+  }
+
+  .settings__nav-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+}
+
 
 
 .layouts {
@@ -1594,8 +1705,7 @@ kbd {
 }
 
 .build,
-.deploy,
-.settings {
+.deploy {
   grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
 }
 
@@ -1764,46 +1874,12 @@ kbd {
 }
 
 /* 设置页的分段导航：一次只显示一段，别让人在长表单里滚着找 */
-.settings__nav {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  align-items: center;
-}
-
-.settings__nav-item {
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-}
-
-/* 分段导航是「导航」而不是「动作」：选中态用主色下边框 + 字重，不用实心填充
-   （填充是按下的语义，见 ui-design.md 6.1） */
-.settings__nav-item.active {
-  color: var(--fg);
-  background: none;
-  border-color: var(--border);
-  border-bottom: 2px solid var(--accent);
-  border-radius: 4px 4px 0 0;
-  font-weight: 600;
-}
-
+/* 导航的排布与选中态定义在上面的「设置页」一节（竖排 + 左边框），
+   这里只留焦点环——它与排布无关，两种排法下都一样 */
 .settings__nav-item:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-
-.settings__nav-hint {
-  margin: -0.4rem 0 0;
-}
-
-/* 保存按钮跟着分段一起显示：保存的是整份配置，不是当前这一段 */
-.settings__save {
-  display: flex;
-  gap: 0.6rem;
-  align-items: center;
-}
-
 
 /* 一个分类维度一组字段，用卡片圈起来才看得出是「一条」 */
 .settings__row {
