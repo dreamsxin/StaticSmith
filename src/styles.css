@@ -638,8 +638,11 @@ h3 {
   border-radius: 0;
 }
 
-.palette__input:focus {
-  outline: none;
+/* 输入框是浮层里唯一的输入点，焦点环画在内侧：画在外侧会压住面板边框，
+   但完全去掉（原先是 outline: none）就违了 6.6「可聚焦元素必须有可见焦点态」 */
+.palette__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
 }
 
 .palette__list {

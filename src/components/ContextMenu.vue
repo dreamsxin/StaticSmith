@@ -53,7 +53,13 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') closeContextMenu()
+  // Esc 是「我不做了」，焦点还给打开它的那个「⋯」按钮
+  if (event.key === 'Escape') closeContextMenu({ restore: true })
+}
+
+/** 滚轮监听要包一层：直接把 `closeContextMenu` 当监听器会把事件对象当参数传进去。 */
+function onWheel() {
+  closeContextMenu()
 }
 
 function onKeydownInside(event: KeyboardEvent) {
@@ -70,13 +76,13 @@ function onKeydownInside(event: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('pointerdown', onPointerDown)
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('wheel', closeContextMenu, { passive: true })
+  window.addEventListener('wheel', onWheel, { passive: true })
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onPointerDown)
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('wheel', closeContextMenu)
+  window.removeEventListener('wheel', onWheel)
 })
 </script>
 

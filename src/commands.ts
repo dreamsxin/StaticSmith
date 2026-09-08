@@ -57,19 +57,33 @@ export const contextMenu = reactive({
   items: [] as MenuEntry[],
 })
 
+/**
+ * 打开右键菜单的那个元素。
+ *
+ * 记下来是为了关闭后把焦点还回去：右键菜单常常从「⋯」按钮打开，
+ * 用 Esc 取消之后焦点不能落在已经被移除的浮层上（那等于回到 body，
+ * 下一次 Tab 要从页面开头重走一遍）。
+ */
+let contextOpener: HTMLElement | null = null
+
 export function openContextMenu(event: MouseEvent, items: MenuEntry[]) {
   // 阻止 WebView 的原生菜单：那份菜单里只有「重新加载」这类对用户无意义的项
   event.preventDefault()
   event.stopPropagation()
+  const opener = event.currentTarget
+  contextOpener = opener instanceof HTMLElement ? opener : null
   contextMenu.items = items
   contextMenu.x = event.clientX
   contextMenu.y = event.clientY
   contextMenu.open = true
 }
 
-export function closeContextMenu() {
+/** `restore`：Esc 这类「我不做了」把焦点还给打开它的元素；点了命令则由那条命令决定去哪。 */
+export function closeContextMenu(options: { restore?: boolean } = {}) {
   contextMenu.open = false
   contextMenu.items = []
+  if (options.restore) contextOpener?.focus()
+  contextOpener = null
 }
 
 /** 选目录。新建 / 打开站点都要它。 */

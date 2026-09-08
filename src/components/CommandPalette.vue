@@ -135,10 +135,24 @@ watch([keyword, () => props.open], () => {
   active.value = 0
 })
 
+/**
+ * 打开前记住焦点在哪，关闭后还回去。
+ *
+ * 面板是这个界面里唯一的浮层，用完必须把焦点交回原处：键盘用户在编辑器里按 Ctrl+P、
+ * 关掉之后如果焦点落在 body 上，下一次按 Tab 会从页面最开头重新走一遍。
+ */
+let restoreFocus: HTMLElement | null = null
+
 watch(
   () => props.open,
   async (open) => {
-    if (!open) return
+    if (!open) {
+      restoreFocus?.focus()
+      restoreFocus = null
+      return
+    }
+    const before = document.activeElement
+    restoreFocus = before instanceof HTMLElement ? before : null
     keyword.value = ''
     await nextTick()
     input.value?.focus()
@@ -157,24 +171,37 @@ async function accept() {
   emit('close')
   await item.run()
 }
+
+/** 当前高亮项的 DOM id，给 `aria-activedescendant` 用：读屏器据此念出选中的那一条。 */
+const activeId = computed(() => {
+  const item = flat.value[active.value]
+  return item ? `palette-item-${item.id}` : undefined
+})
+
 </script>
 
 <template>
   <div v-if="props.open" class="palette" @pointerdown.self="emit('close')">
-    <div class="palette__box" role="dialog" aria-label="命令面板">
+    <div class="palette__box" role="dialog" aria-modal="true" aria-label="命令面板">
       <input
         ref="input"
         v-model="keyword"
         class="palette__input"
         type="text"
+        role="combobox"
+        aria-controls="palette-list"
+        aria-expanded="true"
+        :aria-activedescendant="activeId"
         placeholder="搜索文章、模板、产物，或执行命令…"
         @keydown.down.prevent="move(1)"
         @keydown.up.prevent="move(-1)"
+        @keydown.tab.exact.prevent="move(1)"
+        @keydown.tab.shift.prevent="move(-1)"
         @keydown.enter.prevent="accept"
         @keydown.esc.prevent="emit('close')"
       />
 
-      <div v-if="flat.length" class="palette__list">
+      <div v-if="flat.length" id="palette-list" class="palette__list" role="listbox">
         <template v-for="group in groups" :key="group.name">
           <p class="palette__group">
             {{ group.name }}
@@ -182,9 +209,13 @@ async function accept() {
           </p>
           <button
             v-for="item in group.items"
+            :id="`palette-item-${item.id}`"
             :key="item.id"
             type="button"
             class="palette__item"
+            role="option"
+            tabindex="-1"
+            :aria-selected="flat[active]?.id === item.id"
             :class="{ active: flat[active]?.id === item.id }"
             @pointerenter="active = flat.findIndex((i) => i.id === item.id)"
             @click="accept"
@@ -197,7 +228,8 @@ async function accept() {
       <p v-else class="palette__empty">没有匹配项。</p>
 
       <p class="palette__foot">
-        <kbd>↑</kbd><kbd>↓</kbd> 选择 · <kbd>Enter</kbd> 执行 · <kbd>Esc</kbd> 关闭
+        <kbd>↑</kbd><kbd>↓</kbd> 或 <kbd>Tab</kbd> 选择 · <kbd>Enter</kbd> 执行 ·
+        <kbd>Esc</kbd> 关闭
       </p>
     </div>
   </div>

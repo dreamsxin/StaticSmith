@@ -351,10 +351,26 @@ const renamingSection = ref<string | null>(null)
 const renameTo = ref('')
 const keepAliases = ref(true)
 
+/**
+ * 就地表单与确认态出现后，把焦点放到最该操作的那个控件。
+ *
+ * 键盘用户点开「改名…」之后，焦点还留在刚刚消失的菜单项上——等于回到 body，
+ * 要按好几次 Tab 才走到新出现的输入框。确认态聚焦的是**取消**：
+ * 危险动作不该是默认落点，误按空格就删了。
+ *
+ * 用选择器而不是模板 ref：这几个表单在 v-for 里，ref 会收集成数组，
+ * 而同一时刻只可能展开一个（互斥由各自的 start 函数保证），选择器反而更直白。
+ */
+function focusInside(selector: string) {
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus())
+}
+
 function startRename(path: string) {
   renamingSection.value = path
   renameTo.value = path
+  editingMeta.value = null
   confirmingSectionDelete.value = null
+  focusInside('.page-list__rename input')
 }
 
 async function submitRename() {
@@ -390,6 +406,7 @@ function startMeta(path: string) {
   editingMeta.value = path
   renamingSection.value = null
   confirmingSectionDelete.value = null
+  focusInside('.page-list__rename input')
 }
 
 async function submitMeta() {
@@ -454,6 +471,7 @@ function pageMenu(page: PageSummary): MenuEntry[] {
       danger: true,
       run: () => {
         confirmingDelete.value = page.source
+        focusInside('.page-list__confirm-cancel')
       },
     },
   ]
@@ -490,6 +508,7 @@ function sectionMenu(path: string): MenuEntry[] {
       disabled: (section?.pages ?? 0) > 0,
       run: () => {
         confirmingSectionDelete.value = path
+        focusInside('.page-list__confirm-cancel')
       },
     },
   )
@@ -753,7 +772,11 @@ async function copyText(text: string) {
           >
             删除栏目
           </button>
-          <button type="button" class="page-list__icon" @click="confirmingSectionDelete = null">
+          <button
+            type="button"
+            class="page-list__icon page-list__confirm-cancel"
+            @click="confirmingSectionDelete = null"
+          >
             取消
           </button>
         </template>
@@ -874,7 +897,11 @@ async function copyText(text: string) {
             >
               删除
             </button>
-            <button type="button" class="page-list__icon" @click="confirmingDelete = null">
+            <button
+              type="button"
+              class="page-list__icon page-list__confirm-cancel"
+              @click="confirmingDelete = null"
+            >
               取消
             </button>
           </template>

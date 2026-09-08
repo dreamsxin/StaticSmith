@@ -43,8 +43,19 @@ function hover(index: number) {
   if (openIndex.value !== null) openIndex.value = index
 }
 
-function close() {
+/**
+ * 关闭菜单。
+ *
+ * `restore` 决定要不要把焦点还给菜单标题：Esc、点空白处属于「我不做了」，
+ * 焦点该回到原处（否则它落在被移除的下拉上，等于回到 body，下次 Tab 从头走一遍）；
+ * 而点了某个命令之后不还——那条命令往往要把焦点送去别处（比如「查找内容」要聚焦搜索框）。
+ */
+function close(options: { restore?: boolean } = {}) {
+  const index = openIndex.value
   openIndex.value = null
+  if (!options.restore || index === null) return
+  const titles = root.value?.querySelectorAll<HTMLButtonElement>('.app__menu-title')
+  titles?.[index]?.focus()
 }
 
 async function run(command: Command) {
@@ -58,7 +69,33 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') close()
+  if (event.key === 'Escape' && openIndex.value !== null) close({ restore: true })
+}
+
+/**
+ * 菜单标题上的方向键。
+ *
+ * 下拉里的循环由 `onMenuKeydown` 管，但焦点在标题上时它够不着——这正是原先
+ * 「展开后必须先 Tab 一下方向键才生效」的成因。左右在菜单间走，下键进入当前菜单。
+ */
+function onTitleKeydown(event: KeyboardEvent, index: number) {
+  const total = list.value.length
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    openIndex.value = index
+    void focusFirst()
+    return
+  }
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+  event.preventDefault()
+  const next = (index + (event.key === 'ArrowRight' ? 1 : total - 1)) % total
+  const titles = root.value?.querySelectorAll<HTMLButtonElement>('.app__menu-title')
+  titles?.[next]?.focus()
+  // 已经展开着就跟着切换，和鼠标划过标题的行为一致
+  if (openIndex.value !== null) {
+    openIndex.value = next
+    void focusFirst()
+  }
 }
 
 /** 下拉里的方向键：只在可用项之间循环，置灰项跳过。 */
@@ -95,6 +132,7 @@ onBeforeUnmount(() => {
         :aria-expanded="openIndex === index"
         @click="toggle(index)"
         @mouseenter="hover(index)"
+        @keydown="onTitleKeydown($event, index)"
       >
         {{ menu.label }}
       </button>
