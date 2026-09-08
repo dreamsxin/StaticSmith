@@ -14,6 +14,7 @@ use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportRep
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
+use staticsmith_core::search::Hit as SearchHit;
 use staticsmith_core::sections::{
     Created as SectionCreated, Meta as SectionMeta, Renamed as SectionRenamed, Section,
 };
@@ -211,6 +212,26 @@ pub fn save_config(state: State<'_, AppState>, config: SiteConfig) -> Result<Vec
 #[tauri::command]
 pub fn list_pages(state: State<'_, AppState>) -> Result<Vec<PageSummary>> {
     state.with_session(|session| Ok(page_summaries(&session.builder)))
+}
+
+/// 全文搜索：在标题与正文里找一个词，返回带上下文的片段。
+///
+/// 与 MCP 的 `search_content` 同源（`staticsmith_core::search`）：
+/// 界面里搜到的和 AI Agent 搜到的必须是同一批，否则「你说有我搜不到」。
+/// 侧栏原先只按标题与路径过滤已加载的清单，找不到「上次写过某个词的那篇」。
+#[tauri::command]
+pub fn search_content(
+    state: State<'_, AppState>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<SearchHit>> {
+    state.with_session(|session| {
+        Ok(staticsmith_core::search::search(
+            session.builder.pages(),
+            &query,
+            limit.unwrap_or(30),
+        ))
+    })
 }
 
 /// 读取内容源文件原文（含 front matter），供编辑器打开。

@@ -32,7 +32,9 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `site_info`：配置、目录、统计、最近构建记录。建议第一步就调它
 - `list_pages`：内容页列表，可按栏目过滤
 - `read_content`：读原文（含 `+++` front matter）
-- `search_content`：标题与正文的子串搜索，返回片段
+- `search_content`：标题与正文的子串搜索，返回命中位置（`field`）与片段。
+  搜的是**读者看到的文字**（正文先从 HTML 还原成纯文本再搜，所以搜 `img`
+  不会命中每一张图片），判断与桌面端侧栏共用一份实现
 - `list_templates`：模板及其角色与直接依赖
 - `read_template`：读模板源码
 - `build_plan`：待生成范围与级联影响，**改模板前先看它**

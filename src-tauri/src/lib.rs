@@ -31,6 +31,7 @@ pub fn run() {
             commands::read_config,
             commands::save_config,
             commands::list_pages,
+            commands::search_content,
             commands::read_content,
             commands::save_content,
             commands::delete_content,

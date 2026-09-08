@@ -252,6 +252,26 @@ export const saveConfig = (config: SiteConfig) => invoke<string[]>('save_config'
 
 export const listPages = () => invoke<PageSummary[]>('list_pages')
 
+/**
+ * 全文搜索的一条命中。
+ *
+ * 与 MCP 的 `search_content` 共用 Rust 侧 `staticsmith_core::search`：
+ * 界面里搜到的和 AI Agent 搜到的必须是同一批，否则会出现「你说有我搜不到」。
+ */
+export interface SearchHit {
+  source: string
+  title: string
+  url: string
+  /** 命中处的上下文，保留原文大小写，两端按需要带省略号 */
+  snippet: string
+  /** 命中在标题还是正文 */
+  field: 'title' | 'body'
+}
+
+export const searchContent = (query: string, limit?: number) =>
+  invoke<SearchHit[]>('search_content', { query, limit })
+
+
 export const readContent = (source: string) => invoke<string>('read_content', { source })
 
 export const saveContent = (source: string, raw: string) =>

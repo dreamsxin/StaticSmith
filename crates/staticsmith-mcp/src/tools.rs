@@ -515,8 +515,8 @@ fn read_content(builder: &Builder, args: &Value) -> Result<String, String> {
 }
 
 fn search_content(builder: &Builder, args: &Value) -> Result<String, String> {
-    let query = require_str(args, "query")?.to_lowercase();
-    if query.is_empty() {
+    let query = require_str(args, "query")?;
+    if query.trim().is_empty() {
         return Err("query 不能为空".to_string());
     }
     let limit = args
@@ -525,28 +525,22 @@ fn search_content(builder: &Builder, args: &Value) -> Result<String, String> {
         .unwrap_or(20)
         .max(1) as usize;
 
-    let mut matches = Vec::new();
-    for page in builder.pages() {
-        let haystack = format!("{}\n{}", page.title, page.content).to_lowercase();
-        if let Some(at) = haystack.find(&query) {
-            let start = haystack[..at]
-                .char_indices()
-                .rev()
-                .nth(40)
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            let snippet: String = haystack[start..].chars().take(160).collect();
-            matches.push(json!({
-                "source": page.source,
-                "title": page.title,
-                "url": page.url,
-                "snippet": snippet
-            }));
-            if matches.len() >= limit {
-                break;
-            }
-        }
-    }
+    // 搜索判断在 core 里只有一份：Agent 搜到的和用户在界面侧栏搜到的必须是同一批。
+    // 顺带修掉两个旧毛病：原先搜的是渲染后的 HTML（搜 img 能命中每张图），
+    // 且片段取自小写化后的字符串（片段里的原文大小写全丢了）。
+    let hits = staticsmith_core::search::search(builder.pages(), query, limit);
+    let matches: Vec<Value> = hits
+        .iter()
+        .map(|hit| {
+            json!({
+                "source": hit.source,
+                "title": hit.title,
+                "url": hit.url,
+                "snippet": hit.snippet,
+                "field": hit.field
+            })
+        })
+        .collect();
     pretty(&json!({ "count": matches.len(), "matches": matches }))
 }
 

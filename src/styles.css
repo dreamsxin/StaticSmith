@@ -1508,6 +1508,14 @@ kbd {
 /* 着色的深色分支不在这里：颜色都走 --tok-* 令牌，令牌自己有两套值。
    原先这里有一份 .tok-* 的深色覆盖，等于同一组颜色写了两遍规则。 */
 
+/* 正文命中的片段：只读标注，弱化色 + 小一档字号，与上面的标题按钮拉开层级（6.1） */
+.page-list__snippet {
+  margin: 0 0 0.375rem 0.625rem;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
 .editor--empty,
 .preview__empty {
   padding: 1rem;

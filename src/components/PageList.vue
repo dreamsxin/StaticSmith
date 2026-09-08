@@ -12,7 +12,8 @@ import { openContextMenu, type MenuEntry } from '../commands'
 import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
 import { ui } from '../ui'
-import type { BatchPreview, PageSummary, SeoSeverity } from '../api'
+import { searchContent } from '../api'
+import type { BatchPreview, PageSummary, SearchHit, SeoSeverity } from '../api'
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
@@ -148,6 +149,59 @@ const sitePages = computed(() =>
 // Ctrl+F 的监听在 App 那一层（`commands.ts` 的 `focusSearch`）：挂在这里的话，
 // 停在别的标签页、或把列表栏收起来时按下去就没有反应。
 // 这里只负责被叫到时聚焦，见下面 `ui.requestFocusSearch` 的 watch。
+
+/**
+ * 正文命中：同一个输入框，两档结果。
+ *
+ * 上面那份分组列表是「标题或路径里有这个词」，在本地已加载的清单上即时过滤；
+ * 这一份是「正文里提到过这个词」，要问 Rust 侧（正文是渲染后的 HTML，
+ * 前端手里根本没有）。以前只有前者，于是「上次写过某个词的那篇」在界面里搜不出来，
+ * 只有 AI Agent 能搜——同一个站点两种能力，说不通。
+ *
+ * 不加第二个输入框：搜索只该有一个入口，结果分档展示（同 6.9 的分档思路）。
+ * 已经在上面出现过的文章不再重复列，否则一个词会出现两次。
+ */
+const bodyHits = ref<SearchHit[]>([])
+const searching = ref(false)
+
+/** 至少两个字符才去搜：单字符命中太多，等于把整站列一遍。 */
+const MIN_QUERY = 2
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+
+watch(normalized, (query) => {
+  if (searchTimer !== null) clearTimeout(searchTimer)
+  if (query.length < MIN_QUERY) {
+    bodyHits.value = []
+    searching.value = false
+    return
+  }
+  // 防抖：打字过程中每个字符都发一次 IPC，站点大了会把界面拖住
+  searching.value = true
+  searchTimer = setTimeout(async () => {
+    searchTimer = null
+    try {
+      bodyHits.value = await searchContent(query, 30)
+    } catch {
+      // 搜索失败不弹通知：它是辅助结果，主列表还在，报错反而打断打字
+      bodyHits.value = []
+    } finally {
+      searching.value = false
+    }
+  }, 250)
+})
+
+/** 只留正文命中，且排除标题列表里已经出现过的那些。 */
+const extraHits = computed(() => {
+  const shown = new Set(groups.value.flatMap(([, pages]) => pages.map((p) => p.source)))
+  return bodyHits.value.filter((hit) => hit.field === 'body' && !shown.has(hit.source))
+})
+
+/** 从一条命中回到那篇文章。带未保存改动时由 store 拦一道，这里不重复判断。 */
+async function openHit(hit: SearchHit) {
+  const page = (store.project?.pages ?? []).find((p) => p.source === hit.source)
+  if (page) await actions.requestOpenContent(page as PageSummary)
+}
+
 
 // ---------------------------------------------------------------- 新建
 
@@ -950,7 +1004,33 @@ async function copyText(text: string) {
       </p>
     </div>
 
-    <p v-if="normalized && matched === 0 && !sitePages.length" class="page-list__empty">
+    <!-- 正文命中：同一个搜索框的第二档结果，标题里没这个词但正文里有。
+         已经在上面列出过的文章不重复出现 -->
+    <div v-if="normalized.length >= 2 && (extraHits.length > 0 || searching)" class="page-list__group">
+      <h3>
+        正文里提到
+        <span v-if="extraHits.length" class="page-list__count">{{ extraHits.length }}</span>
+      </h3>
+      <p v-if="searching" class="empty-hint">正在搜正文…</p>
+      <ul v-else>
+        <li v-for="hit in extraHits" :key="hit.source">
+          <button
+            type="button"
+            :class="{ active: store.currentSource === hit.source }"
+            :title="hit.source"
+            @click="openHit(hit)"
+          >
+            <span class="page-list__title">{{ hit.title || hit.source }}</span>
+          </button>
+          <p class="page-list__snippet">{{ hit.snippet }}</p>
+        </li>
+      </ul>
+    </div>
+
+    <p
+      v-if="normalized && matched === 0 && extraHits.length === 0 && !searching && !sitePages.length"
+      class="page-list__empty"
+    >
       没有匹配「{{ keyword }}」的内容
     </p>
     <p v-else-if="!normalized && filter !== 'all' && matched === 0" class="page-list__empty">

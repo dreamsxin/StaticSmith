@@ -29,6 +29,9 @@
 ## 内容
 
 - `list_pages() -> PageSummary[]`
+- `search_content(query, limit?) -> SearchHit[]`：标题与正文的全文搜索，`limit` 默认 30。
+  与 MCP 的 `search_content` 共用 `staticsmith_core::search`——界面搜到的和 Agent 搜到的
+  必须是同一批。命中项带 `field`（`title` / `body`）与保留原文大小写的 `snippet`
 - `read_content(source) -> string`：读取源文件原文（含 front matter）
 - `create_content(request) -> string`：新建内容，返回其相对 `content/` 的路径
 - `save_content({ source, raw }) -> BuildPlan`：写盘 + 重新解析 + 返回增量计划
