@@ -29,6 +29,16 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 开发模式走 `devUrl`，所以首次开发不必先跑 `npm run build`，但 `cargo build -p staticsmith-app`
 需要该目录存在。
 
+**Tauri 的 npm 包与 Rust crate 必须落在同一 major.minor**，否则 `tauri dev` 一上来就报
+`Found version mismatched Tauri packages` 并拒绝启动。要对齐的是四对：
+`tauri` ↔ `@tauri-apps/api`、`tauri-plugin-dialog` ↔ `@tauri-apps/plugin-dialog`、
+`tauri-plugin-opener` ↔ `@tauri-apps/plugin-opener`，以及跟着 `tauri` 走的 `@tauri-apps/cli`。
+
+两边的更新节奏不同才是根因：Rust 侧写的是 `tauri = "2"` 这类宽松约束，`cargo update`
+会把它带到新的次版本；npm 侧钉死精确版本，不会自己动。于是某天 `tauri dev` 突然起不来，
+八成就是这个。对齐办法：`npm run tauri -- info` 打出两侧实际版本，照 Rust 侧改
+`package.json` 里的钉版，再 `npm install`。
+
 ## 代码组织约定
 
 - `staticsmith-core` 不允许依赖 Tauri 或任何 GUI 能力。它要能被 CLI / MCP / 服务端直接复用
