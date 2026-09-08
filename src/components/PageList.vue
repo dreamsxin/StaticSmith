@@ -98,23 +98,33 @@ function sectionLabel(path: string): string {
 const total = computed(() => store.project?.pages.length ?? 0)
 const matched = computed(() => groups.value.reduce((sum, [, pages]) => sum + pages.length, 0))
 
-/** 筛选项自带计数：为空的筛选还摆在那里只会让人点一下才发现没有。 */
+/**
+ * 筛选项。
+ *
+ * 标签把作用写全（「草稿（还没发布）」而不是「草稿」）：两个字的标签省地方，
+ * 但没人猜得出「待生成」是什么意思。计数跟在后面，为空的那类置灰——
+ * 摆在那里让人点一下才发现没有，等于白点一次。
+ */
 const filters = computed<Array<{ id: Filter; label: string; count: number }>>(() => {
   const pages = store.project?.pages ?? []
   return [
-    { id: 'all', label: '全部', count: pages.length },
-    { id: 'draft', label: '草稿', count: pages.filter((p) => p.draft).length },
+    { id: 'all', label: '全部内容', count: pages.length },
+    { id: 'draft', label: '草稿（还没发布）', count: pages.filter((p) => p.draft).length },
     {
       id: 'dirty',
-      label: '待生成',
+      label: '待生成（改过还没生成）',
       count: pages.filter((p) => dirtyPages.value.has(p.source)).length,
     },
     {
       id: 'seo',
-      label: '待补 SEO',
+      label: '待补 SEO（缺描述等）',
       count: pages.filter((p) => seoBySource.value.has(p.source)).length,
     },
-    { id: 'scheduled', label: '定时', count: pages.filter((p) => p.scheduled).length },
+    {
+      id: 'scheduled',
+      label: '定时（日期未到，暂不上线）',
+      count: pages.filter((p) => p.scheduled).length,
+    },
   ]
 })
 
@@ -457,19 +467,24 @@ async function remove(page: PageSummary) {
       </button>
     </div>
 
-    <div class="page-list__filters">
-      <button
-        v-for="item in filters"
-        :key="item.id"
-        type="button"
-        class="page-list__chip"
-        :class="{ active: filter === item.id }"
-        :disabled="item.count === 0 && item.id !== 'all'"
-        @click="filter = item.id"
+    <label class="page-list__filter">
+      <span class="page-list__filter-label">只看</span>
+      <select
+        v-model="filter"
+        :class="{ active: filter !== 'all' }"
+        aria-label="筛选内容"
+        title="缩小列表范围：草稿=还没发布，待生成=改过还没重新生成，待补 SEO=体检提示的那些，定时=日期未到"
       >
-        {{ item.label }} <span class="page-list__count">{{ item.count }}</span>
-      </button>
-    </div>
+        <option
+          v-for="item in filters"
+          :key="item.id"
+          :value="item.id"
+          :disabled="item.count === 0 && item.id !== 'all'"
+        >
+          {{ item.label }}（{{ item.count }}）
+        </option>
+      </select>
+    </label>
 
     <!-- 栏目候选在多处要用（新建内容、新建栏目、批量移动），放在外层只声明一次 -->
     <datalist id="known-sections">

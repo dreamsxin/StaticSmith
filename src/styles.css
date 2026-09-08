@@ -784,36 +784,37 @@ kbd {
 }
 
 /*
- * 运营视角的筛选条：把体检结论接回工作列表。
- * 做成小圆角药丸而不是下拉框——四个选项一眼看完，还能顺带显示各自数量。
+ * 运营视角的筛选：把体检结论接回工作列表。
+ *
+ * 曾经是五个药丸按钮，在 260px 宽的侧栏里要折两三行，光「草稿 / 待生成」这种两字标签
+ * 也说不清作用。改成一行下拉：省两行高度，选项文字直接把含义写全（「草稿（还没发布）」）。
  */
-.page-list__filters {
+.page-list__filter {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  padding: 0.4rem 0.5rem;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
 }
 
-.page-list__chip {
-  padding: 0.1rem 0.5rem;
+.page-list__filter-label {
   color: var(--fg-muted);
-  font-size: 0.75rem;
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  cursor: pointer;
+  white-space: nowrap;
 }
 
-.page-list__chip.active {
-  color: var(--fg);
+.page-list__filter select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.78rem;
+}
+
+/* 正在筛选时给个视觉提示：否则「列表怎么少了一半」会被当成 bug */
+.page-list__filter select.active {
   border-color: var(--accent);
 }
 
-.page-list__chip:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
 
 
 .page-list__search-icon {
