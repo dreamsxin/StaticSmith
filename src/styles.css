@@ -341,6 +341,103 @@ h3 {
 }
 
 /* 下划线式标签页：比一排实心按钮更像「切换视图」而不是「执行动作」 */
+/* ------------------------------------------------------------------ 菜单栏 */
+
+/* 命令的家：一行文字菜单，高度压到最小，别跟内容抢空间 */
+.app__menu {
+  display: flex;
+  flex: none;
+  gap: 0.1rem;
+  padding: 0 0.4rem;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.app__menu-item {
+  position: relative;
+}
+
+.app__menu-title {
+  padding: 0.25rem 0.6rem;
+  color: var(--fg);
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.app__menu-title:hover:not(:disabled),
+.app__menu-title.open {
+  background: var(--bg);
+  border-color: transparent;
+}
+
+/* 下拉浮在内容之上，比 toast 低一层：报错提示不该被菜单盖住 */
+.app__menu-drop {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 40;
+  min-width: 15rem;
+  padding: 0.25rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.app__menu-command {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.3rem 0.5rem;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.app__menu-command:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  border-color: transparent;
+}
+
+/* 不可用的项置灰而不是隐藏：藏起来会让人以为功能不存在 */
+.app__menu-command:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.app__menu-command.danger:not(:disabled) {
+  color: var(--danger, #b3261e);
+}
+
+/* 勾选位固定宽度，有没有勾文字都对齐 */
+.app__menu-check {
+  width: 0.9rem;
+  color: var(--accent);
+  flex: none;
+}
+
+.app__menu-label {
+  flex: 1;
+}
+
+.app__menu-hint {
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.app__menu-sep {
+  margin: 0.25rem 0.3rem;
+  border: none;
+  border-top: 1px solid var(--border);
+}
+
+
 .app__tabs {
   display: flex;
   flex: none;

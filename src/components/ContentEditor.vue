@@ -10,9 +10,10 @@
  * - 有未保存改动时切换文章会被拦下来问一句，而不是静默丢弃
  * - 粘贴或拖入图片先落盘到站点资源目录（内容寻址命名），再把地址插到光标处
  */
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
+import { ui } from '../ui'
 import { parseList } from '../text'
 import { highlight } from '../markdown-highlight'
 
@@ -259,6 +260,30 @@ function onKeydown(event: KeyboardEvent) {
   event.preventDefault()
   handler()
 }
+
+/**
+ * 把选区类命令注册给菜单栏。
+ *
+ * 加粗、插链接依赖 textarea 的选区，只有这个组件知道；菜单栏要能调就得有个注册点。
+ * 注销同样重要：切到别的标签页后编辑器卸载，菜单里那几项必须跟着置灰，
+ * 否则点了会作用在一个已经不存在的输入框上。
+ */
+onMounted(() => {
+  ui.editor = {
+    bold: () => wrap('**'),
+    italic: () => wrap('*'),
+    code: () => wrap('`'),
+    link: insertLink,
+    heading: () => prefixLines('## '),
+    quote: () => prefixLines('> '),
+    bullet: () => prefixLines('- '),
+    pickFile: () => filePicker.value?.click(),
+  }
+})
+
+onBeforeUnmount(() => {
+  ui.editor = null
+})
 </script>
 
 <template>

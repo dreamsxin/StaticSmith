@@ -6,10 +6,11 @@
  * 标题行说明这一栏是内容并给出新建入口，搜索行只负责过滤，剩下才是列表。
  * 之前搜索框与「＋」并排且没有任何标识，很容易被当成「新建内容的名称输入框」。
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 
 import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
+import { ui } from '../ui'
 import type { BatchPreview, PageSummary, SeoSeverity } from '../api'
 
 const keyword = ref('')
@@ -171,6 +172,32 @@ async function create() {
   newTitle.value = ''
   creating.value = false
 }
+
+/**
+ * 响应菜单栏的请求。
+ *
+ * 菜单里的「新建文章…」「查找内容」只能放个信号：点的时候侧栏可能还没挂载
+ * （停在别的标签页）。这里消费完立刻清零，免得下次挂载时又弹一遍。
+ */
+watch(
+  () => ui.requestNewContent,
+  (asked) => {
+    if (!asked) return
+    ui.requestNewContent = false
+    openCreate()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => ui.requestFocusSearch,
+  (asked) => {
+    if (!asked) return
+    ui.requestFocusSearch = false
+    requestAnimationFrame(() => searchBox.value?.focus())
+  },
+  { immediate: true },
+)
 
 // ---------------------------------------------------------------- 多选与批量
 
