@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
+use staticsmith_core::batch::TagEdit;
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
 use staticsmith_deploy::{DeployReport, Progress};
@@ -173,6 +174,12 @@ pub enum Command {
         project: ProjectArgs,
     },
 
+    /// 批量改内容：加去标签、切草稿、搬栏目、删除
+    Batch {
+        #[command(subcommand)]
+        action: BatchAction,
+    },
+
     /// 主题包：把外观（模板 + 主题静态资源）打包带走，或装到另一个站点
     Theme {
         #[command(subcommand)]
@@ -193,6 +200,80 @@ pub enum Command {
         /// 允许 Agent 执行发布（会影响线上站点）
         #[arg(long)]
         allow_deploy: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+}
+
+/// `batch` 的四个动作。
+///
+/// 这四件事以前只有桌面端能做，脚本化整理站点走不通（改一批 front matter 得自己
+/// 解析 TOML）。判断与桌面端、MCP 共用 `staticsmith_core::batch`，
+/// 所以「界面里这么改」和「脚本里这么改」结果一致。
+///
+/// 两条与桌面端一致的默认值：搬动**默认补旧地址**（改 URL 不补等于打断外部链接），
+/// 删除**默认只干跑**（CLI 里没有就地确认，脚本一跑就没了，所以真删要 `--yes`）。
+/// 加去标签与切草稿不提供干跑：反手就能改回来，多一步只是白点一下。
+#[derive(Debug, Subcommand)]
+pub enum BatchAction {
+    /// 批量增删标签（原有顺序保留，新标签追加在后面）
+    Tags {
+        /// 源文件路径（相对 content/），可给多个
+        #[arg(required = true)]
+        sources: Vec<String>,
+        /// 要加的标签，逗号分隔或重复给
+        #[arg(long, value_delimiter = ',')]
+        add: Vec<String>,
+        /// 要去掉的标签
+        #[arg(long, value_delimiter = ',')]
+        remove: Vec<String>,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 批量设为草稿；`--publish` 反过来发布
+    Draft {
+        #[arg(required = true)]
+        sources: Vec<String>,
+        /// 发布（去掉草稿标记）而不是设为草稿
+        #[arg(long)]
+        publish: bool,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 批量搬到另一个栏目，默认保留旧地址
+    Move {
+        #[arg(required = true)]
+        sources: Vec<String>,
+        /// 目标栏目（相对 content/ 的目录，留空即根目录）
+        #[arg(long)]
+        to: String,
+        /// 不补旧地址（老链接会 404，慎用）
+        #[arg(long)]
+        no_aliases: bool,
+        /// 只算不写：列出每篇会怎么变
+        #[arg(long)]
+        dry_run: bool,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 批量删除源文件。默认只干跑，加 --yes 才真删
+    Delete {
+        #[arg(required = true)]
+        sources: Vec<String>,
+        /// 确认真的删（没有回收站，产物在下次生成时清理）
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         project: ProjectArgs,
     },
@@ -308,6 +389,35 @@ pub fn run(cli: Cli) -> Result<()> {
                 fail_on,
             },
         ),
+        Command::Batch { action } => match action {
+            BatchAction::Tags {
+                sources,
+                add,
+                remove,
+                json,
+                project,
+            } => cmd_batch_tags(&project.project, &sources, &add, &remove, json),
+            BatchAction::Draft {
+                sources,
+                publish,
+                json,
+                project,
+            } => cmd_batch_draft(&project.project, &sources, !publish, json),
+            BatchAction::Move {
+                sources,
+                to,
+                no_aliases,
+                dry_run,
+                json,
+                project,
+            } => cmd_batch_move(&project.project, &sources, &to, !no_aliases, dry_run, json),
+            BatchAction::Delete {
+                sources,
+                yes,
+                json,
+                project,
+            } => cmd_batch_delete(&project.project, &sources, yes, json),
+        },
         Command::Theme { action } => match action {
             ThemeAction::Export {
                 out,
@@ -474,6 +584,148 @@ fn cmd_import(
         }
     }
     println!("接下来：staticsmith check，再 staticsmith audit 看看 SEO 与死链");
+    Ok(())
+}
+
+// ---------------------------------------------------------------- 批量动作
+
+/// 打印一份 `Outcome`（加去标签、切草稿、删除都用它）。
+fn report_outcome(outcome: &staticsmith_core::batch::Outcome, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(outcome)?);
+        return Ok(());
+    }
+    println!(
+        "改了 {} 篇，跳过 {} 篇",
+        outcome.changed.len(),
+        outcome.skipped.len()
+    );
+    for source in &outcome.changed {
+        println!("+ {source}");
+    }
+    // 跳过的一定要说原因：不说的话，用户分不清「本来就这样」与「程序没做」
+    for skipped in &outcome.skipped {
+        println!("! {} —— {}", skipped.source, skipped.reason);
+    }
+    Ok(())
+}
+
+fn cmd_batch_tags(
+    project: &PathBuf,
+    sources: &[String],
+    add: &[String],
+    remove: &[String],
+    json: bool,
+) -> Result<()> {
+    if add.is_empty() && remove.is_empty() {
+        anyhow::bail!("--add 与 --remove 至少给一个，否则这条命令什么都不做");
+    }
+    let builder = open(project)?;
+    let edit = TagEdit {
+        add: add.to_vec(),
+        remove: remove.to_vec(),
+    };
+    let outcome = staticsmith_core::batch::edit_tags(&builder.paths, sources, &edit)
+        .context("批量改标签失败")?;
+    report_outcome(&outcome, json)
+}
+
+fn cmd_batch_draft(project: &PathBuf, sources: &[String], draft: bool, json: bool) -> Result<()> {
+    let builder = open(project)?;
+    let outcome = staticsmith_core::batch::set_draft(&builder.paths, sources, draft)
+        .context("批量切草稿失败")?;
+    if !json {
+        println!("{}", if draft { "设为草稿" } else { "发布" });
+    }
+    report_outcome(&outcome, json)
+}
+
+fn cmd_batch_move(
+    project: &PathBuf,
+    sources: &[String],
+    to_section: &str,
+    keep_aliases: bool,
+    dry_run: bool,
+    json: bool,
+) -> Result<()> {
+    let builder = open(project)?;
+
+    if dry_run {
+        let preview = staticsmith_core::batch::preview(
+            &builder.paths,
+            sources,
+            &staticsmith_core::batch::Action::Move {
+                to_section: to_section.to_string(),
+            },
+        )
+        .context("干跑失败")?;
+        return report_preview(&preview, json);
+    }
+
+    let outcome =
+        staticsmith_core::batch::move_to_section(&builder.paths, sources, to_section, keep_aliases)
+            .context("批量搬动失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&outcome)?);
+        return Ok(());
+    }
+    println!(
+        "搬了 {} 篇，跳过 {} 篇",
+        outcome.moved.len(),
+        outcome.skipped.len()
+    );
+    for moved in &outcome.moved {
+        let alias = if moved.alias_added {
+            "（已补旧地址）"
+        } else {
+            ""
+        };
+        println!("+ {} → {}{alias}", moved.from, moved.to);
+    }
+    for skipped in &outcome.skipped {
+        println!("! {} —— {}", skipped.source, skipped.reason);
+    }
+    Ok(())
+}
+
+/// 批量删除。**默认只干跑**：CLI 里没有就地确认，脚本一跑源文件就没了，
+/// 而删除没有回收站。所以真删必须显式 `--yes`。
+fn cmd_batch_delete(project: &PathBuf, sources: &[String], yes: bool, json: bool) -> Result<()> {
+    let builder = open(project)?;
+
+    if !yes {
+        let preview = staticsmith_core::batch::preview(
+            &builder.paths,
+            sources,
+            &staticsmith_core::batch::Action::Delete,
+        )
+        .context("干跑失败")?;
+        report_preview(&preview, json)?;
+        if !json {
+            println!("以上只是干跑，确认无误后加 --yes 才会真删。");
+        }
+        return Ok(());
+    }
+
+    let outcome =
+        staticsmith_core::batch::delete(&builder.paths, sources).context("批量删除失败")?;
+    report_outcome(&outcome, json)
+}
+
+fn report_preview(preview: &staticsmith_core::batch::Preview, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(preview)?);
+        return Ok(());
+    }
+    println!(
+        "{} 篇里有 {} 篇会变",
+        preview.changes.len(),
+        preview.affected
+    );
+    for change in &preview.changes {
+        let mark = if change.changes { "+" } else { "=" };
+        println!("{mark} {} —— {}", change.source, change.effect);
+    }
     Ok(())
 }
 
@@ -1004,6 +1256,77 @@ mod tests {
             } => {
                 assert_eq!(out, PathBuf::from("out/x.zip"));
                 assert!(name.is_none(), "留空时由命令去取站点标题");
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn batch_delete_is_a_dry_run_until_yes_is_given() {
+        let cli = Cli::try_parse_from(["staticsmith", "batch", "delete", "posts/a.md"]).unwrap();
+        match cli.command {
+            Command::Batch {
+                action: BatchAction::Delete { sources, yes, .. },
+            } => {
+                assert_eq!(sources, vec!["posts/a.md".to_string()]);
+                assert!(!yes, "默认只干跑：脚本一跑就没了，而删除没有回收站");
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn batch_move_keeps_aliases_unless_told_otherwise() {
+        let cli = Cli::try_parse_from([
+            "staticsmith",
+            "batch",
+            "move",
+            "posts/a.md",
+            "posts/b.md",
+            "--to",
+            "notes",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Batch {
+                action:
+                    BatchAction::Move {
+                        sources,
+                        to,
+                        no_aliases,
+                        ..
+                    },
+            } => {
+                assert_eq!(sources.len(), 2, "位置参数可以给多篇");
+                assert_eq!(to, "notes");
+                assert!(
+                    !no_aliases,
+                    "默认补旧地址，与桌面端一致——改 URL 不补等于打断外链"
+                );
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn batch_tags_accepts_comma_separated_lists() {
+        let cli = Cli::try_parse_from([
+            "staticsmith",
+            "batch",
+            "tags",
+            "posts/a.md",
+            "--add",
+            "运营,长文",
+            "--remove",
+            "草稿",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Batch {
+                action: BatchAction::Tags { add, remove, .. },
+            } => {
+                assert_eq!(add, vec!["运营".to_string(), "长文".to_string()]);
+                assert_eq!(remove, vec!["草稿".to_string()]);
             }
             other => panic!("解析到了 {other:?}"),
         }

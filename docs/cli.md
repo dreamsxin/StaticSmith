@@ -23,6 +23,13 @@ staticsmith import <目录> [--section posts] [--dry-run] [--json]
                                               # 导入 Hugo / Jekyll 的内容（YAML → TOML）
 staticsmith audit [--seo] [--links] [--media] [--build] [--json] [--fail-on error|warn|hint|never]
                                               # SEO / 死链 / 媒体体检，可作 CI 门禁
+
+staticsmith batch tags <源文件…> [--add a,b] [--remove c] [--json]
+staticsmith batch draft <源文件…> [--publish] [--json]
+staticsmith batch move <源文件…> --to <栏目> [--no-aliases] [--dry-run] [--json]
+staticsmith batch delete <源文件…> [--yes] [--json]
+                                              # 批量改内容，判断与桌面端 / MCP 同源
+
 staticsmith theme export <out.zip> [--name 名字] [--version 1.0.0] [--author 谁] [--description 一句话]
 staticsmith theme import <包.zip> [--dry-run] [--overwrite] [--json]
                                               # 主题包：打包外观 / 装到别的站点
@@ -66,6 +73,40 @@ staticsmith import ../old-blog/content --section posts
   `published: false` → `draft = true`，`2026-02-03 10:20:00 +0800` 归一成 RFC3339
   （没写时区的按 UTC 并给出警告）
 - 导入完照例走一遍 `staticsmith check` 与 `staticsmith audit`
+
+## 批量动作
+
+这四件事以前只有桌面端能做，脚本化整理站点走不通（改一批 front matter 得自己解析
+TOML，还得处理旧地址）。判断与桌面端、MCP 共用 `staticsmith_core::batch`，
+所以「界面里这么改」和「脚本里这么改」结果一致。
+
+```bash
+# 给几篇加标签、去标签（原有顺序保留，新标签追加在后面）
+staticsmith batch tags posts/a.md posts/b.md --add 运营,长文 --remove 草稿
+
+# 成批发布或收回草稿
+staticsmith batch draft posts/a.md --publish
+staticsmith batch draft posts/b.md
+
+# 搬栏目：默认补旧地址，先干跑看清单
+staticsmith batch move posts/a.md posts/b.md --to notes --dry-run
+staticsmith batch move posts/a.md posts/b.md --to notes
+
+# 删除：默认只干跑，加 --yes 才真删
+staticsmith batch delete posts/old.md
+staticsmith batch delete posts/old.md --yes
+```
+
+三条默认值是刻意的：
+
+- **搬动默认补旧地址**（`--no-aliases` 关掉），与桌面端一致——改 URL 不补旧地址
+  等于把所有外部链接打断，而整理目录结构本来是件例行事。
+- **删除默认只干跑**。CLI 里没有就地确认，脚本一跑源文件就没了，而删除没有回收站，
+  所以真删必须显式 `--yes`。
+- **加去标签与切草稿没有干跑**：反手就能改回来，多一步确认只是白点一下。
+
+输出都可以 `--json`，跳过的条目一定带原因（不带原因的话，看的人分不清
+「本来就这样」还是「程序没做」）。
 
 ## 主题包
 
