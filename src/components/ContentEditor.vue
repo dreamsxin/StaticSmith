@@ -13,7 +13,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
-import { ui, type EditorCommands } from '../ui'
+import { goTo, ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
 import { highlight } from '../markdown-highlight'
 
@@ -230,7 +230,47 @@ function insertAsset(url: string) {
 }
 
 
+/**
+ * 首次上手的三步。
+ *
+ * 「从零到线上」这条路径以前只写在文档里，而新站点打开后中间是一句「从左侧选择一篇内容」
+ * ——它说的是操作方式，没说下一步该干什么。这里把那条路径做成可点的三步，
+ * 每一步的完成态取真实状态（有文章、有过生成、有过发布），不额外记标记：
+ * 记标记就会出现「明明没做却显示做完了」。
+ *
+ * 只在前两步没走完时出现：写过也生成过之后它就是噪音，
+ * 而「从没发布过」是很多人的常态（只想本地看），不该一直催。
+ */
+const steps = computed(() => [
+  {
+    id: 'write',
+    label: '写第一篇',
+    hint: '也可以用菜单「编辑 → 新建文章…」',
+    done: (store.project?.pages.length ?? 0) > 0,
+    run: () => {
+      ui.requestNewContent = true
+    },
+  },
+  {
+    id: 'build',
+    label: '生成一次',
+    hint: 'Ctrl+Enter：把内容与模板渲染成 dist/ 里的静态文件',
+    done: (store.project?.recent_builds.length ?? 0) > 0,
+    run: () => void actions.build('incremental'),
+  },
+  {
+    id: 'deploy',
+    label: '发布出去',
+    hint: '在「发布」页配置 Git 或 FTP/SFTP，凭据存系统凭据管理器',
+    done: store.lastDeploy !== null,
+    run: () => goTo('deploy'),
+  },
+])
+
+const showGuide = computed(() => steps.value.slice(0, 2).some((step) => !step.done))
+
 // ---------------------------------------------------------------- 快捷键
+
 
 /** 正文字数（不含 front matter）。中文按字算，西文按词算。 */
 const wordCount = computed(() => {
@@ -512,6 +552,18 @@ onBeforeUnmount(() => {
   </section>
 
   <section v-else class="editor editor--empty">
-    <p>从左侧选择一篇内容开始编辑，或点「新建内容」。</p>
+    <p>从左侧选择一篇内容开始编辑，或点「新建」。</p>
+
+    <!-- 首次上手：把「从零到线上」那条路径做成可点的三步。完成的一步留在原地打勾，
+         不隐藏——隐藏会让人怀疑刚才那一步是不是做错了（同 6.4「置灰不隐藏」） -->
+    <ol v-if="showGuide" class="editor__guide">
+      <li v-for="step in steps" :key="step.id" :class="{ done: step.done }">
+        <span class="editor__guide-mark" aria-hidden="true">{{ step.done ? '✓' : '·' }}</span>
+        <button type="button" :disabled="store.busy" :title="step.hint" @click="step.run()">
+          {{ step.label }}
+        </button>
+        <span class="editor__guide-hint">{{ step.hint }}</span>
+      </li>
+    </ol>
   </section>
 </template>

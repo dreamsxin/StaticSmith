@@ -1514,6 +1514,36 @@ kbd {
   color: var(--fg-muted);
 }
 
+/* 首次上手的三步：每行「标记 + 动作按钮 + 说明」，三类元素靠字号与色彩区分（6.1） */
+.editor__guide {
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor__guide li {
+  display: flex;
+  gap: 0.375rem;
+  align-items: baseline;
+  margin-bottom: 0.625rem;
+}
+
+.editor__guide li.done button {
+  /* 做完的一步留在原地但不再抢视线，也不禁用：还想再做一次是合理的 */
+  opacity: 0.6;
+}
+
+.editor__guide-mark {
+  width: 1rem;
+  color: var(--success);
+  text-align: center;
+}
+
+.editor__guide-hint {
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+}
+
 .editor__area--dragging {
   outline: 2px dashed var(--accent);
   outline-offset: -4px;
