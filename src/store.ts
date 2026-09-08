@@ -78,6 +78,14 @@ interface State {
   busy: boolean
   /** 保存后自动增量生成，让服务器预览与产物跟着变 */
   autoBuild: boolean
+  /**
+   * 最近一次失败的消息。
+   *
+   * 失败一律弹通知（瞬时出口），这个字段只作为**留在界面上**的那一份，
+   * 目前唯一的渲染点是起始页的 `alert`（打不开站点时那句话必须留着，
+   * 通知飘走了用户就不知道为什么进不去）。主界面里需要用户处置的错误应就地显示在
+   * 出问题的那一块（设置页字段旁、发布面板内），不再做全局常驻错误条。
+   */
   error: string | null
   toasts: Toast[]
   /** 磁盘上被外部编辑器改动、界面尚未刷新的提示 */
@@ -149,8 +157,16 @@ function notify(kind: ToastKind, message: string) {
  *
  * 失败一律弹通知：之前只写进 `state.error`，而调用点常常不显示它，
  * 结果就是「点了没反应」——比报错更难排查。
+ *
+ * 忙态用**计数器**而不是布尔：`build`、`saveContent` 内部会嵌套调用好几次 `run`，
+ * 布尔标志在一次点击里 true/false 跳变数次——按钮闪烁，`disabled` 在整段操作
+ * 结束前就解除，用户能在中途二次点击。归零时才算真的做完，顺手把进度文字清空：
+ * 停在 `render 42/42` 上比不显示进度更糟，它看起来像「还在跑」。
  */
+let inflight = 0
+
 async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
+  inflight += 1
   state.busy = true
   state.error = null
   try {
@@ -161,7 +177,34 @@ async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
     notify('error', message)
     return undefined
   } finally {
-    state.busy = false
+    inflight -= 1
+    if (inflight === 0) {
+      state.busy = false
+      state.progress = ''
+    }
+  }
+}
+
+/**
+ * 把一整段复合动作圈成**一次**忙态。
+ *
+ * 「保存文章」实际是保存 → 重读摘要 → 重算 front matter → 刷预览 → 跑 SEO 体检五次
+ * 调用，它们是**顺序**而非嵌套的：只靠 `run` 里的计数器，每一步之间计数都会归零，
+ * 按钮照样闪。所以复合动作在入口处先占一格，中途任何一步归零都不算完。
+ *
+ * 新增复合动作时照这个套：只要函数体里出现两次以上 `run`/`await this.xxx`，就该包起来。
+ */
+async function busySpan<T>(body: () => Promise<T>): Promise<T> {
+  inflight += 1
+  state.busy = true
+  try {
+    return await body()
+  } finally {
+    inflight -= 1
+    if (inflight === 0) {
+      state.busy = false
+      state.progress = ''
+    }
   }
 }
 
@@ -186,8 +229,9 @@ export const actions = {
   },
 
   async openProject(path: string) {
-    const summary = await run(() => api.openProject(path))
-    if (summary) {
+    await busySpan(async () => {
+      const summary = await run(() => api.openProject(path))
+      if (!summary) return
       state.project = summary
       state.externalChange = false
       await this.recomputePlan()
@@ -195,7 +239,7 @@ export const actions = {
       await this.loadSections()
       await this.auditSeo()
       notify('success', `已打开 ${summary.config.site.title}`)
-    }
+    })
   },
 
   /** 刷新产物清单。标签页、分页页这些非内容页只在这里能看到。 */
@@ -292,20 +336,22 @@ export const actions = {
    * 跳过几篇、为什么」说清楚，让用户自己决定下一步。
    */
   async afterBatch(changed: number, skipped: api.BatchSkipped[], plan: BuildPlan) {
-    state.plan = plan
-    await this.refresh()
-    await this.loadSections()
-    if (state.seo) await this.auditSeo()
-    if (state.autoBuild && changed > 0) await this.build('incremental', { quiet: true })
+    await busySpan(async () => {
+      state.plan = plan
+      await this.refresh()
+      await this.loadSections()
+      if (state.seo) await this.auditSeo()
+      if (state.autoBuild && changed > 0) await this.build('incremental', { quiet: true })
 
-    if (skipped.length === 0) {
-      notify('success', `已处理 ${changed} 篇`)
-      return
-    }
-    // 只报第一条原因：十几条堆在提示里没人看，剩下的数量给出来就够了
-    const first = `${skipped[0].source}：${skipped[0].reason}`
-    const rest = skipped.length > 1 ? `，另有 ${skipped.length - 1} 篇被跳过` : ''
-    notify(changed > 0 ? 'info' : 'error', `已处理 ${changed} 篇；跳过 ${first}${rest}`)
+      if (skipped.length === 0) {
+        notify('success', `已处理 ${changed} 篇`)
+        return
+      }
+      // 只报第一条原因：十几条堆在提示里没人看，剩下的数量给出来就够了
+      const first = `${skipped[0].source}：${skipped[0].reason}`
+      const rest = skipped.length > 1 ? `，另有 ${skipped.length - 1} 篇被跳过` : ''
+      notify(changed > 0 ? 'info' : 'error', `已处理 ${changed} 篇；跳过 ${first}${rest}`)
+    })
   },
 
   /** 批量增删标签。 */
@@ -713,9 +759,10 @@ export const actions = {
 
   async saveContent() {
     if (!state.currentSource) return
-    const raw = state.currentRaw
-    const plan = await run(() => api.saveContent(state.currentSource!, raw))
-    if (plan) {
+    await busySpan(async () => {
+      const raw = state.currentRaw
+      const plan = await run(() => api.saveContent(state.currentSource!, raw))
+      if (!plan) return
       state.savedRaw = raw
       state.plan = plan
       await this.refresh()
@@ -724,7 +771,7 @@ export const actions = {
       await this.auditSeo()
       notify('success', `已保存，待生成 ${plan.pages.length} 个页面`)
       if (state.autoBuild) await this.build('incremental', { quiet: true })
-    }
+    })
   },
 
   async refreshPreview() {
@@ -769,15 +816,16 @@ export const actions = {
   /** 保存全局组件后拿到级联影响范围，界面据此提示「影响 N 个页面」。 */
   async saveTemplate() {
     if (!state.currentTemplate) return
-    const source = state.currentTemplateSource
-    const plan = await run(() => api.saveTemplate(state.currentTemplate!, source))
-    if (plan) {
+    await busySpan(async () => {
+      const source = state.currentTemplateSource
+      const plan = await run(() => api.saveTemplate(state.currentTemplate!, source))
+      if (!plan) return
       state.savedTemplateSource = source
       state.plan = plan
       await this.refresh()
       notify('success', `${state.currentTemplate} 已保存，影响 ${plan.pages.length} 个页面`)
       if (state.autoBuild) await this.build('incremental', { quiet: true })
-    }
+    })
   },
 
   async recomputePlan(mode: BuildMode = 'incremental') {
@@ -786,8 +834,9 @@ export const actions = {
   },
 
   async build(mode: BuildMode, options: { quiet?: boolean } = {}) {
-    const report = await run(() => api.runBuild(mode))
-    if (report) {
+    await busySpan(async () => {
+      const report = await run(() => api.runBuild(mode))
+      if (!report) return
       state.lastBuild = report
       await this.recomputePlan()
       await this.refresh()
@@ -802,8 +851,12 @@ export const actions = {
           `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
         )
       }
-      for (const warning of report.warnings) notify('info', warning)
-    }
+      // 警告合并成一条：逐条弹的话，一次生成能把通知区刷满一屏（违 6.8）
+      if (report.warnings.length === 1) notify('info', report.warnings[0])
+      else if (report.warnings.length > 1) {
+        notify('info', `${report.warnings.length} 条生成警告：${report.warnings[0]} 等`)
+      }
+    })
   },
 
   /**
@@ -844,10 +897,6 @@ export const actions = {
       state.lastDeploy = report
       notify('success', `发布完成：上传 ${report.uploaded.length} 个文件`)
     }
-  },
-
-  dismissError() {
-    state.error = null
   },
 }
 

@@ -81,10 +81,12 @@ function onKeydown(event: KeyboardEvent) {
   if (!store.project || !(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
 
-  // Ctrl+P 而不是 Ctrl+K：后者在编辑器里是「插入链接」，抢走会更糟
+  // Ctrl+P 而不是 Ctrl+K：后者在编辑器里是「插入链接」，抢走会更糟。
+  // 语义是「打开并聚焦」而不是开关：标识行的按钮、视图菜单也都是打开，
+  // 三处一致；关闭统一用 Esc。开关式会让「面板已开着时点按钮没反应」看起来像按钮坏了。
   if (key === 'p') {
     event.preventDefault()
-    ui.paletteOpen = !ui.paletteOpen
+    ui.paletteOpen = true
     return
   }
   if (key === 'enter') {
