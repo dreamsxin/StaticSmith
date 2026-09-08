@@ -37,7 +37,7 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `read_template`：读模板源码
 - `build_plan`：待生成范围与级联影响，**改模板前先看它**
 - `audit_seo`：SEO 体检清单，可按 `severity`（error/warn/hint）或 `source` 过滤。
-  与桌面端「SEO」标签页同源，见 [SEO 与内容运营](seo.md)
+  与桌面端「体检」标签页同源，见 [SEO 与内容运营](seo.md)
 - `audit_media`：媒体资源体检（没人引用的文件 / 引用了却不存在的地址）。
   删文件不开给 Agent，只能人在界面里确认
 - `audit_links`：站内死链体检。读产物，所以先 `build_site`；站外链接只计数，不发网络请求

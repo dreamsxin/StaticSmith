@@ -345,9 +345,38 @@ h3 {
   display: flex;
   flex: none;
   gap: 0.2rem;
+  align-items: center;
   padding: 0 0.6rem;
   border-bottom: 1px solid var(--border);
 }
+
+/* 组名是「这几个标签算一伙」的唯一线索，做小做淡，不跟标签抢注意力 */
+.app__tabs-group {
+  padding: 0 0.2rem 0 0.4rem;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.app__tabs-sep {
+  width: 1px;
+  height: 1.1rem;
+  margin: 0 0.3rem;
+  background: var(--border);
+}
+
+/* 当前页一句话说明：标签只有两个字，用途与关系放这里 */
+.app__hint {
+  flex: none;
+  margin: 0;
+  padding: 0.3rem 0.8rem;
+  color: var(--fg-muted);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
 
 .app__tab {
   padding: 0.4rem 0.7rem;
@@ -1509,6 +1538,38 @@ kbd {
   gap: 0.4rem;
   align-items: center;
 }
+
+/* 设置页的分段导航：一次只显示一段，别让人在长表单里滚着找 */
+.settings__nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.settings__nav-item {
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.settings__nav-item.active {
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.settings__nav-hint {
+  margin: -0.4rem 0 0;
+}
+
+/* 保存按钮跟着分段一起显示：保存的是整份配置，不是当前这一段 */
+.settings__save {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+}
+
 
 /* 一个分类维度一组字段，用卡片圈起来才看得出是「一条」 */
 .settings__row {

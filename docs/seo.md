@@ -45,7 +45,7 @@ Twitter Card、订阅源声明。`site.base_url` 为空时**跳过所有绝对�
 
 ## 体检
 
-桌面端的「SEO」标签页、MCP 的 `audit_seo` 用的是同一份规则
+桌面端的「体检」标签页、MCP 的 `audit_seo` 用的是同一份规则
 （`crates/staticsmith-core/src/seo.rs`）。草稿不参与——它们不会发布。
 
 规则与阈值：

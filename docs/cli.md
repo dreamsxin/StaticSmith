@@ -43,7 +43,7 @@ staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
 并把滚动位置带回来。注入只发生在**响应**里，`dist/` 下的文件一个字节都不会改——
 发布出去的站点没有这段代码。
 
-`audit` 与桌面端「SEO」标签页、MCP 的 `audit_*` 用同一份规则，不会出现「本地干净、CI 报错」：
+`audit` 与桌面端「体检」标签页、MCP 的 `audit_*` 用同一份规则，不会出现「本地干净、CI 报错」：
 
 - 三个开关都不给就全跑；死链体检读产物，所以 CI 里通常写 `staticsmith audit --build`
 - `--fail-on` 默认 `error`：只有必须修的问题（含死链与破图）才让 CI 变红。

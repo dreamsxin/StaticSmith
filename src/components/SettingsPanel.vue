@@ -1,13 +1,15 @@
 <script setup lang="ts">
 /**
- * 站点设置：编辑 staticsmith.toml 的可视化表单，外加两件一次性的搬运动作
- * （从别的站点导入内容、主题包的打包与装入）。
+ * 站点设置：`staticsmith.toml` 的可视化表单，外加一次性的内容导入。
+ *
+ * 按段显示（站点 / 构建 / 媒体 / 分类 / 导航 / 发布 / 导入），一次只看一段——
+ * 之前是一张长表单，找一项要滚半屏。主题包不在这里，它换的是模板与主题资源，
+ * 归「外观」页。
  */
 import { computed, reactive, ref, watch } from 'vue'
-// save 这个名字已经被「保存设置」占了，对话框改叫 saveDialog
-import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
+import { open } from '@tauri-apps/plugin-dialog'
 
-import type { ImportCandidate, SiteConfig, ThemePreview } from '../api'
+import type { ImportCandidate, SiteConfig } from '../api'
 import { actions, store } from '../store'
 
 /** 表单持有一份可变副本，保存时才写回磁盘。 */
@@ -55,58 +57,30 @@ async function runImport() {
   await scanImport()
 }
 
-// ---------------------------------------------------------------- 主题包
-
 /**
- * 主题包。
+ * 设置页分段显示。
  *
- * 与命令行 `staticsmith theme export` / `import` 同一套逻辑，界面同样「先扫后装」：
- * 装一次会重写十几个模板，看清哪些是覆盖再落盘。包里只有外观，
- * `content/` 与 `static/` 不进包也不会被写。
+ * 之前是一张长表单从站点信息一路滚到分类与导航，找一项要滚半屏，也看不出
+ * 哪些字段是一伙的。现在按「一个问题一段」切开，一次只显示一段。
  */
-const themeMeta = reactive({ name: '', version: '', author: '', description: '' })
-const themeArchive = ref('')
-const themePreview = ref<ThemePreview | null>(null)
-const themeOverwrite = ref(false)
+type Section = 'site' | 'build' | 'assets' | 'taxonomy' | 'menu' | 'deploy' | 'import'
 
-/** 装入会写的文件数：不覆盖时排掉冲突的那些。 */
-const themeWillWrite = computed(() => {
-  const preview = themePreview.value
-  if (!preview) return 0
-  return themeOverwrite.value ? preview.files.length : preview.files.length - preview.conflicts.length
-})
+const sections: Array<{ id: Section; label: string; hint: string }> = [
+  { id: 'site', label: '站点信息', hint: '标题、描述、地址、语言——模板里的 site.* 就是这些' },
+  { id: 'build', label: '构建', hint: '目录、分页、压缩、sitemap / 订阅、定时发布' },
+  { id: 'assets', label: '媒体', hint: '编辑器插入的图片存哪、怎么命名、地址前缀' },
+  { id: 'taxonomy', label: '分类维度', hint: '标签、分类……每个维度生成一套总览页与词条页' },
+  { id: 'menu', label: '导航菜单', hint: '头部导航的顺序与地址，加栏目改这里就够了' },
+  { id: 'deploy', label: '发布', hint: '发布方式与目标；密码只存变量名，不写进配置文件' },
+  { id: 'import', label: '导入内容', hint: '一次性动作：把 Hugo / Jekyll 的内容搬进来' },
+]
 
-async function exportTheme() {
-  const name = themeMeta.name.trim() || form.site.title.trim()
-  const target = await saveDialog({
-    defaultPath: `${name || 'theme'}.zip`,
-    filters: [{ name: '主题包', extensions: ['zip'] }],
-  })
-  if (!target) return
-  await actions.exportTheme(target, {
-    name,
-    version: themeMeta.version.trim(),
-    author: themeMeta.author.trim(),
-    description: themeMeta.description.trim(),
-  })
-}
+const section = ref<Section>('site')
 
-async function pickTheme() {
-  const selected = await open({
-    multiple: false,
-    filters: [{ name: '主题包', extensions: ['zip'] }],
-  })
-  if (typeof selected !== 'string') return
-  themeArchive.value = selected
-  themePreview.value = (await actions.scanTheme(selected)) ?? null
-}
+const sectionHint = computed(
+  () => sections.find((item) => item.id === section.value)?.hint ?? '',
+)
 
-async function runThemeImport() {
-  const report = await actions.importTheme(themeArchive.value, themeOverwrite.value)
-  if (!report) return
-  // 装完重扫：刚写进去的文件会变成「会覆盖」，剩下没装的一眼可见
-  themePreview.value = (await actions.scanTheme(themeArchive.value)) ?? null
-}
 
 
 
@@ -279,13 +253,33 @@ function onDeployKindChange() {
 
 <template>
   <section class="settings">
-    <div class="settings__panel">
-      <h3>站点</h3>
+    <nav class="settings__nav" aria-label="设置分段">
+      <button
+        v-for="item in sections"
+        :key="item.id"
+        type="button"
+        class="settings__nav-item"
+        :class="{ active: section === item.id }"
+        :title="item.hint"
+        @click="section = item.id"
+      >
+        {{ item.label }}
+      </button>
+    </nav>
+    <p class="build__muted settings__nav-hint">{{ sectionHint }}</p>
+
+    <div v-if="section === 'site'" class="settings__panel">
+      <h3>站点信息</h3>
       <label>标题<input v-model="form.site.title" type="text" /></label>
       <label>描述<input v-model="form.site.description" type="text" /></label>
       <label>站点地址<input v-model="form.site.base_url" type="text" /></label>
       <label>语言<input v-model="form.site.language" type="text" /></label>
+      <p class="build__muted">
+        这四项在模板里是 <code>site.title</code> 等；站点地址还决定 sitemap 与订阅能不能生成。
+      </p>
+    </div>
 
+    <div v-if="section === 'build'" class="settings__panel">
       <h3>构建</h3>
       <label>内容目录<input v-model="form.build.content_dir" type="text" /></label>
       <label>模板目录<input v-model="form.build.template_dir" type="text" /></label>
@@ -319,7 +313,9 @@ function onDeployKindChange() {
       <p v-if="!form.site.base_url.trim()" class="build__muted">
         站点地址为空时会跳过 sitemap 与订阅——它们需要绝对地址。
       </p>
+    </div>
 
+    <div v-if="section === 'assets'" class="settings__panel">
       <h3>媒体资源</h3>
       <label>
         存放子目录（相对静态资源目录）
@@ -346,7 +342,9 @@ function onDeployKindChange() {
         用哈希前两位分片存放
       </label>
       <p class="build__muted">当前资源地址前缀：<code>{{ assetUrlPrefix }}</code></p>
+    </div>
 
+    <div v-if="section === 'taxonomy'" class="settings__panel">
       <h3>分类维度</h3>
       <p class="build__muted">
         每个维度读一个 front matter 字段，生成总览页与词条页（分页沿用「每页条数」）。
@@ -374,11 +372,13 @@ function onDeployKindChange() {
       <div class="build__actions">
         <button type="button" @click="addTaxonomy">添加维度</button>
       </div>
+    </div>
 
+    <div v-if="section === 'menu'" class="settings__panel">
       <h3>导航菜单</h3>
       <p class="build__muted">
-        头部导航按这里的顺序渲染，加栏目不用改模板。分类维度（上面那些）由模板自己列出，
-        不必在这里重复登记。站内地址要以 <code>/</code> 开头。
+        头部导航按这里的顺序渲染，加栏目不用改模板。分类维度（在「分类维度」那段配）由模板
+        自己列出，不必在这里重复登记。站内地址要以 <code>/</code> 开头。
       </p>
 
       <div v-for="(item, index) in form.menu" :key="index" class="settings__row">
@@ -413,8 +413,7 @@ function onDeployKindChange() {
       </div>
     </div>
 
-
-    <div class="settings__panel">
+    <div v-if="section === 'deploy'" class="settings__panel">
       <h3>发布</h3>
       <label>
         方式
@@ -453,11 +452,9 @@ function onDeployKindChange() {
       <p class="build__muted">
         密码与 Token 不会写入配置文件，请在「发布」页保存到系统凭据管理器。
       </p>
-
-      <button type="button" :disabled="store.busy" @click="save">保存设置</button>
     </div>
 
-    <div class="build__panel">
+    <div v-if="section === 'import'" class="build__panel">
       <h3>从别的站点导入内容</h3>
       <p class="build__muted">
         递归找 <code>.md</code> / <code>.markdown</code>，把 Hugo / Jekyll 的 YAML front matter
@@ -520,83 +517,11 @@ function onDeployKindChange() {
       </template>
     </div>
 
-    <div class="build__panel">
-      <h3>主题包</h3>
-      <p class="build__muted">
-        把外观（<code>templates/</code> 与主题静态资源）打成一个 zip，或装一个别人做好的。
-        <strong>包里不含 content/ 与 static/</strong>——文章与上传的图片是站点的，不是主题的。
-      </p>
-
-      <div class="settings__import-row">
-        <input
-          v-model="themeMeta.name"
-          type="text"
-          :placeholder="form.site.title || '主题名'"
-          aria-label="主题名"
-        />
-        <input v-model="themeMeta.version" type="text" placeholder="版本，如 1.0.0" aria-label="版本" />
-      </div>
-      <div class="settings__import-row">
-        <input v-model="themeMeta.author" type="text" placeholder="作者" aria-label="作者" />
-        <input v-model="themeMeta.description" type="text" placeholder="一句话说明" aria-label="说明" />
-      </div>
-      <button type="button" :disabled="store.busy" @click="exportTheme">打包当前外观…</button>
-
-      <p class="build__muted">装主题包：先看清单，再决定要不要覆盖自己改过的模板。</p>
-      <div class="settings__import-row">
-        <input v-model="themeArchive" type="text" placeholder="主题包 zip" aria-label="主题包" readonly />
-        <button type="button" :disabled="store.busy" @click="pickTheme">选择主题包…</button>
-      </div>
-
-      <template v-if="themePreview">
-        <p class="build__muted">
-          {{ themePreview.manifest.name }}
-          <template v-if="themePreview.manifest.version">
-            {{ themePreview.manifest.version }}
-          </template>
-          <template v-if="themePreview.manifest.author">
-            · {{ themePreview.manifest.author }}
-          </template>
-          ：{{ themePreview.files.length }} 个文件，其中
-          {{ themePreview.conflicts.length }} 个会覆盖现有文件。
-        </p>
-        <p v-if="themePreview.manifest.description" class="build__muted">
-          {{ themePreview.manifest.description }}
-        </p>
-        <ul class="settings__import-list">
-          <li
-            v-for="file in themePreview.files"
-            :key="file"
-            :class="{ skip: !themeOverwrite && themePreview.conflicts.includes(file) }"
-          >
-            <code>{{ file }}</code>
-            <span v-if="themePreview.conflicts.includes(file)" class="badge badge--seo-warn">
-              已存在
-            </span>
-          </li>
-          <li v-for="row in themePreview.rejected" :key="row.entry" class="skip">
-            <code>{{ row.entry }}</code>
-            <span class="badge badge--seo-warn">已拒绝</span>
-            <span class="build__muted">{{ row.reason }}</span>
-          </li>
-        </ul>
-        <label class="settings__checkbox">
-          <input v-model="themeOverwrite" type="checkbox" />
-          覆盖已存在的文件（自己改过的模板会被替换）
-        </label>
-        <div class="settings__import-row">
-          <button
-            type="button"
-            class="btn--primary"
-            :disabled="store.busy || themeWillWrite === 0"
-            @click="runThemeImport"
-          >
-            装入 {{ themeWillWrite }} 个文件
-          </button>
-          <button type="button" @click="themePreview = null">收起</button>
-        </div>
-        <p class="build__muted">装完记得整站重新生成：换外观等于所有页面的模板都变了。</p>
-      </template>
+    <div v-if="section !== 'import'" class="settings__save">
+      <button type="button" class="btn--primary" :disabled="store.busy" @click="save">
+        保存设置
+      </button>
+      <span class="build__muted">保存的是整份 staticsmith.toml，不只当前这一段。</span>
     </div>
   </section>
 </template>

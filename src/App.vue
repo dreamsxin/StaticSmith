@@ -17,20 +17,61 @@ import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, store } from './store'
 
-type Tab = 'content' | 'layouts' | 'calendar' | 'build' | 'seo' | 'deploy' | 'settings'
+type Tab = 'content' | 'calendar' | 'layouts' | 'audit' | 'build' | 'deploy' | 'settings'
 
 const tab = ref<Tab>('content')
 const paletteOpen = ref(false)
 
-const tabs: Array<{ id: Tab; label: string }> = [
-  { id: 'content', label: '内容' },
-  { id: 'layouts', label: '布局管理器' },
-  { id: 'calendar', label: '日历' },
-  { id: 'build', label: '生成' },
-  { id: 'seo', label: 'SEO' },
-  { id: 'deploy', label: '发布' },
-  { id: 'settings', label: '设置' },
+/**
+ * 标签页按「一件事的先后」分四组，而不是平铺七个名词。
+ *
+ * 之前是一排看不出关系的标签（内容 / 布局管理器 / 日历 / 生成 / SEO / 发布 / 设置），
+ * 新用户既不知道从哪开始，也不知道「生成」和「发布」是什么关系。现在分组读出来
+ * 就是流程：**写什么 → 长什么样 → 上线前检查 → 送出去**，设置单独一组（一次性设定）。
+ * 每组给一句话说明，选中哪个标签就显示对应那句，不必猜。
+ */
+const groups: Array<{ label: string; tabs: Array<{ id: Tab; label: string; hint: string }> }> = [
+  {
+    label: '写',
+    tabs: [
+      { id: 'content', label: '内容', hint: '写文章、管栏目：左边找、中间写、右边看最终效果' },
+      { id: 'calendar', label: '日历', hint: '发布节奏：这个月发了几篇、下周排了什么、哪些还没写日期' },
+    ],
+  },
+  {
+    label: '外观',
+    tabs: [
+      {
+        id: 'layouts',
+        label: '外观',
+        hint: '布局与组件的继承关系、改一处影响哪些页面；主题包的打包与装入也在这里',
+      },
+    ],
+  },
+  {
+    label: '上线',
+    tabs: [
+      { id: 'audit', label: '体检', hint: 'SEO 字段、站内死链、媒体资源——上线前该修的都在这一页' },
+      { id: 'build', label: '生成', hint: '把内容与模板渲染成 dist/ 里的静态文件（Ctrl+Enter 也可）' },
+      { id: 'deploy', label: '发布', hint: '把 dist/ 送到 Git 或 FTP/SFTP；凭据存系统凭据管理器' },
+    ],
+  },
+  {
+    label: '站点',
+    tabs: [
+      {
+        id: 'settings',
+        label: '设置',
+        hint: 'staticsmith.toml 的可视化表单：站点信息、构建、媒体、分类、导航、发布，以及一次性的内容导入',
+      },
+    ],
+  },
 ]
+
+const allTabs = computed(() => groups.flatMap((group) => group.tabs))
+
+/** 当前页的一句话说明：标签只有两个字，关系与用途放在这里说清。 */
+const hint = computed(() => allTabs.value.find((item) => item.id === tab.value)?.hint ?? '')
 
 const { listWidth, previewWidth, startDrag } = useSplit({
   key: 'staticsmith.split',
@@ -103,18 +144,25 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <button type="button" @click="actions.closeProject()">关闭项目</button>
     </header>
 
-    <nav class="app__tabs">
-      <button
-        v-for="item in tabs"
-        :key="item.id"
-        type="button"
-        class="app__tab"
-        :class="{ active: tab === item.id }"
-        @click="tab = item.id"
-      >
-        {{ item.label }}
-      </button>
+    <nav class="app__tabs" aria-label="工作区">
+      <template v-for="(group, index) in groups" :key="group.label">
+        <span v-if="index > 0" class="app__tabs-sep" aria-hidden="true" />
+        <span class="app__tabs-group">{{ group.label }}</span>
+        <button
+          v-for="item in group.tabs"
+          :key="item.id"
+          type="button"
+          class="app__tab"
+          :class="{ active: tab === item.id }"
+          :title="item.hint"
+          @click="tab = item.id"
+        >
+          {{ item.label }}
+        </button>
+      </template>
     </nav>
+
+    <p class="app__hint">{{ hint }}</p>
 
 
     <p v-if="store.externalChange" class="app__banner">
@@ -133,7 +181,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       <LayoutManager v-else-if="tab === 'layouts'" />
       <CalendarPanel v-else-if="tab === 'calendar'" @open="tab = 'content'" />
       <BuildPanel v-else-if="tab === 'build'" @preview="tab = 'content'" />
-      <SeoPanel v-else-if="tab === 'seo'" @open="tab = 'content'" />
+      <SeoPanel v-else-if="tab === 'audit'" @open="tab = 'content'" />
       <DeployPanel v-else-if="tab === 'deploy'" />
       <SettingsPanel v-else />
     </main>
