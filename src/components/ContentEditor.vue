@@ -245,12 +245,16 @@ const wordCount = computed(() => {
   return cjk + words
 })
 
+/**
+ * 编辑器内的快捷键：只留依赖选区的那几个。
+ *
+ * Ctrl+S 不在这里——它挂在 App 的全局监听上，焦点落在属性面板的输入框里也要能存。
+ * 两处都写会保存两次（textarea 的事件会继续冒泡到 window）。
+ */
 function onKeydown(event: KeyboardEvent) {
-
   if (!(event.ctrlKey || event.metaKey)) return
   const key = event.key.toLowerCase()
   const handlers: Record<string, () => void> = {
-    s: () => void actions.saveContent(),
     b: editorCommands.bold,
     i: editorCommands.italic,
     k: editorCommands.link,

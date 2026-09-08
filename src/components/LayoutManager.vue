@@ -11,7 +11,7 @@ import { open, save as saveDialog } from '@tauri-apps/plugin-dialog'
 
 import { templateTree } from '../api'
 import type { TemplateInfo, TemplateNode, ThemePreview } from '../api'
-import { actions, store } from '../store'
+import { actions, isTemplateDirty, store } from '../store'
 import { highlight } from '../template-highlight'
 
 const tree = ref<TemplateNode | null>(null)
@@ -234,7 +234,10 @@ async function runThemeImport() {
 
 
     <div class="layouts__column layouts__column--wide">
-      <h3>{{ store.currentTemplate ?? '模板源码' }}</h3>
+      <h3>
+        {{ store.currentTemplate ?? '模板源码' }}
+        <span v-if="isTemplateDirty" class="editor__dirty" title="有未保存改动">●</span>
+      </h3>
       <template v-if="store.currentTemplate">
         <div class="editor__code layouts__code">
           <pre ref="mirror" class="editor__mirror" aria-hidden="true"><code v-html="highlighted" /></pre>
@@ -249,8 +252,12 @@ async function runThemeImport() {
           />
         </div>
         <div class="layouts__actions">
-          <button type="button" :disabled="store.busy" @click="actions.saveTemplate()">
-            保存组件
+          <button
+            type="button"
+            :disabled="store.busy || !isTemplateDirty"
+            @click="actions.saveTemplate()"
+          >
+            保存组件 <kbd>Ctrl+S</kbd>
           </button>
           <span v-if="store.plan" class="layouts__impact">
             检测到全局组件变更，影响 {{ store.plan.pages.length }} 个页面

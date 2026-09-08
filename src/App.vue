@@ -8,6 +8,7 @@
  */
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 
+import { focusSearch, saveCurrent } from './commands'
 import AppMenu from './components/AppMenu.vue'
 import BuildPanel from './components/BuildPanel.vue'
 import CalendarPanel from './components/CalendarPanel.vue'
@@ -23,7 +24,7 @@ import SettingsPanel from './components/SettingsPanel.vue'
 import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
-import { actions, isDirty, store } from './store'
+import { actions, isDirty, isTemplateDirty, store } from './store'
 import { applyResponsive, tabGroups, tabHint, ui } from './ui'
 
 const { listWidth, previewWidth, startDrag } = useSplit({
@@ -34,6 +35,23 @@ const { listWidth, previewWidth, startDrag } = useSplit({
 
 /** 当前页的一句话说明：标签只有两个字，关系与用途放在这里说清。 */
 const hint = computed(() => tabHint(ui.tab))
+
+/**
+ * 标识行的「正在编辑」：显示 Ctrl+S 这一下会存谁。
+ *
+ * 外观页看着模板时是模板，其余情况是文章——与 `saveTarget()` 的分派同一条判断，
+ * 否则会出现「上面写着正在编辑文章、按下去存了模板」。
+ */
+const editing = computed(() => {
+  if (ui.tab === 'layouts' && store.currentTemplate) {
+    return { name: store.currentTemplate, dirty: isTemplateDirty.value }
+  }
+  if (store.currentSource) return { name: store.currentSource, dirty: isDirty.value }
+  return null
+})
+
+/** 状态栏的「未保存」取并集：文章与模板可以同时挂着改动，藏掉任何一个都是说谎。 */
+const anyDirty = computed(() => isDirty.value || isTemplateDirty.value)
 
 /**
  * 内容页是三栏可调，其余面板占满整行。
@@ -54,8 +72,10 @@ const bodyStyle = computed(() => {
 /**
  * 全局快捷键。
  *
- * 编辑器内部的 Ctrl+S / Ctrl+B 由 textarea 自己处理（要操作选区），
- * 这里只管跟焦点无关的动作，并兜住焦点不在编辑器时的保存。
+ * 全部挂在 window 上，而不是分散在各组件里：Ctrl+F 以前挂在列表栏组件上，
+ * 停在别的标签页或把列表栏收起来时就按不出反应；Ctrl+S 以前只在 textarea 里生效，
+ * 焦点落在属性面板的输入框上就存不了。快捷键的落点统一走 `commands.ts` 里的
+ * `saveCurrent` / `focusSearch`，与菜单项、工具条按钮同一份判断。
  */
 function onKeydown(event: KeyboardEvent) {
   if (!store.project || !(event.ctrlKey || event.metaKey)) return
@@ -72,9 +92,15 @@ function onKeydown(event: KeyboardEvent) {
     void actions.build(event.shiftKey ? 'full' : 'incremental')
     return
   }
-  if (key === 's' && !isDirty.value) {
-    // 没有改动时按 Ctrl+S 也不该触发浏览器的保存页面
+  if (key === 's') {
+    // 没有改动时也吞掉：否则 WebView 会弹「保存网页」
     event.preventDefault()
+    void saveCurrent()
+    return
+  }
+  if (key === 'f') {
+    event.preventDefault()
+    focusSearch()
   }
 }
 
@@ -106,11 +132,11 @@ onBeforeUnmount(() => {
         <strong class="app__title">{{ store.project.config.site.title }}</strong>
         <code class="app__root" :title="store.project.root">{{ store.project.root }}</code>
       </div>
-      <!-- 正在编辑哪篇要一直看得见：切到别的标签页后编辑器不在，光看状态栏的「● 未保存」
+      <!-- 正在编辑哪一份要一直看得见：切到别的标签页后编辑器不在，光看状态栏的「● 未保存」
            不知道是谁没保存 -->
-      <span v-if="store.currentSource" class="app__editing" :title="store.currentSource">
-        正在编辑 <code>{{ store.currentSource }}</code>
-        <span v-if="isDirty" class="app__status-dirty">●</span>
+      <span v-if="editing" class="app__editing" :title="editing.name">
+        正在编辑 <code>{{ editing.name }}</code>
+        <span v-if="editing.dirty" class="app__status-dirty">●</span>
       </span>
       <span class="app__spacer" />
       <button type="button" @click="ui.paletteOpen = true">命令面板 <kbd>Ctrl+P</kbd></button>
@@ -194,7 +220,7 @@ onBeforeUnmount(() => {
       <span v-if="store.plan" class="app__status-plan">
         待生成 {{ store.plan.pages.length }} / {{ store.plan.total_pages }}
       </span>
-      <span v-if="isDirty" class="app__status-dirty">● 未保存</span>
+      <span v-if="anyDirty" class="app__status-dirty">● 未保存</span>
       <span class="app__spacer" />
       <span v-if="store.previewServer">预览 {{ store.previewServer }}</span>
     </footer>

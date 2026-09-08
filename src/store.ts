@@ -52,6 +52,8 @@ interface State {
   /** 当前编辑的模板名 */
   currentTemplate: string | null
   currentTemplateSource: string
+  /** 打开或上次保存时的模板源码快照，用来判断模板是否有未保存改动 */
+  savedTemplateSource: string
   previewHtml: string
   /** 本地预览服务器地址，未启动时为 null */
   previewServer: string | null
@@ -94,6 +96,7 @@ const state = reactive<State>({
   pendingPage: null,
   currentTemplate: null,
   currentTemplateSource: '',
+  savedTemplateSource: '',
   previewHtml: '',
   previewServer: null,
   previewTarget: null,
@@ -117,6 +120,16 @@ const state = reactive<State>({
 /** 编辑器里有未保存改动。切换文章、关闭项目前据此拦一道。 */
 export const isDirty = computed(
   () => state.currentSource !== null && state.currentRaw !== state.savedRaw,
+)
+
+/**
+ * 模板源码有未保存改动。
+ *
+ * 与文章分开一个判断，因为两者可以同时处于「打开」状态：外观页改模板时，
+ * 内容页可能还有一篇没保存的文章。保存命令按当前在看哪一个来分派。
+ */
+export const isTemplateDirty = computed(
+  () => state.currentTemplate !== null && state.currentTemplateSource !== state.savedTemplateSource,
 )
 
 let toastId = 0
@@ -444,6 +457,9 @@ export const actions = {
     state.savedRaw = ''
     state.frontMatter = null
     state.pendingPage = null
+    state.currentTemplate = null
+    state.currentTemplateSource = ''
+    state.savedTemplateSource = ''
     state.previewHtml = ''
     // 预览服务器随会话在 Rust 侧一起停止，这里只清界面状态。
     state.previewServer = null
@@ -742,6 +758,7 @@ export const actions = {
     if (source !== undefined) {
       state.currentTemplate = template.name
       state.currentTemplateSource = source
+      state.savedTemplateSource = source
     }
   },
 
@@ -752,10 +769,10 @@ export const actions = {
   /** 保存全局组件后拿到级联影响范围，界面据此提示「影响 N 个页面」。 */
   async saveTemplate() {
     if (!state.currentTemplate) return
-    const plan = await run(() =>
-      api.saveTemplate(state.currentTemplate!, state.currentTemplateSource),
-    )
+    const source = state.currentTemplateSource
+    const plan = await run(() => api.saveTemplate(state.currentTemplate!, source))
     if (plan) {
+      state.savedTemplateSource = source
       state.plan = plan
       await this.refresh()
       notify('success', `${state.currentTemplate} 已保存，影响 ${plan.pages.length} 个页面`)

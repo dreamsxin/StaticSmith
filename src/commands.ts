@@ -12,7 +12,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 import { reactive } from 'vue'
 
 import { isProject } from './api'
-import { actions, isDirty, store } from './store'
+import { actions, isDirty, isTemplateDirty, store } from './store'
 import { goTo, ui } from './ui'
 
 export interface Command {
@@ -107,6 +107,65 @@ function noEditor(): boolean {
 }
 
 /**
+ * 「保存」作用于**当前正在编辑的东西**。
+ *
+ * 外观页看着一个模板时是模板，其余情况是文章——这是 Word/WPS 那条预期：
+ * Ctrl+S 永远保存眼前这份，不需要先想清楚「我按的是哪个保存」。
+ *
+ * 菜单项、Ctrl+S、编辑器工具条按钮都从这里取，三处各写一遍必然出现
+ * 「按钮灰着但快捷键能存」这类分裂。
+ */
+export function saveTarget(): { label: string; disabled: boolean; run: () => Promise<void> } {
+  if (ui.tab === 'layouts' && store.currentTemplate) {
+    return {
+      label: '保存当前模板',
+      disabled: !isTemplateDirty.value || store.busy,
+      run: () => actions.saveTemplate(),
+    }
+  }
+  return {
+    label: '保存当前文章',
+    disabled: !isDirty.value || store.busy,
+    run: () => actions.saveContent(),
+  }
+}
+
+/** Ctrl+S 的落点。置灰时什么也不做，但按键仍被吞掉（不能让 WebView 弹「保存网页」）。 */
+export async function saveCurrent() {
+  const target = saveTarget()
+  if (target.disabled) return
+  await target.run()
+}
+
+/**
+ * 定位到内容搜索框。
+ *
+ * 先把人送到能搜的地方再聚焦：以前 Ctrl+F 的监听挂在列表栏组件里，
+ * 停在「体检」页或把列表栏收起来时按下去毫无反应——一个快捷键在一半界面里失效，
+ * 用户学到的是「这个键不好用」，不是「这个键有前提」。
+ */
+export function focusSearch() {
+  goTo('content')
+  if (!ui.showList) {
+    // 手动打开就跟着关掉自动收放，否则下一次窗口变化又把它收回去
+    ui.listOverride = true
+    ui.showList = true
+  }
+  ui.requestFocusSearch = true
+}
+
+/**
+ * 重新读取磁盘并报一声。
+ *
+ * 通知只能加在这一层：`actions.refresh()` 被保存、批量、导入、生成等多条路径复用，
+ * 加进去的话每次保存都要弹一条「已重新读取」。
+ */
+async function refreshFromDisk() {
+  await actions.refresh()
+  actions.notify('success', '已重新读取磁盘上的内容与模板')
+}
+
+/**
  * 当前可用的菜单。
  *
  * 每次读取都重算：禁用态、勾选态、最近站点列表都依赖当前状态，缓存只会让菜单
@@ -114,6 +173,7 @@ function noEditor(): boolean {
  */
 export function menus(): Menu[] {
   const recent = store.recent.slice(0, 5)
+  const save = saveTarget()
   return [
     {
       label: '站点',
@@ -130,10 +190,10 @@ export function menus(): Menu[] {
         { separator: true },
         {
           id: 'content.save',
-          label: '保存当前文章',
+          label: save.label,
           hint: 'Ctrl+S',
-          disabled: !isDirty.value,
-          run: () => actions.saveContent(),
+          disabled: save.disabled,
+          run: saveCurrent,
         },
         { separator: true },
         {
@@ -170,10 +230,7 @@ export function menus(): Menu[] {
           id: 'edit.find',
           label: '查找内容',
           hint: 'Ctrl+F',
-          run: () => {
-            goTo('content')
-            ui.requestFocusSearch = true
-          },
+          run: focusSearch,
         },
         {
           id: 'edit.new',
@@ -309,7 +366,7 @@ export function menus(): Menu[] {
         {
           id: 'project.refresh',
           label: '重新读取磁盘上的内容与模板',
-          run: () => actions.refresh(),
+          run: refreshFromDisk,
         },
       ],
     },

@@ -6,7 +6,7 @@
  * 标题行说明这一栏是内容并给出新建入口，搜索行只负责过滤，剩下才是列表。
  * 之前搜索框与「＋」并排且没有任何标识，很容易被当成「新建内容的名称输入框」。
  */
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 
 import { openContextMenu, type MenuEntry } from '../commands'
 import { actions, isDirty, store } from '../store'
@@ -145,17 +145,9 @@ const sitePages = computed(() =>
 
 // ---------------------------------------------------------------- 搜索
 
-/** Ctrl/Cmd+F 聚焦搜索框，Esc 清空——两者都是列表界面的通用预期。 */
-function onKeydown(event: KeyboardEvent) {
-  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
-    event.preventDefault()
-    searchBox.value?.focus()
-    searchBox.value?.select()
-  }
-}
-
-onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+// Ctrl+F 的监听在 App 那一层（`commands.ts` 的 `focusSearch`）：挂在这里的话，
+// 停在别的标签页、或把列表栏收起来时按下去就没有反应。
+// 这里只负责被叫到时聚焦，见下面 `ui.requestFocusSearch` 的 watch。
 
 // ---------------------------------------------------------------- 新建
 
@@ -205,7 +197,11 @@ watch(
   (asked) => {
     if (!asked) return
     ui.requestFocusSearch = false
-    requestAnimationFrame(() => searchBox.value?.focus())
+    requestAnimationFrame(() => {
+      searchBox.value?.focus()
+      // 选中已有关键词：再按一次 Ctrl+F 通常是想换个词搜，而不是接着上次的往后打
+      searchBox.value?.select()
+    })
   },
   { immediate: true },
 )
