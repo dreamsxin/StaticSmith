@@ -12,7 +12,7 @@ import { open } from '@tauri-apps/plugin-dialog'
 
 import { isProject } from './api'
 import { actions, isDirty, store } from './store'
-import { goTo, ui, type Tab } from './ui'
+import { goTo, ui } from './ui'
 
 export interface Command {
   id: string
@@ -120,6 +120,12 @@ export function menus(): Menu[] {
         { id: 'build.reveal', label: '在文件管理器中打开产物', run: () => actions.revealOutput() },
         { separator: true },
         { id: 'go.deploy', label: '发布…', run: () => goTo('deploy') },
+        {
+          id: 'site.import',
+          label: '从别的站点导入内容…',
+          hint: 'Hugo / Jekyll',
+          run: () => goTo('settings'),
+        },
         { separator: true },
         { id: 'site.close', label: '关闭站点', run: () => actions.closeProject() },
       ],
@@ -142,6 +148,15 @@ export function menus(): Menu[] {
           run: () => {
             goTo('content')
             ui.requestNewContent = true
+          },
+        },
+        {
+          id: 'edit.section',
+          label: '新建栏目…',
+          hint: 'content/ 下的一层目录',
+          run: () => {
+            goTo('content')
+            ui.requestNewSection = true
           },
         },
         { separator: true },
@@ -203,13 +218,6 @@ export function menus(): Menu[] {
           disabled: noEditor(),
           run: () => ui.editor?.pickFile(),
         },
-        { separator: true },
-        {
-          id: 'insert.section',
-          label: '栏目（在内容侧栏的分组头上新建）',
-          run: () => goTo('content'),
-        },
-        { id: 'insert.import', label: '从别的站点导入内容…', run: () => goTo('settings') },
       ],
     },
     {
@@ -234,14 +242,12 @@ export function menus(): Menu[] {
         { separator: true },
         {
           id: 'view.palette',
-          label: '命令面板',
+          label: '命令面板（也能跳到任意页面）',
           hint: 'Ctrl+P',
           run: () => {
             ui.paletteOpen = true
           },
         },
-        { separator: true },
-        ...tabCommands(),
       ],
     },
     {
@@ -290,25 +296,6 @@ export function menus(): Menu[] {
       ],
     },
   ]
-}
-
-/** 「视图」里的跳页项：与标签页同一份定义，标签上写不下的用途放在 hint 里。 */
-function tabCommands(): Command[] {
-  const labels: Array<{ id: Tab; label: string }> = [
-    { id: 'content', label: '内容' },
-    { id: 'calendar', label: '日历（发布节奏）' },
-    { id: 'layouts', label: '外观（模板与主题包）' },
-    { id: 'audit', label: '体检（SEO / 死链 / 媒体）' },
-    { id: 'build', label: '生成' },
-    { id: 'deploy', label: '发布' },
-    { id: 'settings', label: '设置' },
-  ]
-  return labels.map((item) => ({
-    id: `go.${item.id}`,
-    label: `切换到 ${item.label}`,
-    checked: ui.tab === item.id,
-    run: () => goTo(item.id),
-  }))
 }
 
 /** 三种体检都先切到「体检」页再跑：结果显示在那里，跑完却停在别处等于没反馈。 */

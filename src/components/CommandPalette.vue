@@ -13,7 +13,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import { flatCommands } from '../commands'
 import { actions, store } from '../store'
-import { goTo } from '../ui'
+import { goTo, allTabs } from '../ui'
 import type { PageSummary, TemplateInfo } from '../api'
 
 interface Item {
@@ -49,6 +49,22 @@ const commands = computed<Item[]>(() =>
     label: `${command.group} · ${command.label}`,
     hint: command.hint,
     run: command.run,
+  })),
+)
+
+/**
+ * 页面跳转只留在这里，不进菜单。
+ *
+ * 「视图」菜单曾经也列过七个「切换到…」，与标签栏完全重复——Word 的视图菜单同样
+ * 不重复选项卡。跳转的正规入口是标签栏，搜索式跳转归命令面板。
+ */
+const tabs = computed<Item[]>(() =>
+  allTabs.map((item) => ({
+    id: `go.${item.id}`,
+    group: '页面',
+    label: `切换到 ${item.label}`,
+    hint: item.hint,
+    run: () => goTo(item.id),
   })),
 )
 
@@ -96,7 +112,7 @@ const outputs = computed<Item[]>(() =>
 /** 命令在前：输入框空着时先给「能做什么」，而不是一屏文件名。 */
 const groups = computed(() => {
   const query = keyword.value.trim().toLowerCase()
-  const all = [commands.value, pages.value, templates.value, outputs.value]
+  const all = [commands.value, tabs.value, pages.value, templates.value, outputs.value]
 
   return all
     .map((items) => {

@@ -93,6 +93,12 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <strong class="app__title">{{ store.project.config.site.title }}</strong>
         <code class="app__root" :title="store.project.root">{{ store.project.root }}</code>
       </div>
+      <!-- 正在编辑哪篇要一直看得见：切到别的标签页后编辑器不在，光看状态栏的「● 未保存」
+           不知道是谁没保存 -->
+      <span v-if="store.currentSource" class="app__editing" :title="store.currentSource">
+        正在编辑 <code>{{ store.currentSource }}</code>
+        <span v-if="isDirty" class="app__status-dirty">●</span>
+      </span>
       <span class="app__spacer" />
       <button type="button" @click="ui.paletteOpen = true">命令面板 <kbd>Ctrl+P</kbd></button>
       <button
@@ -103,6 +109,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       >
         生成 <kbd>Ctrl+Enter</kbd>
       </button>
+      <button type="button" @click="actions.closeProject()">关闭站点</button>
     </header>
 
     <nav class="app__tabs" aria-label="工作区">
@@ -121,9 +128,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           {{ item.label }}
         </button>
       </template>
+      <span class="app__spacer" />
+      <!-- 当前页说明并入标签栏：单独占一行会再吃掉 26px，而工作区已经很挤 -->
+      <span class="app__tabs-hint">{{ hint }}</span>
     </nav>
-
-    <p class="app__hint">{{ hint }}</p>
 
 
     <p v-if="store.externalChange" class="app__banner">

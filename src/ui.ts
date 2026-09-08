@@ -49,6 +49,8 @@ export const ui = reactive({
   requestNewContent: false,
   /** 一次性请求：聚焦内容搜索框（菜单的「查找内容」与 Ctrl+F 同一个入口）。 */
   requestFocusSearch: false,
+  /** 一次性请求：展开侧栏的「新建栏目」表单。 */
+  requestNewSection: false,
 })
 
 /**

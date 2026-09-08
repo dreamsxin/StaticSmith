@@ -463,16 +463,30 @@ h3 {
   background: var(--border);
 }
 
-/* 当前页一句话说明：标签只有两个字，用途与关系放这里 */
-.app__hint {
-  flex: none;
-  margin: 0;
-  padding: 0.3rem 0.8rem;
+/* 当前页说明并入标签栏右侧：单独一行会再吃掉 26px，而三栏工作区已经很挤 */
+.app__tabs-hint {
+  padding-right: 0.4rem;
   color: var(--fg-muted);
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 0.78rem;
+  /* 窄窗口下先截断说明，别把标签挤走 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
+
+/* 正在编辑哪篇：切到别的标签页后编辑器不在，这里是唯一线索 */
+.app__editing {
+  display: flex;
+  gap: 0.3rem;
+  align-items: center;
+  max-width: 22rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 
 
 .app__tab {

@@ -199,6 +199,9 @@ watch(
   { immediate: true },
 )
 
+// 「新建栏目」的同类 watch 放在 openCreateSection 定义之后：
+// immediate 的回调在 setup 阶段就会跑，引用后面才声明的 ref 会踩 TDZ
+
 // ---------------------------------------------------------------- 多选与批量
 
 /**
@@ -326,6 +329,16 @@ async function createSection() {
   newSectionTitle.value = ''
   creatingSection.value = false
 }
+
+watch(
+  () => ui.requestNewSection,
+  (asked) => {
+    if (!asked) return
+    ui.requestNewSection = false
+    openCreateSection()
+  },
+  { immediate: true },
+)
 
 const renamingSection = ref<string | null>(null)
 const renameTo = ref('')
