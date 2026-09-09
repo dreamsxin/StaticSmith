@@ -381,6 +381,35 @@ impl Assets {
     }
 }
 
+/// 把 `source` 里的键值合并进 `target`，保住 `target` 的注释、键序与多余的键。
+///
+/// - 两边都是表就往下递归，这样表内的注释与键序都留着
+/// - 改值时**只换值、不换键**：`Table::insert` 会连键一起替换，而键前面那行注释
+///   （`# 首页大标题`）正是挂在键上的，换掉就丢了。值自己的 decor（行尾注释）也照抄回去
+/// - 数组表（`[[taxonomies]]` / `[[menu]]`）整块替换：逐项对齐要先定义「哪一项是同一项」，
+///   而条目可增删改序，猜错了比整块换掉更糟。代价是数组表内部的注释会丢，
+///   这一条写进了 `docs/configuration.md`
+/// - `target` 里我们不认识的键一个不动：用户可能在配置里放了给别的工具看的段
+fn merge_table(target: &mut toml_edit::Table, source: &toml_edit::Table) {
+    use toml_edit::Item;
+
+    for (key, value) in source.iter() {
+        match (target.get_mut(key), value) {
+            (Some(Item::Table(existing)), Item::Table(fresh)) => merge_table(existing, fresh),
+            (Some(slot), _) => {
+                let mut fresh = value.clone();
+                if let (Some(old), Some(new)) = (slot.as_value(), fresh.as_value_mut()) {
+                    *new.decor_mut() = old.decor().clone();
+                }
+                *slot = fresh;
+            }
+            (None, _) => {
+                target.insert(key, value.clone());
+            }
+        }
+    }
+}
+
 impl SiteConfig {
     /// 从项目根目录读取 `staticsmith.toml`。
     pub fn load(project_root: impl AsRef<Path>) -> Result<Self> {
@@ -390,10 +419,36 @@ impl SiteConfig {
     }
 
     /// 写回 `staticsmith.toml`（可视化界面保存设置时调用）。
+    ///
+    /// **保序改写**，不是整文件重新序列化：后者会把用户写在配置里的注释与
+    /// 我们不认识的键一并抹掉——设置页保存一次，`# 这台机器上别开 minify`
+    /// 这类说明就没了，而配置文件恰恰是最值得写注释的地方。
+    /// 与 front matter 用同一套办法（`toml_edit`），理由也同一条。
     pub fn save(&self, project_root: impl AsRef<Path>) -> Result<()> {
         let path = project_root.as_ref().join(CONFIG_FILE_NAME);
-        let raw = toml::to_string_pretty(self)?;
-        std::fs::write(&path, raw).map_err(|e| Error::io(&path, e))
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let merged = self.merge_into(&existing)?;
+        std::fs::write(&path, merged).map_err(|e| Error::io(&path, e))
+    }
+
+    /// 把当前配置合并进一份既有的 TOML 文本，返回新文本。
+    ///
+    /// 单独抽出来是为了能直接测「注释还在不在」：涉及磁盘的话，
+    /// 这类断言就得先摆一个临时目录。
+    pub fn merge_into(&self, existing: &str) -> Result<String> {
+        use toml_edit::DocumentMut;
+
+        let fresh: DocumentMut = toml::to_string(self)?
+            .parse()
+            .map_err(|e: toml_edit::TomlError| Error::Other(format!("配置序列化失败: {e}")))?;
+        if existing.trim().is_empty() {
+            return Ok(fresh.to_string());
+        }
+        let mut doc: DocumentMut = existing
+            .parse()
+            .map_err(|e: toml_edit::TomlError| Error::Other(format!("配置解析失败: {e}")))?;
+        merge_table(doc.as_table_mut(), fresh.as_table());
+        Ok(doc.to_string())
     }
 
     /// 生效的分类维度。
@@ -609,6 +664,54 @@ auth_type = "token"
         assert_eq!(cfg.deploy.r#type, DeployKind::Git);
         assert_eq!(cfg.deploy.git.as_ref().unwrap().branch, "main");
         assert!(cfg.validate().is_empty());
+    }
+
+    /// 保存设置不能把注释与我们不认识的键洗掉。
+    ///
+    /// 这曾经是真的：`save` 整文件重新序列化，用户写的每条注释保存一次就没了。
+    #[test]
+    fn saving_keeps_comments_and_unknown_keys() {
+        let existing = r#"# 站点信息
+[site]
+# 首页大标题
+title = "旧标题"
+base_url = "https://example.com"
+
+[build]
+page_size = 10
+# 这台机器上别开 minify，调试时看不清
+minify = false
+
+# 给别的工具看的段，StaticSmith 不认识它
+[my-tool]
+enabled = true
+"#;
+        let mut cfg: SiteConfig = toml::from_str(existing).unwrap();
+        cfg.site.title = "新标题".to_string();
+        cfg.build.page_size = 20;
+
+        let out = cfg.merge_into(existing).unwrap();
+        assert!(out.contains("# 首页大标题"), "键上的注释要留着：{out}");
+        assert!(out.contains("# 这台机器上别开 minify"), "{out}");
+        assert!(out.contains("[my-tool]"), "不认识的段不能删：{out}");
+        assert!(out.contains("enabled = true"), "{out}");
+        assert!(out.contains("title = \"新标题\""), "值要真的改了：{out}");
+        assert!(out.contains("page_size = 20"), "{out}");
+        assert!(!out.contains("旧标题"), "{out}");
+        // 合并出来的文本必须还能解析回配置，否则下一次打开站点就废了
+        let reloaded: SiteConfig = toml::from_str(&out).unwrap();
+        assert_eq!(reloaded.site.title, "新标题");
+        assert_eq!(reloaded.build.page_size, 20);
+        assert!(!reloaded.build.minify, "没改的键不能被默认值顶掉");
+    }
+
+    /// 空文件（或还没有配置文件）时退回整份写出，不该报错。
+    #[test]
+    fn saving_into_nothing_writes_a_full_config() {
+        let cfg = SiteConfig::default();
+        let out = cfg.merge_into("").unwrap();
+        let reloaded: SiteConfig = toml::from_str(&out).unwrap();
+        assert_eq!(reloaded.site.title, cfg.site.title);
     }
 
     #[test]

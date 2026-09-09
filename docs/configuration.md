@@ -200,6 +200,16 @@ categories = ["工程实践"]
 - `[deploy.ftp]`：`host`、`port`、`username`、`remote_path`、`password_env`、
   `sftp`（为真时走 SFTP）
 
+## 设置页保存会保留你写的注释
+
+界面保存设置走**保序改写**（`SiteConfig::merge_into`，与 front matter 同一套办法）：
+只改动到的键，注释、键序、以及 StaticSmith 不认识的段（比如给别的工具看的
+`[my-tool]`）都留在原处。以前是整文件重新序列化，保存一次注释就全没了。
+
+一处例外：数组表（`[[taxonomies]]`、`[[menu]]`）整块替换，**它们内部的注释会丢**。
+逐项对齐要先定义「哪一项是同一项」，而条目可以增删改序，猜错了比整块换掉更糟。
+要在这两段里写注释，就手改配置文件、并避免在界面里改这两项。
+
 ## 密码与 Token 不写在这里
 
 配置文件里只有 `password_env`（环境变量名）与 `ssh_key_path`（私钥路径），
