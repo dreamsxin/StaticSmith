@@ -15,7 +15,8 @@
 <meta property="og:description" content="{{ page_description }}" />
 <meta property="og:type" content="{% block og_type %}article{% endblock %}" />
 <meta property="og:url" content="{{ page.url | absolute_url(base=site.base_url) | safe }}" />
-{% if build.generate_feed %}<link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="/feed.xml" />{% endif %}
+{# feed_url 由后端给：开关关掉或 base_url 为空时是 null，产物里也确实没有这个文件 #}
+{% if feed_url %}<link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="{{ feed_url | safe }}" />{% endif %}
 <link rel="stylesheet" href="/css/main.css" />
 {% block head %}{% endblock %}
 </head>

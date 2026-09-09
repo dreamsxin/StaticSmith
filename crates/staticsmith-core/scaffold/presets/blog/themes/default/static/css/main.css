@@ -331,6 +331,33 @@ a.postTitle2 {
   font-size: 0.9em;
 }
 
+/* 侧栏标签云：词条已按篇数降序，所以不做字号加权——一列大小不一的字反而难扫。
+   篇数用弱化的小字跟在名字后面，够判断热度就行。 */
+.tagCloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em;
+}
+
+.tagCloud a {
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 0.85em;
+  text-decoration: none;
+}
+
+.tagCloud a:hover {
+  border-color: var(--link);
+}
+
+.tagCount {
+  margin-left: 0.35em;
+  color: var(--fg-muted);
+  font-size: 0.9em;
+}
+
+
 /* ---------------------------------------------------------------- 标签页 */
 
 .tagList {

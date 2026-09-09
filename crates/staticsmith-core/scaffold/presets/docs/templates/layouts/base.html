@@ -24,8 +24,9 @@
   <meta name="twitter:card" content="summary" />
 
   <link rel="stylesheet" href="/css/main.css" />
-  {% if build.generate_feed %}
-  <link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="/feed.xml" />
+  {# feed_url 是后端给的：开关关掉或 base_url 为空时它是 null，产物里也确实没有这个文件 #}
+  {% if feed_url %}
+  <link rel="alternate" type="application/atom+xml" title="{{ site.title }}" href="{{ feed_url | safe }}" />
   {% endif %}
   {# 主题开发模式：自定义字体、JS 等外部资源放在这里，生成时原样保留 #}
   {% block head %}{% endblock %}

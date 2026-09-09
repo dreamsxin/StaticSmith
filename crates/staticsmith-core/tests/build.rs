@@ -451,6 +451,63 @@ fn full_build_emits_sitemap_and_atom_feed() {
     assert!(!feed.contains("<title>文章归档</title>"));
 }
 
+/// 词条与订阅地址以前只有标签页 / 硬编码字面量能拿到。
+///
+/// 侧栏标签云、`<link rel="alternate">` 都在普通页面上，拿不到就只能在模板里
+/// 写死 `/feed.xml`，或者干脆放弃标签云——这两件事都真实发生过。
+#[test]
+fn every_page_can_reach_terms_and_the_feed_url() {
+    let dir = new_project();
+    // 拿一张普通文章页当探针：它既不是栏目索引页也不是标签页
+    // 探针里都加 | safe：Tera 的自动转义会把地址里的 / 变成 &#x2F;，
+    // 真实模板里同样要写 | safe（脚手架两套 base.html 就是这么写的）
+    std::fs::write(
+        dir.path().join("templates/pages/post.html"),
+        "feed=[{{ feed_url | safe }}] sitemap=[{{ sitemap_url | safe }}] \
+         {% for t in terms %}term=[{{ t.name }}/{{ t.count }}/{{ t.url | safe }}] {% endfor %}\
+         fields=[{{ terms_by_field.tags | length }}]",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(post.contains("feed=[/feed.xml]"), "{post}");
+    assert!(post.contains("sitemap=[/sitemap.xml]"), "{post}");
+    // 脚手架那篇文章带 tags = ["模板", "增量构建"]，各 1 篇；
+    // 篇数相同的词条按名称升序，所以「增量构建」在前
+    assert!(post.contains("term=[增量构建/1//tags/增量构建/]"), "{post}");
+    assert!(post.contains("term=[模板/1//tags/模板/]"), "{post}");
+    // terms_by_field 按 front matter 字段名分组，供多维度站点取别的维度
+    assert!(post.contains("fields=[2]"), "{post}");
+}
+
+/// 没有生成的东西不给地址：`feed_url` 是 null，模板里的 `{% if %}` 才挡得住死链。
+#[test]
+fn feed_url_is_null_when_the_feed_is_not_generated() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        config.replace("base_url = \"https://example.com\"", "base_url = \"\""),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("templates/pages/post.html"),
+        "feed=[{% if feed_url %}{{ feed_url }}{% else %}无{% endif %}]",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    assert!(!dir.path().join("dist/feed.xml").exists());
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(post.contains("feed=[无]"), "{post}");
+}
+
 #[test]
 fn site_files_can_be_disabled_and_warn_without_base_url() {
     let dir = new_project();

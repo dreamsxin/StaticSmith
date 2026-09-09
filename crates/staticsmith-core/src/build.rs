@@ -27,6 +27,14 @@ use crate::templates::TemplateSet;
 use crate::theme;
 use crate::util;
 
+/// 订阅源的产物文件名。
+///
+/// 生成时要用它，模板里那个 `<link rel="alternate">` 也要用它。写两遍迟早对不上，
+/// 所以提成常量并通过上下文的 `feed_url` 交给模板，而不是让每套模板各写一次 `/feed.xml`。
+const FEED_FILE: &str = "feed.xml";
+/// 站点地图的产物文件名。理由同 [`FEED_FILE`]。
+const SITEMAP_FILE: &str = "sitemap.xml";
+
 /// 生成策略。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -456,9 +464,9 @@ impl Builder {
             .filter(|p| plan.pages.contains(&p.source))
             .collect();
 
-        let site_ctx = self.site_context();
         let all_pages: Vec<&Page> = self.published_pages();
         let collected = self.collect_taxonomies(&all_pages);
+        let site_ctx = self.site_context(&collected);
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,
@@ -581,12 +589,13 @@ impl Builder {
             .ok_or_else(|| Error::Other(format!("内容不存在: {source}")))?;
         // 预览用同一份「会进产物的页面」算标签链接：预览里能点开的标签，产物里也一定在
         let all_pages: Vec<&Page> = self.published_pages();
+        let collected = self.collect_taxonomies(&all_pages);
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,
-            term_urls: term_urls(&self.collect_taxonomies(&all_pages)),
+            term_urls: term_urls(&collected),
         };
-        let rendered = renderer.render_page(page, &self.site_context(), &all_pages)?;
+        let rendered = renderer.render_page(page, &self.site_context(&collected), &all_pages)?;
         let html = rendered
             .files
             .into_iter()
@@ -614,7 +623,14 @@ impl Builder {
             .collect()
     }
 
-    fn site_context(&self) -> Context {
+    /// 组装每个页面共享的那部分上下文。
+    ///
+    /// `collected` 由调用方传进来而不是在这里重算：`collect_taxonomies` 要遍历全部页面
+    /// 与它们的标签，渲染流程本来就已经算过一遍。
+    fn site_context(
+        &self,
+        collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
+    ) -> Context {
         let mut ctx = Context::new();
         ctx.insert("site", &self.config.site);
         ctx.insert("build", &self.config.build);
@@ -626,6 +642,30 @@ impl Builder {
             ctx.insert("taxonomy", first);
         }
         ctx.insert("taxonomies", &taxonomies);
+        // 词条（标签及篇数）以前只在标签页注入，于是「全局侧栏放标签云」根本写不出来。
+        // 这里补到全站：terms_by_field 按 front matter 字段名分组，terms 是第一个生效
+        // 维度的那一份——和上面 taxonomy 的取法一致，单维度站点直接用它就够。
+        // 标签页自己会用当前维度的词条覆盖 terms，语义不变。
+        let terms_by_field: BTreeMap<String, Vec<taxonomy::Term>> = collected
+            .iter()
+            .map(|(config, entries)| (config.field(), taxonomy::terms_of(entries)))
+            .collect();
+        let first_terms = collected
+            .first()
+            .map(|(_, entries)| taxonomy::terms_of(entries))
+            .unwrap_or_default();
+        ctx.insert("terms", &first_terms);
+        ctx.insert("terms_by_field", &terms_by_field);
+        // 订阅源与站点地图的地址。base_url 为空或对应开关关掉时是 null——
+        // 那种情况下产物里根本没有这两个文件，给出地址就是死链。
+        ctx.insert(
+            "feed_url",
+            &self.site_file_url(self.config.build.generate_feed, FEED_FILE),
+        );
+        ctx.insert(
+            "sitemap_url",
+            &self.site_file_url(self.config.build.generate_sitemap, SITEMAP_FILE),
+        );
         // 导航菜单：配置驱动，模板只遍历。`external` 在这里算好——Tera 调不了方法，
         // 让模板自己判断 `http` 前缀迟早会写出两套不一样的规则。
         let menu: Vec<Value> = self
@@ -655,6 +695,16 @@ impl Builder {
         ctx
     }
 
+    /// 站点级产物（订阅源 / 站点地图）的站内地址，没生成时返回 `None`。
+    ///
+    /// 与 [`Builder::write_site_files`] 的跳过条件必须一致，否则模板会指向不存在的文件。
+    fn site_file_url(&self, enabled: bool, file: &str) -> Option<String> {
+        if !enabled || self.config.site.base_url.trim().is_empty() {
+            return None;
+        }
+        Some(format!("/{file}"))
+    }
+
     fn write_output(&self, relative: &str, html: &str) -> Result<()> {
         let path = self.paths.output.join(relative);
         if let Some(parent) = path.parent() {
@@ -673,13 +723,13 @@ impl Builder {
         }
         let mut count = 0;
         if self.config.build.generate_sitemap {
-            self.write_output("sitemap.xml", &feeds::sitemap_xml(base, pages))?;
+            self.write_output(SITEMAP_FILE, &feeds::sitemap_xml(base, pages))?;
             count += 1;
         }
         if self.config.build.generate_feed {
             let updated = chrono::Utc::now().to_rfc3339();
             let xml = feeds::atom_xml(&self.config, pages, self.config.build.feed_limit, &updated);
-            self.write_output("feed.xml", &xml)?;
+            self.write_output(FEED_FILE, &xml)?;
             count += 1;
         }
         Ok(count)

@@ -62,6 +62,13 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
 - `sections`：能打开的栏目（有索引页的那些），按 `weight` 升序、再按路径排。
   每项是 `{ path, title, description, weight, url, index_source, pages, drafts, children }`。
   没有索引页的栏目地址本身是 404，所以不进这个列表——列出来只会生成死链
+- `terms`：第一个生效维度的词条，`[{ name, slug, url, count }]`，按篇数降序、同数按名称升序。
+  **全站可用**，所以全局侧栏能直接做标签云；标签页与词条页里它指当前那个维度
+- `terms_by_field`：按 front matter 字段名分组的全部词条，
+  `{ "tags": [...], "categories": [...] }`。多维度站点用它取指定维度
+- `feed_url` / `sitemap_url`：订阅源与站点地图的站内地址（`/feed.xml`、`/sitemap.xml`）。
+  开关关掉或 `site.base_url` 为空时是 `null`——那种情况下产物里根本没有这两个文件，
+  所以要包一层 `{% if feed_url %}`，地址本身用 `| safe`
 - `page`：当前页面（`title` / `date` / `tags` / `keywords` / `taxonomies` / `url` / `content` / `section` / `extra` …）
 - `pages`：全站可发布页面数组
 - `generator`：`"StaticSmith 2.0"`
@@ -75,18 +82,26 @@ front matter 里的 `template` 优先。缺省时按目录约定推导（`conten
 
 栏目索引页（`is_index` 为真）额外获得：
 
-- `items`：当前分页的条目（同栏目下的非索引页，按 `weight` 升序、日期降序）
+- `items`：当前分页的条目（**同栏目**下的非索引页，按 `weight` 升序、日期降序）
 - `pagination`：分页上下文
+
+`items` 不递归子栏目，也只看同一个目录。根目录的 `index.md` 因此只会列到
+`content/` 根下那几篇，列不到 `content/posts/**`——首页要「全站最新」得用 `pages`
+自己筛，代价是拿不到配套的 `pagination`（它是按 `items` 算的）：
+
+```
+{% set latest = pages | filter(attribute="is_index", value=false) | slice(end=10) %}
+```
 
 标签总览页（`pages/tags.html`）：
 
-- `terms`：`[{ name, slug, url, count }]`，按篇数降序、同数按名称升序
+- `terms`：当前维度的词条（覆盖全局那份）
 - `page`：合成对象（`title` 取 `taxonomy.title`、`url` 为 `/tags/`），便于复用主布局
 
 单标签页（`pages/tag.html`）：
 
 - `term`：当前标签
-- `terms`：全部标签（可用于侧边栏标签云）
+- `terms`：当前维度的全部词条
 - `items` 与 `pagination`：与栏目列表页同构，分页大小取 `build.page_size`
 
 ## 分页

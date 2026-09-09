@@ -1,6 +1,7 @@
-{# 侧栏：公告 / 随笔分类 / 最新随笔 / 分类维度入口。
-   注意能用的只有全局上下文：sections（自带篇数）与 pages。
-   terms（标签及篇数）只在标签页注入，所以这里放入口而不是标签云。 #}
+{# 侧栏：公告 / 随笔分类 / 最新随笔 / 标签云。
+   能用的都是全局上下文：sections（自带篇数）、pages、terms（词条及篇数）。
+   terms 是第一个生效维度（通常是 tags）的词条，已按篇数降序排好；
+   多维度站点用 terms_by_field["categories"] 取别的维度。 #}
 <div id="sideBar"><div id="sideBarMain">
   <div class="newsItem">
     <h3 class="catListTitle">公告</h3>
@@ -29,9 +30,21 @@
     </ul>
   </div>
 
-  {% if taxonomies %}
+  {% if terms %}
   <div class="catListTag">
-    <h3 class="catListTitle">标签与分类</h3>
+    <h3 class="catListTitle">{{ taxonomy.title }}</h3>
+    {# 只列前 30 个：词条按篇数降序，尾巴上那些只有一篇的标签堆在侧栏里没人点 #}
+    <div class="tagCloud">
+      {% for term in terms | slice(end=30) %}
+      <a href="{{ term.url | safe }}">{{ term.name }}<span class="tagCount">{{ term.count }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if taxonomies | length > 1 %}
+  <div class="catListTag">
+    <h3 class="catListTitle">全部维度</h3>
     <ul>
       {% for tax in taxonomies %}
       <li><a href="/{{ tax.slug }}/">{{ tax.title }}</a></li>
