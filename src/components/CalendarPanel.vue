@@ -254,6 +254,11 @@ async function submitDate(page: PageSummary) {
         这些文章不在日历里，而且<strong>一律被当成已到时间</strong>——把「忘了写日期」
         当成「永不发布」只会让人莫名少一篇。要排队上线就先补上日期。
       </p>
+      <p class="build__muted">
+        栏目列表页（内容列表里带「栏目页」标的那些，例如
+        <code>posts/index.md</code>）既不在日历里，也不在这份清单里：它是那个栏目的门面，
+        不是某天发出去的一篇。改它的介绍文字去内容页对应的那一行。
+      </p>
       <p v-if="!undated.length" class="build__muted">都写了日期。</p>
       <ul v-else class="calendar__list">
         <li v-for="page in undated" :key="page.source">

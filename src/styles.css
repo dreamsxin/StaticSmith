@@ -1201,6 +1201,14 @@ kbd {
   border: 1px solid var(--border);
 }
 
+/* 「栏目页」是只读标注而不是状态：用虚线描边 + 弱化色，与「草稿」「定时」这类
+   会变的状态区分开（同 6.1 的元素三分类） */
+.badge--section {
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+}
+
+
 .badge--dirty {
   color: var(--accent);
 }

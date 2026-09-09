@@ -927,6 +927,14 @@ async function copyText(text: string) {
               :title="`${page.date ?? ''} 到点后才进产物（站点开了定时发布）`"
               >定时</span
             >
+            <!-- 栏目页要标出来：它在这份列表里长得跟文章一样，但日历不收它、
+                 「没写日期」清单也不列它。不标的话，用户只会得出「界面漏了一篇」 -->
+            <span
+              v-if="page.is_index"
+              class="badge badge--section"
+              title="栏目列表页：这个栏目的门面，不算「发出去的一篇」，不参与发布节奏与排期"
+              >栏目页</span
+            >
             <span
               v-if="seoBySource.get(page.source)"
               class="badge"
