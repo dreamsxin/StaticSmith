@@ -15,7 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { actions, isDirty, store } from '../store'
 import { goTo, ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
-import { highlight } from '../markdown-highlight'
+import { highlight } from '../source-highlight'
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const mirror = ref<HTMLElement | null>(null)
@@ -29,7 +29,13 @@ const filePicker = ref<HTMLInputElement | null>(null)
  * 这样既看得清结构，改的又还是纯文本——不引入富文本模型，也就不存在
  * 「界面里的样式与源文不一致」这类问题。
  */
-const highlighted = computed(() => highlight(store.currentRaw))
+/**
+ * 高亮镜像。着色规则跟着站点的正文格式走：HTML 站点里满屏标签，
+ * 按 Markdown 着色等于全部当普通文字。格式没读到时按 Markdown 兜底（它是默认值）。
+ */
+const highlighted = computed(() =>
+  highlight(store.currentRaw, store.project?.config.build.source_format ?? 'markdown'),
+)
 
 /** 镜像不参与滚动，只能跟着 textarea 走。 */
 function syncScroll() {

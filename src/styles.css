@@ -1504,6 +1504,12 @@ kbd {
   color: var(--tok-attr);
 }
 
+/* HTML 正文里的注释：压暗即可，它不是内容 */
+.tok-comment {
+  color: var(--fg-muted);
+}
+
+
 .tok-string {
   color: var(--tok-literal);
 }
