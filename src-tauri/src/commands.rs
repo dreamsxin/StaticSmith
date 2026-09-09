@@ -1026,6 +1026,8 @@ pub fn delete_secret(account: String) -> Result<()> {
 fn resolve_credentials(config: &SiteConfig) -> Result<Credentials> {
     use staticsmith_core::config::DeployKind;
 
+    // 条目名走 account_for_config：解析凭证与界面查询必须问同一个名字
+    let account = account_for_config(config);
     match config.deploy.r#type {
         DeployKind::None => Ok(Credentials::None),
         DeployKind::Git => {
@@ -1041,10 +1043,10 @@ fn resolve_credentials(config: &SiteConfig) -> Result<Credentials> {
                 return Ok(Credentials::SshKey {
                     username: "git".to_string(),
                     private_key: key,
-                    passphrase: read_secret(&account_for_git(&git.remote)),
+                    passphrase: read_secret(&account),
                 });
             }
-            let token = read_secret(&account_for_git(&git.remote)).ok_or_else(|| {
+            let token = read_secret(&account).ok_or_else(|| {
                 AppError::Message("未找到 Git Token，请先在「发布设置」中保存凭证".to_string())
             })?;
             Ok(Credentials::UserPassword {
@@ -1059,7 +1061,6 @@ fn resolve_credentials(config: &SiteConfig) -> Result<Credentials> {
                 .ftp
                 .as_ref()
                 .ok_or_else(|| AppError::Message("缺少 [deploy.ftp] 配置".into()))?;
-            let account = account_for_ftp(&ftp.host, &ftp.username);
             let password = read_secret(&account)
                 .or_else(|| {
                     ftp.password_env
@@ -1079,6 +1080,37 @@ fn resolve_credentials(config: &SiteConfig) -> Result<Credentials> {
             })
         }
     }
+}
+
+/// 凭据条目名的唯一定义处。
+///
+/// 界面此前自己拼 `git:${remote}`，与这里各写一份。这种重复最难发现：
+/// 改了规则之后保存写进 A、查询读的是 B，而「凭证在不在」这件事恰恰只能靠这个名字判断，
+/// 用户看到的是「明明保存过，界面说没有」。现在界面走 `deploy_account` 问。
+fn account_for_config(config: &SiteConfig) -> String {
+    use staticsmith_core::config::DeployKind;
+
+    match config.deploy.r#type {
+        DeployKind::None => String::new(),
+        DeployKind::Git => config
+            .deploy
+            .git
+            .as_ref()
+            .map(|git| account_for_git(&git.remote))
+            .unwrap_or_default(),
+        DeployKind::Ftp => config
+            .deploy
+            .ftp
+            .as_ref()
+            .map(|ftp| account_for_ftp(&ftp.host, &ftp.username))
+            .unwrap_or_default(),
+    }
+}
+
+/// 当前站点的凭据条目名。未配置发布方式时是空串。
+#[tauri::command]
+pub fn deploy_account(state: State<'_, AppState>) -> Result<String> {
+    state.with_session(|session| Ok(account_for_config(&session.builder.config)))
 }
 
 fn read_secret(account: &str) -> Option<String> {
@@ -1158,6 +1190,46 @@ mod tests {
         assert_eq!(
             account_for_ftp("ftp.example.com", "alice"),
             "ftp:alice@ftp.example.com"
+        );
+    }
+
+    /// 界面查的条目名与解析凭证用的必须是同一个。
+    ///
+    /// 这条以前靠「前端记得照抄规则」保证，而前端确实抄了一份——
+    /// 现在两边都走 `account_for_config`，这个测试是那份约定的落点。
+    #[test]
+    fn account_for_config_covers_every_deploy_kind() {
+        use staticsmith_core::config::{DeployKind, FtpDeploy, GitDeploy};
+
+        let mut config = SiteConfig::default();
+        assert_eq!(config.deploy.r#type, DeployKind::None);
+        assert_eq!(account_for_config(&config), "", "未配置发布方式时没有条目");
+
+        config.deploy.r#type = DeployKind::Git;
+        config.deploy.git = Some(GitDeploy {
+            remote: "https://github.com/u/r.git".into(),
+            branch: "gh-pages".into(),
+            commit_message: "publish".into(),
+            auth_type: "token".into(),
+            ssh_key_path: None,
+        });
+        assert_eq!(
+            account_for_config(&config),
+            account_for_git("https://github.com/u/r.git")
+        );
+
+        config.deploy.r#type = DeployKind::Ftp;
+        config.deploy.ftp = Some(FtpDeploy {
+            host: "ftp.example.com".into(),
+            port: 21,
+            username: "alice".into(),
+            password_env: None,
+            remote_path: "/public_html".into(),
+            sftp: false,
+        });
+        assert_eq!(
+            account_for_config(&config),
+            account_for_ftp("ftp.example.com", "alice")
         );
     }
 

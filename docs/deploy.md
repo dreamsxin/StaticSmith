@@ -55,6 +55,13 @@
 2. FTP 额外回退到 `password_env` 指定的环境变量
 3. 都没有则报错，提示去「发布」页保存凭证
 
+条目名由 `account_for_config` 一处算出，解析凭证与界面查询问的是同一个名字
+（界面走 `deploy_account` 命令，不自己拼）。**条目按发布目标分而不按站点分**：
+两个站点推同一个 remote、或发到同一台主机的同一账号，会共用同一条凭据——
+同一个目标本来就是同一份凭据。代价是「同一目标、两套凭据」时后保存的覆盖前一条，
+界面上看不出发生了覆盖。
+
+
 写入凭据管理器由 `save_secret` 命令完成，对应 Windows Credential Manager、
 macOS Keychain、Linux Secret Service。前端保存后立即清空输入框，
 密钥不留在前端状态里。

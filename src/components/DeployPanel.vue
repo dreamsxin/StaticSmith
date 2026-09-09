@@ -15,27 +15,28 @@ const stored = ref<boolean | null>(null)
 
 const deploy = computed(() => store.project?.config.deploy)
 
-/** 凭据条目名必须与 Rust 侧 `account_for_git` / `account_for_ftp` 保持一致。 */
-const account = computed(() => {
-  const d = deploy.value
-  if (!d) return ''
-  if (d.type === 'git' && d.git) return `git:${d.git.remote}`
-  if (d.type === 'ftp' && d.ftp) return `ftp:${d.ftp.username}@${d.ftp.host}`
-  return ''
-})
+/**
+ * 凭据条目名向 Rust 侧问，不在这里拼。
+ *
+ * 命名规则（`git:<remote>` / `ftp:<用户>@<主机>`）只在 `account_for_config` 一处定义：
+ * 两边各写一份的话，改了规则之后会出现「保存写进 A、查询读的是 B」，
+ * 用户看到的是「明明保存过，界面说没有」——这类不一致最难被发现。
+ */
+const account = ref('')
 
 /**
- * 跟着条目名查一次状态。
+ * 发布配置变了就重新问一次条目名，并跟着查一次凭证在不在。
  *
  * 之前只有「保存成功」的一次性提示，重开应用后完全看不出凭证在不在，
  * 用户只能靠「测试连接」间接猜——所以这里把状态显式摆出来。
  */
 watch(
-  account,
-  async (value) => {
-    stored.value = value ? await actions.hasSecret(value) : null
+  deploy,
+  async () => {
+    account.value = store.project ? await actions.deployAccount() : ''
+    stored.value = account.value ? await actions.hasSecret(account.value) : null
   },
-  { immediate: true },
+  { immediate: true, deep: true },
 )
 
 async function storeSecret() {

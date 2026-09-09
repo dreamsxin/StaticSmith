@@ -773,6 +773,20 @@ export const actions = {
     }
   },
 
+  /**
+   * 当前站点的凭据条目名，由 Rust 侧按发布配置算出。
+   *
+   * 前端不自己拼：命名规则只有 `account_for_config` 一处定义。查询失败返回空串，
+   * 界面据此显示「（未配置）」而不是一个猜出来的名字。
+   */
+  async deployAccount(): Promise<string> {
+    try {
+      return await api.deployAccount()
+    } catch {
+      return ''
+    }
+  },
+
   async deleteSecret(account: string) {
     const done = await run(() => api.deleteSecret(account))
     if (done !== undefined) notify('success', '凭证已从系统凭据管理器移除')

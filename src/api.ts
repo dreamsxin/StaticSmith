@@ -809,6 +809,15 @@ export const hasSecret = (account: string) => invoke<boolean>('has_secret', { ac
 
 export const deleteSecret = (account: string) => invoke<void>('delete_secret', { account })
 
+/**
+ * 当前站点的凭据条目名（`git:<remote>` / `ftp:<用户>@<主机>`），未配置发布方式时是空串。
+ *
+ * 前端不自己拼这个名字：命名规则只在 Rust 侧定义一处。两边各写一份的话，
+ * 改了规则之后会出现「保存写进 A、查询读的是 B」，而用户看到的是
+ * 「明明保存过，界面说没有」。
+ */
+export const deployAccount = () => invoke<string>('deploy_account')
+
 // ---------------------------------------------------------------- 事件
 
 export const onBuildProgress = (handler: (p: BuildProgress) => void): Promise<UnlistenFn> =>

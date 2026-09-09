@@ -242,12 +242,21 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `deploy_site() -> DeployReport`
 - `check_deploy()`：只检查连接与凭证
 - `save_secret(account, secret)` / `has_secret(account) -> bool` / `delete_secret(account)`
+- `deploy_account() -> string`：当前站点的凭据条目名，未配置发布方式时是空串
 
-`account` 的命名规则由 Rust 侧 `account_for_git` / `account_for_ftp` 定义，
-前端 `DeployPanel.vue` 必须使用同样的规则：
+`account` 的命名规则**只在 Rust 侧定义一处**（`account_for_config`）：
 
 - Git：`git:<remote>`
 - FTP：`ftp:<username>@<host>`
+
+界面不自己拼这个名字，走 `deploy_account` 问。以前两边各写一份，而这种重复最难发现：
+改了规则之后保存写进 A、查询读的是 B，「凭证在不在」恰恰只能靠这个名字判断，
+用户看到的是「明明保存过，界面说没有」。
+
+**条目按发布目标而不是按站点分**：两个站点推同一个 remote（或同一台主机同一账号）
+会共用一条凭据——这是刻意的，同一个目标本来就是同一份凭据。代价是「同一目标、
+两套凭据」这种情形下后保存的覆盖前一条，界面上看不出发生了覆盖。
+
 
 ## 事件
 
