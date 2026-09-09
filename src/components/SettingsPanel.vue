@@ -198,6 +198,7 @@ function clone(config: unknown): SiteConfig {
       generate_feed: true,
       feed_limit: 20,
       publish_future: true,
+      source_format: 'markdown',
     },
     assets: {
       dir: 'images',
@@ -399,6 +400,20 @@ function onDeployKindChange() {
       </label>
       <p class="build__muted">
         取消勾选就是定时发布：日期晚于构建时刻的文章先不进产物，等定时构建到点再上线。
+      </p>
+      <!-- 选项文字写「会发生什么」而不是格式名：这一项改的是全站已有文章的渲染方式 -->
+      <label>
+        正文格式
+        <select v-model="form.build.source_format">
+          <option value="markdown">Markdown（`**加粗**` 会变成加粗）</option>
+          <option value="html">HTML（正文原样输出，标签自己写）</option>
+        </select>
+      </label>
+      <p class="build__muted">
+        全站统一，不分文章。改成 HTML 之后 <code>**</code> 就只是两个星号，
+        <strong>已有文章的正文也会跟着按新规则渲染</strong>，所以改完要做一次
+        「站点 → 完整重建」。<code>content/</code> 里的 <code>.html</code> 文件两种模式下
+        都会被收进来，切换格式不必给文件改名。
       </p>
       <p v-if="!form.site.base_url.trim()" class="build__muted">
         站点地址为空时会跳过 sitemap 与订阅——它们需要绝对地址。

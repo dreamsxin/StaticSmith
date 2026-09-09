@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use walkdir::WalkDir;
 
-use crate::config::ProjectPaths;
+use crate::config::{ProjectPaths, SourceFormat};
 use crate::content::{self, Page};
 use crate::error::{Error, Result};
 use crate::frontmatter;
@@ -261,13 +261,14 @@ pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) ->
     }
 
     // 移动前先记下每篇文章的旧地址：移动之后就算不出来了
-    let old_urls: BTreeMap<String, String> = content::load_all(&paths.content)?
-        .into_iter()
-        .filter(|page| {
-            page.section == from_rel || page.section.starts_with(&format!("{from_rel}/"))
-        })
-        .map(|page| (page.source.clone(), page.url.clone()))
-        .collect();
+    let old_urls: BTreeMap<String, String> =
+        content::load_all(&paths.content, SourceFormat::default())?
+            .into_iter()
+            .filter(|page| {
+                page.section == from_rel || page.section.starts_with(&format!("{from_rel}/"))
+            })
+            .map(|page| (page.source.clone(), page.url.clone()))
+            .collect();
 
     if let Some(parent) = target_dir.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
@@ -454,7 +455,7 @@ mod tests {
     }
 
     fn sections(f: &Fixture) -> Vec<Section> {
-        list(&content::load_all(&f.paths.content).unwrap())
+        list(&content::load_all(&f.paths.content, SourceFormat::default()).unwrap())
     }
 
     fn find<'a>(list: &'a [Section], path: &str) -> &'a Section {

@@ -75,6 +75,26 @@ pub struct Build {
     /// 就是「排好队，到点上线」。
     #[serde(default = "default_true")]
     pub publish_future: bool,
+    /// 正文按哪种格式解析。
+    ///
+    /// 全站统一，不做每篇覆盖：一个站点里两种正文格式混排，模板、体检、导入
+    /// 每一处都要问「这一篇是哪种」，而收益只是省掉一次目录划分。
+    #[serde(default)]
+    pub source_format: SourceFormat,
+}
+
+/// 正文的源码格式。
+///
+/// `Markdown` 是默认：`**加粗**` 会被渲染。`Html` 则**原样输出**——正文里写什么标签
+/// 就是什么标签，`**` 就是两个星号。刻意不做「HTML 里仍然跑一遍 Markdown」那种混合模式：
+/// 混合模式下「这段为什么被转义了」永远解释不清，而想混写的人本来就可以在 Markdown 里
+/// 直接写 HTML 块（Markdown 模式已经支持）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceFormat {
+    #[default]
+    Markdown,
+    Html,
 }
 
 /// 编辑器插入的图片等媒体资源如何落盘。
@@ -193,6 +213,7 @@ impl Default for Build {
             generate_feed: true,
             feed_limit: default_feed_limit(),
             publish_future: true,
+            source_format: SourceFormat::Markdown,
         }
     }
 }

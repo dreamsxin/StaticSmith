@@ -585,7 +585,7 @@ mod tests {
         import(&f.paths, &f.from, "posts").unwrap();
 
         // 关键：导入后的文件被内容解析器读出来必须真的有日期
-        let pages = content::load_all(&f.paths.content).unwrap();
+        let pages = content::load_all(&f.paths.content, Default::default()).unwrap();
         let page = pages.iter().find(|p| p.source == "posts/dated.md").unwrap();
         assert!(page.date.is_some(), "日期不能在导入后丢掉");
     }

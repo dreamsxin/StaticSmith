@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::config::SourceFormat;
 use crate::error::{Error, Result};
 use crate::util;
 
@@ -84,13 +85,32 @@ impl Page {
     /// 解析单个 Markdown 文件。
     ///
     /// `content_root` 用于计算相对路径；`source_path` 必须位于其下。
-    pub fn from_file(content_root: &Path, source_path: &Path) -> Result<Self> {
+    pub fn from_file(
+        content_root: &Path,
+        source_path: &Path,
+        format: SourceFormat,
+    ) -> Result<Self> {
         let raw = std::fs::read_to_string(source_path).map_err(|e| Error::io(source_path, e))?;
-        Self::from_str(content_root, source_path, &raw)
+        Self::from_str_with(content_root, source_path, &raw, format)
     }
 
-    /// 从原始文本解析（便于测试与内存中的编辑器预览）。
+    /// 从原始文本解析，正文按 **Markdown** 处理。
+    ///
+    /// 站点可能设成 HTML（`build.source_format`），那种情况下要用
+    /// [`Page::from_str_with`]。这里保留一个默认 Markdown 的版本，是因为绝大多数
+    /// 调用点（尤其是测试）问的就是「Markdown 解析对不对」，让它们各写一遍格式参数
+    /// 只会让噪音盖住那一处真正关心格式的地方。
     pub fn from_str(content_root: &Path, source_path: &Path, raw: &str) -> Result<Self> {
+        Self::from_str_with(content_root, source_path, raw, SourceFormat::Markdown)
+    }
+
+    /// 从原始文本解析，正文按 `format` 处理（便于测试与内存中的编辑器预览）。
+    pub fn from_str_with(
+        content_root: &Path,
+        source_path: &Path,
+        raw: &str,
+        format: SourceFormat,
+    ) -> Result<Self> {
         let (fm, body) = split_front_matter(source_path, raw)?;
 
         let rel = source_path
@@ -150,7 +170,11 @@ impl Page {
             section: dir,
             is_index,
             template,
-            content: markdown_to_html(&body),
+            // 站点设为 html 时原样输出：正文里写什么标签就是什么标签，`**` 就是两个星号
+            content: match format {
+                SourceFormat::Markdown => markdown_to_html(&body),
+                SourceFormat::Html => body.clone(),
+            },
             hash: util::hash_str(raw),
             extra: fm.extra,
         })
@@ -239,8 +263,15 @@ fn collect_taxonomy_fields(fm: &FrontMatter) -> std::collections::BTreeMap<Strin
     out
 }
 
-/// 递归扫描 `content/` 下所有 `.md` / `.markdown` 文件并解析。
-pub fn load_all(content_root: &Path) -> Result<Vec<Page>> {
+/// 递归扫描 `content/` 下的源文件并解析。
+///
+/// **收哪些扩展名与 `format` 无关**：`.md` / `.markdown` / `.html` / `.htm` 一律收。
+/// 这样切换站点格式不必把已有文件改名，更重要的是那些「只看 front matter 与路径」的
+/// 调用方（批量动作、栏目改名）即便传了默认格式，也不会漏掉 `.html` 文件——
+/// 漏一篇的代价是改名后它的旧地址没人补。
+///
+/// `format` 只决定**正文怎么渲染**。
+pub fn load_all(content_root: &Path, format: SourceFormat) -> Result<Vec<Page>> {
     if !content_root.exists() {
         return Err(Error::InvalidProject(format!(
             "内容目录不存在: {}",
@@ -256,12 +287,12 @@ pub fn load_all(content_root: &Path) -> Result<Vec<Page>> {
         if !entry.file_type().is_file() {
             continue;
         }
-        let is_markdown = matches!(
+        let accepted = matches!(
             path.extension().and_then(|e| e.to_str()),
-            Some("md") | Some("markdown")
+            Some("md") | Some("markdown") | Some("html") | Some("htm")
         );
-        if is_markdown {
-            pages.push(Page::from_file(content_root, path)?);
+        if accepted {
+            pages.push(Page::from_file(content_root, path, format)?);
         }
     }
     pages.sort_by(|a, b| a.source.cmp(&b.source));
@@ -456,6 +487,30 @@ fn toml_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 站点设为 html 时正文原样输出，与 Markdown 那条路真的不同。
+    ///
+    /// 两条路各断言一次，而不是只断言 HTML 那条：只测一边的话，
+    /// 哪天 `markdown_to_html` 自己变成「原样返回」，测试照样绿。
+    #[test]
+    fn html_format_emits_body_verbatim() {
+        let raw = "+++\ntitle = \"原样\"\n+++\n**加粗**\n";
+
+        let html = Page::from_str_with(
+            Path::new("content"),
+            Path::new("content/raw.md"),
+            raw,
+            SourceFormat::Html,
+        )
+        .unwrap();
+        assert!(html.content.contains("**加粗**"), "`**` 应当保持原样");
+        assert!(!html.content.contains("<strong>"), "不该跑 Markdown");
+        assert!(!html.content.contains("<p>"), "也不该自动包段落");
+
+        let markdown =
+            Page::from_str(Path::new("content"), Path::new("content/raw.md"), raw).unwrap();
+        assert!(markdown.content.contains("<strong>"), "Markdown 那条路照旧");
+    }
 
     fn parse(path: &str, raw: &str) -> Page {
         Page::from_str(

@@ -103,7 +103,7 @@ impl Builder {
         let paths = ProjectPaths::new(root, &config.build, &config.assets);
         let templates = TemplateSet::load(&paths.templates)?;
         let index = Index::open(&paths.index_db)?;
-        let pages = content::load_all(&paths.content)?;
+        let pages = content::load_all(&paths.content, config.build.source_format)?;
         Ok(Self {
             config,
             paths,
@@ -116,7 +116,7 @@ impl Builder {
     /// 重新读取模板与内容。文件监听触发变更后调用。
     pub fn reload(&mut self) -> Result<()> {
         self.templates = TemplateSet::load(&self.paths.templates)?;
-        self.pages = content::load_all(&self.paths.content)?;
+        self.pages = content::load_all(&self.paths.content, self.config.build.source_format)?;
         Ok(())
     }
 

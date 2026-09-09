@@ -44,6 +44,12 @@ export interface SiteConfig {
     feed_limit: number
     /** false 表示定时发布：未来日期的文章暂不进产物 */
     publish_future: boolean
+    /**
+     * 正文按哪种格式解析，全站统一。
+     *
+     * `markdown`：`**加粗**` 会被渲染。`html`：正文原样输出，写什么标签就是什么标签。
+     */
+    source_format: 'markdown' | 'html'
   }
   assets: {
     /** 相对 static_dir 的子目录 */

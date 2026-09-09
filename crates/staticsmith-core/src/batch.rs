@@ -16,11 +16,21 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::config::ProjectPaths;
+use crate::config::{ProjectPaths, SourceFormat};
 use crate::content::{self, Page};
 use crate::error::{Error, Result};
 use crate::frontmatter::{self, Patch};
 use crate::util;
+
+/// 加载全站页面，只为读 front matter 与路径。
+///
+/// 批量动作与栏目改名关心的是「这一篇叫什么、在哪、标签是什么」，从不看渲染后的正文，
+/// 所以这里固定用默认格式，不必把站点的 `source_format` 一路传进来。
+/// 之所以安全：`load_all` 收哪些扩展名与格式无关，HTML 站点的 `.html` 文件同样在列，
+/// 不会出现「搬动或改名时漏掉一篇、它的旧地址没人补」。
+fn load_for_front_matter(content_root: &Path) -> Result<Vec<Page>> {
+    content::load_all(content_root, SourceFormat::default())
+}
 
 /// 跳过的一篇，以及为什么。
 ///
@@ -134,7 +144,7 @@ pub fn move_to_section(
     keep_aliases: bool,
 ) -> Result<MoveOutcome> {
     let target = util::sanitize_relative_dir(to_section);
-    let pages = content::load_all(&paths.content)?;
+    let pages = load_for_front_matter(&paths.content)?;
     let mut out = MoveOutcome::default();
 
     for source in sources {
@@ -290,7 +300,7 @@ pub struct Preview {
 pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Result<Preview> {
     let mut out = Preview::default();
     let pages = match action {
-        Action::Move { .. } => content::load_all(&paths.content)?,
+        Action::Move { .. } => load_for_front_matter(&paths.content)?,
         _ => Vec::new(),
     };
     let tag_edit = match action {
