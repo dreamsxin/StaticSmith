@@ -30,6 +30,8 @@ export interface EditorCommands {
   pickFile(): void
   /** 开合媒体库：复用已上传过的资源 */
   assets(): void
+  /** 展开「在这一篇里查找 / 替换」那一行 */
+  find(): void
 }
 
 export const ui = reactive({

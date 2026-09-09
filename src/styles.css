@@ -1307,6 +1307,41 @@ kbd {
   border-color: var(--accent);
 }
 
+/* 单篇内查找替换那一行。不做浮层：查找条要和正文同时看得见，
+   浮层会盖住「命中的那一行」这件唯一要看的东西 */
+.editor__find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__find input[type='text'] {
+  min-width: 8rem;
+  flex: 1 1 8rem;
+}
+
+.editor__find button {
+  padding: 0.15rem 0.4rem;
+  font-size: 0.8rem;
+}
+
+.editor__find-count,
+.editor__find-case {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+
+.editor__find-case {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+
 .editor__props {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));

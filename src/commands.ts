@@ -253,8 +253,15 @@ export function menus(): Menu[] {
         {
           id: 'edit.find',
           label: '查找内容',
-          hint: 'Ctrl+F',
+          hint: 'Ctrl+Shift+F（编辑器里 Ctrl+F 是找这一篇内部）',
           run: focusSearch,
+        },
+        {
+          id: 'edit.find-in-file',
+          label: '在这一篇里查找 / 替换…',
+          hint: 'Ctrl+F',
+          disabled: noEditor(),
+          run: () => ui.editor?.find(),
         },
         {
           id: 'edit.replace',

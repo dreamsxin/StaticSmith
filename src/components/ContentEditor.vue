@@ -291,6 +291,112 @@ const wordCount = computed(() => {
   return cjk + words
 })
 
+// ---------------------------------------------------------------- 单篇内查找替换
+
+/**
+ * 这一篇里的查找与替换。
+ *
+ * 侧栏的 `Ctrl+F` 回答「哪一篇里有这个词」，这里回答「这一篇里的第几处」，
+ * 两件事不同（见 docs/ui-design.md 第九节）。所以编辑器内的 `Ctrl+F` 归正文，
+ * 找文章让给 `Ctrl+Shift+F`——这是早就写进文档的约定，现在才补上实现。
+ *
+ * 规则与跨文件替换刻意保持一致：纯文本、不做正则、不重叠计数。
+ * 一个界面里两种「查找」语义会让人以为其中一个坏了。
+ */
+const finding = ref(false)
+const findQuery = ref('')
+const findReplace = ref('')
+const findIgnoreCase = ref(false)
+const findBox = ref<HTMLInputElement | null>(null)
+/** 当前停在第几处（0 起）。-1 表示还没定位过。 */
+const findIndex = ref(-1)
+
+/**
+ * 所有命中的起点。
+ *
+ * 忽略大小写时在小写副本上找、按原文偏移切割；小写化改变了字节长度
+ * （如土耳其语 `İ`）就退回区分大小写——偏移对不上时给出错位的选区，
+ * 比「这个开关暂时不生效」糟得多。
+ */
+const findMatches = computed<number[]>(() => {
+  const raw = store.currentRaw
+  const lowered = findIgnoreCase.value && raw.toLowerCase().length === raw.length
+  const hay = lowered ? raw.toLowerCase() : raw
+  const needle = lowered ? findQuery.value.toLowerCase() : findQuery.value
+  if (!needle) return []
+  const out: number[] = []
+  let at = 0
+  for (;;) {
+    const found = hay.indexOf(needle, at)
+    if (found === -1) break
+    out.push(found)
+    at = found + needle.length
+  }
+  return out
+})
+
+function openFind() {
+  finding.value = true
+  const el = textarea.value
+  // 选中一段再按 Ctrl+F 就拿它当查找词（编辑器的通行做法）；跨行的选区不算
+  const selected = el ? store.currentRaw.slice(el.selectionStart, el.selectionEnd) : ''
+  if (selected && !selected.includes('\n')) findQuery.value = selected
+  requestAnimationFrame(() => findBox.value?.select())
+}
+
+function closeFind() {
+  finding.value = false
+  findIndex.value = -1
+  // 关掉之后焦点回到正文：留在一个已经隐藏的输入框上等于焦点丢了
+  textarea.value?.focus()
+}
+
+/** 跳到第 n 处（可越界，自动首尾相接）。 */
+function selectMatch(n: number) {
+  const matches = findMatches.value
+  const el = textarea.value
+  if (!matches.length || !el) return
+  const index = ((n % matches.length) + matches.length) % matches.length
+  findIndex.value = index
+  const start = matches[index]
+  el.focus()
+  el.setSelectionRange(start, start + findQuery.value.length)
+}
+
+/** 替换当前这一处。还没定位就先跳到第一处——直接替换会改在用户没看见的地方。 */
+function replaceCurrent() {
+  const at = findMatches.value[findIndex.value]
+  if (at === undefined) {
+    selectMatch(0)
+    return
+  }
+  const raw = store.currentRaw
+  actions.setRaw(raw.slice(0, at) + findReplace.value + raw.slice(at + findQuery.value.length))
+  // 替换后原地还在同一个序号上，下一处自然接上；越界时回到第一处
+  requestAnimationFrame(() => selectMatch(findIndex.value))
+}
+
+/**
+ * 全部替换。
+ *
+ * 按命中表一次拼出结果，不做「循环 indexOf 替换」：替换词里含查找词时
+ * （把 `a` 换成 `aa`）那种写法会自己吃自己，永远停不下来。
+ */
+function replaceAllInFile() {
+  const matches = findMatches.value
+  if (!matches.length) return
+  const raw = store.currentRaw
+  let out = ''
+  let at = 0
+  for (const start of matches) {
+    out += raw.slice(at, start) + findReplace.value
+    at = start + findQuery.value.length
+  }
+  actions.setRaw(out + raw.slice(at))
+  findIndex.value = -1
+  actions.notify('success', `这一篇里替换了 ${matches.length} 处（还没保存）`)
+}
+
 /**
  * 编辑器内的快捷键：只留依赖选区的那几个。
  *
@@ -304,12 +410,17 @@ function onKeydown(event: KeyboardEvent) {
     b: editorCommands.bold,
     i: editorCommands.italic,
     k: editorCommands.link,
+    f: editorCommands.find,
   }
-  const handler = handlers[key]
+  // Ctrl+Shift+F 是「找文章」，让它照常冒泡到 window
+  const handler = event.shiftKey && key === 'f' ? undefined : handlers[key]
   if (!handler) return
   event.preventDefault()
+  // 编辑器内的 Ctrl+F 归正文查找：不拦住冒泡，window 上那个「找文章」会把焦点抢去侧栏
+  event.stopPropagation()
   handler()
 }
+
 
 /**
  * 选区类命令只定义一份。
@@ -327,6 +438,7 @@ const editorCommands: EditorCommands = {
   bullet: () => prefixLines('- '),
   pickFile: () => filePicker.value?.click(),
   assets: () => void toggleAssets(),
+  find: () => openFind(),
 }
 
 /**
@@ -530,6 +642,55 @@ onBeforeUnmount(() => {
       </p>
     </div>
 
+
+    <!-- 单篇内查找替换：一行，不做浮层——它要和正文同时看见 -->
+    <div v-if="finding" class="editor__find" role="search">
+      <input
+        ref="findBox"
+        v-model="findQuery"
+        type="text"
+        placeholder="在这一篇里查找"
+        aria-label="在这一篇里查找"
+        @keydown.enter.prevent="selectMatch(findIndex + 1)"
+        @keydown.esc.prevent="closeFind"
+      />
+      <span class="editor__find-count">
+        {{ findQuery ? (findMatches.length ? `${findIndex + 1} / ${findMatches.length}` : '没有命中') : '' }}
+      </span>
+      <button
+        type="button"
+        :disabled="!findMatches.length"
+        title="上一处"
+        @click="selectMatch(findIndex - 1)"
+      >
+        ↑
+      </button>
+      <button
+        type="button"
+        :disabled="!findMatches.length"
+        title="下一处（回车）"
+        @click="selectMatch(findIndex + 1)"
+      >
+        ↓
+      </button>
+      <input
+        v-model="findReplace"
+        type="text"
+        placeholder="替换为（留空即删掉）"
+        aria-label="替换为"
+        @keydown.esc.prevent="closeFind"
+      />
+      <button type="button" :disabled="!findMatches.length" @click="replaceCurrent">替换这处</button>
+      <button type="button" :disabled="!findMatches.length" @click="replaceAllInFile">
+        全部替换
+      </button>
+      <label class="editor__find-case">
+        <input v-model="findIgnoreCase" type="checkbox" />
+        忽略大小写
+      </label>
+      <span class="app__spacer" />
+      <button type="button" title="关闭（Esc）" @click="closeFind">×</button>
+    </div>
 
     <div class="editor__code">
       <pre ref="mirror" class="editor__mirror" aria-hidden="true"><code v-html="highlighted" /></pre>
