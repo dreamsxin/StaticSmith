@@ -12,6 +12,64 @@ import { reactive } from 'vue'
 export type Tab = 'content' | 'calendar' | 'layouts' | 'audit' | 'build' | 'deploy' | 'settings'
 
 /**
+ * 界面模式：一次点出一整套布局。
+ *
+ * 定位已经明确——**正文是源码**，目标用户是愿意看 `+++` 与 Markdown 的人。
+ * 但「愿意看源码」不等于「每一刻都要看见全部面板」：写长文时属性面板与预览是干扰，
+ * 调模板时预览是主角，改一批 front matter 时属性面板才是主角。
+ * 与其为每个人猜一套默认，不如像 VS Code 那样把布局做成能一键切换的预设。
+ *
+ * 三条自我约束：
+ *
+ * 1. **模式是预设，不是约束**。切过去之后每个窗格仍可单独开关，模式不会把它扳回来。
+ *    「模式锁死布局」会让人以为界面坏了。
+ * 2. **只改布局，不改能力**。任何模式下菜单、快捷键、命令面板都是全的——
+ *    藏功能等于让人以为这个模式「不能做那件事」。
+ * 3. **标准模式把窗格交给窗口宽度**（`applyResponsive`），另两种模式是用户的明确选择，
+ *    因此接管显隐、不再自动收放。
+ */
+export type Mode = 'standard' | 'writing' | 'source'
+
+export interface ModeSpec {
+  id: Mode
+  label: string
+  /** 一句话说明「这套布局适合谁、为什么」，菜单里作为提示显示。 */
+  hint: string
+  layout: {
+    showList: boolean
+    showPreview: boolean
+    showProps: boolean
+    showToolbar: boolean
+  }
+}
+
+export const modes: ModeSpec[] = [
+  {
+    id: 'standard',
+    label: '标准',
+    hint: '列表 + 编辑器 + 预览，属性面板与工具条都在；窗格随窗口宽度自动收放',
+    layout: { showList: true, showPreview: true, showProps: true, showToolbar: true },
+  },
+  {
+    id: 'writing',
+    label: '专注写作',
+    hint: '只留编辑器与工具条：收起列表、预览与属性面板，宽度全给正文',
+    layout: { showList: false, showPreview: false, showProps: false, showToolbar: true },
+  },
+  {
+    id: 'source',
+    label: '源码',
+    hint: '列表 + 编辑器，收起预览与属性面板：front matter 直接在 +++ 里改，格式用快捷键',
+    layout: { showList: true, showPreview: false, showProps: false, showToolbar: false },
+  },
+]
+
+export function modeSpec(mode: Mode): ModeSpec {
+  return modes.find((item) => item.id === mode) ?? modes[0]
+}
+
+
+/**
  * 编辑器把选区类命令注册进来。
  *
  * 加粗、插链接这些动作依赖 textarea 的选区，只有编辑器组件自己知道；菜单栏要能调，
@@ -38,10 +96,16 @@ export const ui = reactive({
   /** 当前视图。标签页与菜单的「视图」组都改这一个值。 */
   tab: 'content' as Tab,
   paletteOpen: false,
+  /** 当前界面模式（布局预设），见 [`modes`]。 */
+  mode: 'standard' as Mode,
   /** 内容页左侧列表栏是否显示（视图菜单可勾掉，类比 Word 的导航窗格）。 */
   showList: true,
   /** 内容页右侧预览栏是否显示。 */
   showPreview: true,
+  /** 编辑器右侧的属性面板（front matter 表单）是否显示。 */
+  showProps: true,
+  /** 编辑器上方的格式工具条是否显示。 */
+  showToolbar: true,
   /**
    * 用户是否在「视图」菜单里手动开关过窗格。
    *
@@ -142,4 +206,63 @@ export const LIST_MIN_WIDTH = 900
 export function applyResponsive(width: number) {
   if (!ui.previewOverride) ui.showPreview = width >= PREVIEW_MIN_WIDTH
   if (!ui.listOverride) ui.showList = width >= LIST_MIN_WIDTH
+}
+
+// ---------------------------------------------------------------- 界面模式
+
+/** 记在本机：布局是「这台机器上这个人怎么用」，不属于站点。 */
+const LAYOUT_KEY = 'staticsmith.layout'
+
+/**
+ * 切到某个界面模式。
+ *
+ * 标准模式把窗格交回窗口宽度（清掉「手动动过」的标记）；另两种是用户的明确选择，
+ * 因此接管显隐并停掉自动收放——否则把窗口拉宽，刚收起的预览栏又自己冒出来。
+ */
+export function applyMode(mode: Mode) {
+  const spec = modeSpec(mode)
+  ui.mode = mode
+  ui.showProps = spec.layout.showProps
+  ui.showToolbar = spec.layout.showToolbar
+  if (mode === 'standard') {
+    ui.listOverride = false
+    ui.previewOverride = false
+    applyResponsive(window.innerWidth)
+  } else {
+    ui.showList = spec.layout.showList
+    ui.showPreview = spec.layout.showPreview
+    ui.listOverride = true
+    ui.previewOverride = true
+  }
+  saveLayout()
+}
+
+/**
+ * 单独开关某个窗格之后调用。
+ *
+ * 模式是预设不是约束：用户在模式之外的微调要记住，下次启动仍是他离开时的样子。
+ */
+export function saveLayout() {
+  localStorage.setItem(
+    LAYOUT_KEY,
+    JSON.stringify({ mode: ui.mode, showProps: ui.showProps, showToolbar: ui.showToolbar }),
+  )
+}
+
+/** 启动时恢复布局。模式先应用，随后盖上用户单独动过的那两个开关。 */
+export function restoreLayout() {
+  try {
+    const raw = localStorage.getItem(LAYOUT_KEY)
+    if (!raw) return
+    const saved = JSON.parse(raw) as {
+      mode?: Mode
+      showProps?: boolean
+      showToolbar?: boolean
+    }
+    if (saved.mode && modes.some((item) => item.id === saved.mode)) applyMode(saved.mode)
+    if (typeof saved.showProps === 'boolean') ui.showProps = saved.showProps
+    if (typeof saved.showToolbar === 'boolean') ui.showToolbar = saved.showToolbar
+  } catch {
+    // 坏数据就用默认布局，不值得打扰用户
+  }
 }

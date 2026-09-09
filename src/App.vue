@@ -25,7 +25,7 @@ import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, isTemplateDirty, store } from './store'
-import { applyResponsive, allTabs, tabGroups, tabHint, ui } from './ui'
+import { applyResponsive, allTabs, modeSpec, restoreLayout, tabGroups, tabHint, ui } from './ui'
 
 const { listWidth, previewWidth, startDrag, nudge, jump, bounds } = useSplit({
   key: 'staticsmith.split',
@@ -175,6 +175,9 @@ function onResize() {
 }
 
 onMounted(() => {
+  // 布局先恢复再算响应式：标准模式要按当前窗口宽度决定窗格，
+  // 另两种模式自己接管显隐，restoreLayout 里已经写明
+  restoreLayout()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onResize)
   onResize()
@@ -312,6 +315,10 @@ onBeforeUnmount(() => {
       </span>
       <span v-if="anyDirty" class="app__status-dirty">● 未保存</span>
       <span class="app__spacer" />
+      <!-- 当前模式属于环境信息，靠右；状态栏只报告状态，切换走「视图」菜单 -->
+      <span class="app__status-mode" :title="modeSpec(ui.mode).hint">
+        {{ modeSpec(ui.mode).label }}模式
+      </span>
       <span v-if="store.previewServer">预览 {{ store.previewServer }}</span>
     </footer>
   </div>

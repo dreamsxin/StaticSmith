@@ -13,7 +13,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 
 import { actions, isDirty, store } from '../store'
-import { goTo, ui, type EditorCommands } from '../ui'
+import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
 import { highlight } from '../source-highlight'
 
@@ -59,13 +59,16 @@ const total = computed(() => store.plan?.total_pages ?? 0)
  * 保留正文、注释与未知键），而不是维护一份平行的字段状态。
  * 因此手改源文与用表单改不会互相打架。
  */
-const PROPS_KEY = 'staticsmith.showProps'
-const showProps = ref(localStorage.getItem(PROPS_KEY) !== '0')
-
+/**
+ * 属性面板的显隐在 `ui`（`src/ui.ts`）而不是这里。
+ *
+ * 界面模式要一次决定整套布局，「视图」菜单也要能勾它——状态放在组件里，
+ * 那两处就都碰不到它。
+ */
 function toggleProps() {
-  showProps.value = !showProps.value
-  localStorage.setItem(PROPS_KEY, showProps.value ? '1' : '0')
-  if (showProps.value) void actions.loadFrontMatter()
+  ui.showProps = !ui.showProps
+  saveLayout()
+  if (ui.showProps) void actions.loadFrontMatter()
 }
 
 const fm = computed(() => store.frontMatter)
@@ -464,7 +467,7 @@ onBeforeUnmount(() => {
       <span v-if="isDirty" class="editor__dirty" title="有未保存改动">●</span>
       <span class="editor__spacer" />
       <span class="editor__hint">保存后将重新生成 {{ affected }} / {{ total }} 个页面</span>
-      <button type="button" :class="{ active: showProps }" title="编辑标题、日期、标签等属性" @click="toggleProps">
+      <button type="button" :class="{ active: ui.showProps }" title="编辑标题、日期、标签等属性" @click="toggleProps">
         属性
       </button>
       <button type="button" :disabled="store.busy || !isDirty" @click="actions.saveContent()">
@@ -475,7 +478,7 @@ onBeforeUnmount(() => {
       </button>
     </header>
 
-    <div v-if="showProps" class="editor__props">
+    <div v-if="ui.showProps" class="editor__props">
       <template v-if="fm">
         <label class="editor__prop editor__prop--wide">
           标题
@@ -566,7 +569,9 @@ onBeforeUnmount(() => {
 
     <!-- 提示文案与「编辑 / 插入」菜单里的那几项逐字一致：同一个动作在两处叫不同名字，
          用户会以为是两个功能（见 ui-design.md 6.5） -->
-    <div class="editor__toolbar">
+    <!-- 工具条可以整条收掉（源码模式默认如此）：按钮走的动作与快捷键、菜单同一份
+         `editorCommands`，收起来只是少一排按钮，能力一件不少 -->
+    <div v-if="ui.showToolbar" class="editor__toolbar">
       <button
         type="button"
         title="标题（二级）"

@@ -610,6 +610,12 @@ h3 {
   color: var(--fg);
 }
 
+/* 当前模式是只读标注，不是状态变化：弱化色，与「待生成」那种要盯的数字区分 */
+.app__status-mode {
+  color: var(--fg-muted);
+}
+
+
 
 .app__body {
   display: grid;

@@ -13,7 +13,7 @@ import { reactive } from 'vue'
 
 import { isProject } from './api'
 import { actions, isDirty, isTemplateDirty, store } from './store'
-import { goTo, ui } from './ui'
+import { applyMode, goTo, modes, saveLayout, ui } from './ui'
 
 export interface Command {
   id: string
@@ -360,6 +360,15 @@ export function menus(): Menu[] {
     {
       label: '视图',
       items: [
+        // 模式排在最前：它一次决定整套布局，单个窗格的开关是它之后的微调
+        ...modes.map((spec) => ({
+          id: `view.mode.${spec.id}`,
+          label: `${spec.label}模式`,
+          hint: spec.hint,
+          checked: ui.mode === spec.id,
+          run: () => applyMode(spec.id),
+        })),
+        { separator: true },
         {
           id: 'view.list',
           label: '内容列表栏',
@@ -377,6 +386,26 @@ export function menus(): Menu[] {
           run: () => {
             ui.previewOverride = true
             ui.showPreview = !ui.showPreview
+          },
+        },
+        {
+          id: 'view.props',
+          label: '属性面板',
+          hint: 'front matter 的表单；也可以直接在 +++ 里改',
+          checked: ui.showProps,
+          run: () => {
+            ui.showProps = !ui.showProps
+            saveLayout()
+          },
+        },
+        {
+          id: 'view.toolbar',
+          label: '格式工具条',
+          hint: '加粗、标题、插图这些按钮；快捷键不受影响',
+          checked: ui.showToolbar,
+          run: () => {
+            ui.showToolbar = !ui.showToolbar
+            saveLayout()
           },
         },
         { separator: true },
