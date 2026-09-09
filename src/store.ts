@@ -324,8 +324,8 @@ export const actions = {
 
 
   /** 新建栏目：建目录并写一张索引页，否则栏目列表页打不开。 */
-  async createSection(path: string, title: string) {
-    const created = await run(() => api.createSection(path, title))
+  async createSection(path: string, title: string, description?: string) {
+    const created = await run(() => api.createSection(path, title, description))
     if (!created) return
     notify('success', `已新建栏目 ${created.path}`)
     await this.refresh()
@@ -536,8 +536,8 @@ export const actions = {
     state.previewTarget = null
   },
 
-  async initProject(path: string, title: string) {
-    const created = await run(() => api.initProject(path, title))
+  async initProject(path: string, title: string, preset?: string) {
+    const created = await run(() => api.initProject(path, title, preset))
     if (created) await this.openProject(path)
   },
 
@@ -646,9 +646,16 @@ export const actions = {
   },
 
 
-  /** 新建内容并立即打开编辑。 */
-  async createContent(title: string, section: string) {
-    const source = await run(() => api.createContent({ title, section }))
+  /**
+   * 新建内容并立即打开编辑。
+   *
+   * `path` 给了就按它落盘（栏目由路径本身决定），空字符串按没给处理。
+   */
+  async createContent(title: string, section: string, path?: string) {
+    const explicit = path?.trim()
+    const source = await run(() =>
+      api.createContent({ title, section, path: explicit ? explicit : null }),
+    )
     if (!source) return
     await this.refresh()
     notify('success', `已创建 ${source}（草稿）`)

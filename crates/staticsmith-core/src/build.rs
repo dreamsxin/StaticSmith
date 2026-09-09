@@ -319,8 +319,13 @@ impl Builder {
     ///
     /// 一并建索引页是刻意的：没有索引页的栏目不生成列表页，
     /// 「建完栏目却打不开」是最容易踩的坑。
-    pub fn create_section(&mut self, path: &str, title: &str) -> Result<sections::Created> {
-        let created = sections::create(&self.paths, path, title)?;
+    pub fn create_section(
+        &mut self,
+        path: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<sections::Created> {
+        let created = sections::create(&self.paths, path, title, description)?;
         self.reload()?;
         Ok(created)
     }

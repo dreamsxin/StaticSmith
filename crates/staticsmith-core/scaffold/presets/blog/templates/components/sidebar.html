@@ -1,0 +1,42 @@
+{# 侧栏：公告 / 随笔分类 / 最新随笔 / 分类维度入口。
+   注意能用的只有全局上下文：sections（自带篇数）与 pages。
+   terms（标签及篇数）只在标签页注入，所以这里放入口而不是标签云。 #}
+<div id="sideBar"><div id="sideBarMain">
+  <div class="newsItem">
+    <h3 class="catListTitle">公告</h3>
+    <div class="newsContent">{{ site.description }}</div>
+  </div>
+
+  {% if sections %}
+  <div class="catListTag">
+    <h3 class="catListTitle">随笔分类</h3>
+    <ul>
+      {% for section in sections %}
+        {% if section.path != "" %}
+        <li><a href="{{ section.url | safe }}">{{ section.title }}({{ section.pages }})</a></li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <div class="catListPostArchive">
+    <h3 class="catListTitle">最新随笔</h3>
+    <ul>
+      {% for item in pages | filter(attribute="is_index", value=false) | slice(end=8) %}
+      <li><a href="{{ item.url | safe }}">{{ item.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  {% if taxonomies %}
+  <div class="catListTag">
+    <h3 class="catListTitle">标签与分类</h3>
+    <ul>
+      {% for tax in taxonomies %}
+      <li><a href="/{{ tax.slug }}/">{{ tax.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div></div>

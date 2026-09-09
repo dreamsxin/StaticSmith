@@ -9,13 +9,25 @@
 import { onMounted, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 
-import { isProject } from '../api'
+import { isProject, listPresets, type PresetOption } from '../api'
 import { actions, store } from '../store'
 
 const title = ref('我的静态站')
 const hint = ref('')
 
-onMounted(() => actions.loadRecent())
+/**
+ * 可选的模板预设。名字与说明来自 Rust 侧的 `Preset`，界面不抄一份——
+ * 加一套预设只该改 core，不该同时改两处文案。
+ */
+const presets = ref<PresetOption[]>([])
+const preset = ref('')
+
+onMounted(async () => {
+  await actions.loadRecent()
+  presets.value = await listPresets()
+  // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
+  preset.value = presets.value[0]?.slug ?? ''
+})
 
 async function pickDirectory(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false })
@@ -37,7 +49,7 @@ async function createNew() {
   const path = await pickDirectory()
   if (!path) return
   hint.value = ''
-  await actions.initProject(path, title.value)
+  await actions.initProject(path, title.value, preset.value || undefined)
 }
 
 /** 只显示日期，起始页不需要精确到秒。 */
@@ -74,6 +86,18 @@ function shortDate(value: string): string {
               站点名称
               <input v-model="title" type="text" placeholder="我的静态站" />
             </label>
+
+            <!-- 选一套版式。用单选而不是下拉：只有两三项，且每项都需要一句说明，
+                 收进下拉之后要点开才看得到「长什么样」。 -->
+            <fieldset v-if="presets.length > 1" class="welcome__presets">
+              <legend>版式</legend>
+              <label v-for="item in presets" :key="item.slug" class="welcome__preset">
+                <input v-model="preset" type="radio" name="preset" :value="item.slug" />
+                <span class="welcome__preset-title">{{ item.title }}</span>
+                <span class="welcome__preset-desc">{{ item.description }}</span>
+              </label>
+            </fieldset>
+
             <button type="button" :disabled="store.busy || !title.trim()" @click="createNew">
               选择空目录…
             </button>

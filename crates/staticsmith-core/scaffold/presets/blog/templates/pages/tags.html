@@ -1,0 +1,12 @@
+{% extends "layouts/base.html" %}
+{% block og_type %}website{% endblock %}
+{% block main %}
+<div class="entrylistTitle"><h1>{{ page.title }}</h1></div>
+<div id="MyTag1_dtTagList" class="tagList">
+  {% for term in terms %}
+  <a href="{{ term.url | safe }}" class="tagLink">{{ term.name }}<span class="tagCount">({{ term.count }})</span></a>
+  {% else %}
+  <p>还没有任何标签。给文章的 front matter 加上 tags 就会出现在这里。</p>
+  {% endfor %}
+</div>
+{% endblock %}

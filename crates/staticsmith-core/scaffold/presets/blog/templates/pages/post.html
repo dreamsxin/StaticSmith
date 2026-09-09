@@ -1,0 +1,23 @@
+{% extends "layouts/base.html" %}
+{% block title %}{{ page.title }} - {{ site.title }}{% endblock %}
+{% block main %}
+<div id="post_detail">
+  <div class="post">
+    <h1 class="postTitle"><a id="cb_post_title_url" href="{{ page.url | safe }}">{{ page.title }}</a></h1>
+    <div class="postBody"><div id="cnblogs_post_body" class="blogpost-body">
+      {{ page.content | safe }}
+    </div></div>
+
+    {% if tag_links %}
+    <div id="EntryTag">标签：{% for tag in tag_links %}<a href="{{ tag.url | safe }}">{{ tag.name }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    {% elif page.tags %}
+    <div id="EntryTag">标签：{% for tag in page.tags %}<span class="tag">{{ tag }}</span>{% if not loop.last %}, {% endif %}{% endfor %}</div>
+    {% endif %}
+
+    <div class="postDesc">
+      posted @ {% if page.date %}{{ page.date | date(format="%Y-%m-%d") }}{% else %}未标注日期{% endif %}
+      {% if page.section %} · 分类 <a href="/{{ page.section }}/">{{ page.section }}</a>{% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

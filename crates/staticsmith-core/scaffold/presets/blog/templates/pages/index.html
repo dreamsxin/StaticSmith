@@ -1,0 +1,29 @@
+{% extends "layouts/base.html" %}
+{% block og_type %}website{% endblock %}
+{% block main %}
+{% if page.content %}<div class="entrylistDescription">{{ page.content | safe }}</div>{% endif %}
+
+{# 博客首页要列「全站最新」，所以用全局的 pages 而不是 items。
+   items 只含**同栏目**的非索引页——首页在根目录，它的 items 就只有根目录那几篇。
+   代价是拿不到配套分页（pagination 是按 items 算的），所以这里只列最新 10 篇，
+   完整归档交给 /posts/。 #}
+{% set latest = pages | filter(attribute="is_index", value=false) | slice(end=10) %}
+{% for item in latest %}
+<div class="day">
+  <div class="postTitle"><h2><a class="postTitle2" href="{{ item.url | safe }}">{{ item.title }}</a></h2></div>
+  {% if item.description %}<div class="postCon"><div class="c_b_p_desc">{{ item.description }}<a class="c_b_p_desc_readmore" href="{{ item.url | safe }}">阅读全文</a></div></div>{% endif %}
+  <div class="clear"></div>
+  <div class="postDesc">
+    posted @ {% if item.date %}<span class="post-date">{{ item.date | date(format="%Y-%m-%d") }}</span>{% else %}<span class="post-date">未标注日期</span>{% endif %}
+    {% if item.section %} · 分类 <a href="/{{ item.section }}/">{{ item.section }}</a>{% endif %}
+    {% if item.tags %} · {% for tag in item.tags %}<span class="tag">{{ tag }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% endif %}
+  </div>
+</div>
+{% else %}
+<div class="day"><div class="postCon">还没有随笔。用「新建文章」写第一篇吧。</div></div>
+{% endfor %}
+
+{% if pages | length > 10 %}
+<div id="nav_next_page"><div class="pager"><a href="/posts/">查看全部随笔 &gt;</a></div></div>
+{% endif %}
+{% endblock %}

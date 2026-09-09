@@ -11,7 +11,10 @@ cargo build --release -p staticsmith-cli
 ## 命令
 
 ```bash
-staticsmith init [目录] --title "站点名"     # 创建骨架，已存在文件不覆盖
+staticsmith init [目录] --title "站点名" [--preset docs|blog]
+                                              # 创建骨架，已存在文件不覆盖
+                                              # docs（默认）= 橙色极简文档站，blog = 博客园风格博客
+
 staticsmith new "标题" [--section posts] [--slug custom] [--template pages/post.html] [--publish]
 staticsmith build [--full]                    # 默认智能增量
 staticsmith plan  [--full]                    # 只算影响范围，不写文件

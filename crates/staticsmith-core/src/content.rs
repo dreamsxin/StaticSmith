@@ -338,6 +338,27 @@ fn default_template(dir: &str, file_stem: &str) -> String {
     }
 }
 
+/// 清洗用户手打的源文路径：丢掉穿越片段、统一正斜杠、必要时补扩展名。
+///
+/// **不做 slug 化**——手打的路径就是他要的路径。补扩展名的规则只看「最后一段有没有点」，
+/// 而不是维护一张合法后缀白名单：站点可以配 `source_format = "html"`，
+/// 白名单迟早会漏掉某一种。
+fn normalize_source_path(input: &str) -> String {
+    let cleaned = util::sanitize_relative_dir(input);
+    if cleaned.is_empty() {
+        return "untitled.md".to_string();
+    }
+    let has_extension = cleaned
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.contains('.'));
+    if has_extension {
+        cleaned
+    } else {
+        format!("{cleaned}.md")
+    }
+}
+
 /// 生成 pretty URL：`posts/hello.md` → (`posts/hello/index.html`, `/posts/hello/`)。
 fn output_paths(dir: &str, file_stem: &str, slug: &str) -> (String, String) {
     let is_index = file_stem == "index" || file_stem == "_index";
@@ -463,6 +484,15 @@ pub struct NewContent {
     /// 文件名主干，缺省由标题推导。
     #[serde(default)]
     pub slug: Option<String>,
+    /// **显式指定**的源文件路径（相对 `content/`），如 `posts/2026/hello.md`。
+    ///
+    /// 给了它就完全按它走，`section` 与 `slug` 都不再参与推导——「路径我自己写」
+    /// 与「路径你替我猜」混着用，只会让人不知道最终写到哪去了。
+    ///
+    /// 仍然会清洗穿越片段并补 `.md`；但**不做 slug 化**：用户手打的路径就是他要的路径，
+    /// 中文文件名也照原样留着（标题推导那条路才会转成 ASCII slug）。
+    #[serde(default)]
+    pub path: Option<String>,
     #[serde(default)]
     pub template: Option<String>,
     #[serde(default)]
@@ -493,7 +523,18 @@ impl NewContent {
     }
 
     /// 目标源文件路径（相对 `content/`）。栏目里的路径穿越片段会被丢弃。
+    ///
+    /// 两条互斥的路：显式 `path` 优先，否则由 `section` + (`slug` 或标题) 拼。
     pub fn source_path(&self) -> String {
+        if let Some(explicit) = self
+            .path
+            .as_deref()
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+        {
+            return normalize_source_path(explicit);
+        }
+
         let section = util::sanitize_relative_dir(&self.section);
         let stem = self
             .slug
@@ -565,6 +606,67 @@ mod tests {
                 "{bad} 应当被拒绝，但通过了"
             );
         }
+    }
+
+    /// 显式路径优先，且**不做 slug 化**——手打的路径就是他要的路径。
+    #[test]
+    fn explicit_path_wins_over_section_and_slug() {
+        let request = NewContent {
+            title: "标题".into(),
+            section: "posts".into(),
+            slug: Some("slug".into()),
+            path: Some("笔记/2026/初雪.md".into()),
+            ..Default::default()
+        };
+        assert_eq!(request.source_path(), "笔记/2026/初雪.md");
+    }
+
+    #[test]
+    fn explicit_path_gets_cleaned_and_gets_an_extension() {
+        let cases = [
+            ("posts/hello", "posts/hello.md"),
+            ("/posts/hello.md", "posts/hello.md"),
+            (r"posts\win\hello", "posts/win/hello.md"),
+            ("../../etc/passwd", "etc/passwd.md"),
+            ("posts/./x.md", "posts/x.md"),
+            ("posts/page.html", "posts/page.html"),
+            // 清洗之后什么都不剩，但**路径不是空的**（用户确实填了 `..`），
+            // 这时候不该悄悄回到标题推导——那会写到一个他没要求的位置。
+            ("..", "untitled.md"),
+        ];
+        for (input, want) in cases {
+            let request = NewContent {
+                title: "标题".into(),
+                path: Some(input.into()),
+                ..Default::default()
+            };
+            assert_eq!(request.source_path(), want, "输入 {input:?}");
+        }
+    }
+
+    /// 纯空白的 path 等于「没填」，回到标题推导——而不是造一个 `untitled.md`。
+    #[test]
+    fn blank_path_falls_back_to_title() {
+        for blank in ["", "   ", "\t"] {
+            let request = NewContent {
+                title: "标题".into(),
+                path: Some(blank.into()),
+                ..Default::default()
+            };
+            assert_eq!(request.source_path(), "标题.md", "输入 {blank:?}");
+        }
+    }
+
+    /// 没给 path 时走原来那条推导。
+    ///
+    /// 注意**文件名保留中文**：`util::slugify_name` 只清标点，不转写。
+    /// 而 URL 那一侧走的是 `slug::slugify`，中文会被转成拼音——两个 slug 函数、
+    /// 两种结果，所以「文件名」与「网址」对中文标题天然不一致。
+    /// 这条测试把现状钉住，改动 URL 生成会破坏已有站点的地址，不能顺手改。
+    #[test]
+    fn without_path_it_still_derives_from_title() {
+        let request = NewContent::new("你好，世界").in_section("posts");
+        assert_eq!(request.source_path(), "posts/你好-世界.md");
     }
 
     #[test]

@@ -224,8 +224,17 @@ export interface AssetRecord {
 
 // ---------------------------------------------------------------- 项目
 
-export const initProject = (path: string, title?: string) =>
-  invoke<string[]>('init_project', { path, title })
+/** 一套可选的站点模板预设。名字与说明由 Rust 侧给，界面不硬编码。 */
+export interface PresetOption {
+  slug: string
+  title: string
+  description: string
+}
+
+export const listPresets = () => invoke<PresetOption[]>('list_presets')
+
+export const initProject = (path: string, title?: string, preset?: string) =>
+  invoke<string[]>('init_project', { path, title, preset })
 
 export const isProject = (path: string) => invoke<boolean>('is_project', { path })
 
@@ -354,6 +363,11 @@ export const applyFrontMatter = (raw: string, patch: FrontMatterPatch) =>
 export interface NewContentRequest {
   section: string
   title: string
+  /**
+   * 显式指定源文件路径（相对 `content/`），如 `posts/2026/hello.md`。
+   * 给了就完全按它落盘，`section` / `slug` 都不再参与推导；省略后缀时补 `.md`。
+   */
+  path?: string | null
   slug?: string | null
   template?: string | null
   description?: string
@@ -705,8 +719,8 @@ export interface SectionRenamed {
 
 export const listSections = () => invoke<Section[]>('list_sections')
 
-export const createSection = (path: string, title: string) =>
-  invoke<SectionCreated>('create_section', { path, title })
+export const createSection = (path: string, title: string, description?: string) =>
+  invoke<SectionCreated>('create_section', { path, title, description })
 
 /** 栏目改名。`keepAliases` 为真时给每篇文章补旧地址，老链接靠重定向页继续可用。 */
 export const renameSection = (from: string, to: string, keepAliases: boolean) =>

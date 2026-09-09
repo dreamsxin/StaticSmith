@@ -33,8 +33,8 @@ Twitter Card、订阅源声明。`site.base_url` 为空时**跳过所有绝对�
 半截的 canonical 比没有更糟。
 
 老项目的模板不会被自动改写（模板是你的代码）。想要这些标签，参考脚手架的
-`crates/staticsmith-core/scaffold/templates/layouts/base.html` 补进自己的 `base.html`，
-关键几行：
+`crates/staticsmith-core/scaffold/presets/docs/templates/layouts/base.html`
+（`presets/blog/` 那套同理）补进自己的 `base.html`，关键几行：
 
 ```html
 <link rel="canonical" href="{{ page.url | absolute_url(base=site.base_url) | safe }}" />

@@ -169,7 +169,7 @@ mod tests {
 
     fn server(permissions: Permissions) -> (tempfile::TempDir, McpServer) {
         let dir = tempfile::tempdir().unwrap();
-        scaffold::init_project(dir.path(), Some("MCP 测试站")).unwrap();
+        scaffold::init_project(dir.path(), Some("MCP 测试站"), scaffold::Preset::Docs).unwrap();
         let server = McpServer::open(dir.path(), permissions).unwrap();
         (dir, server)
     }

@@ -24,6 +24,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             commands::init_project,
+            commands::list_presets,
             commands::is_project,
             commands::open_project,
             commands::recent_projects,

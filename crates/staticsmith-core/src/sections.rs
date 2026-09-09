@@ -165,8 +165,11 @@ pub fn set_meta(paths: &ProjectPaths, path: &str, meta: &Meta) -> Result<String>
         Some(found) => found,
         None => {
             let file = dir.join("index.md");
-            std::fs::write(&file, index_skeleton(meta.title.trim()))
-                .map_err(|e| Error::io(&file, e))?;
+            std::fs::write(
+                &file,
+                index_skeleton(meta.title.trim(), meta.description.trim()),
+            )
+            .map_err(|e| Error::io(&file, e))?;
             let source = join_source(&relative, "index.md");
             (file, source)
         }
@@ -206,7 +209,10 @@ fn join_source(relative: &str, name: &str) -> String {
 ///
 /// 没有索引页的栏目不会生成列表页，所以这里一并创建——「建了栏目却打不开」
 /// 是最容易踩的坑。索引页固定叫 `index.md`，与脚手架一致。
-pub fn create(paths: &ProjectPaths, path: &str, title: &str) -> Result<Created> {
+///
+/// `description` 一并落进索引页：留空的话新栏目一建出来就会被 SEO 体检
+/// 记一条 `description.missing`，等于每次建栏目都先欠一笔账。
+pub fn create(paths: &ProjectPaths, path: &str, title: &str, description: &str) -> Result<Created> {
     let relative = util::sanitize_relative_dir(path);
     if relative.is_empty() {
         return Err(Error::Other("栏目名不能为空".to_string()));
@@ -223,7 +229,8 @@ pub fn create(paths: &ProjectPaths, path: &str, title: &str) -> Result<Created> 
     } else {
         title.trim().to_string()
     };
-    std::fs::write(&index, index_skeleton(&title)).map_err(|e| Error::io(&index, e))?;
+    std::fs::write(&index, index_skeleton(&title, description.trim()))
+        .map_err(|e| Error::io(&index, e))?;
 
     Ok(Created {
         path: relative.clone(),
@@ -368,11 +375,16 @@ fn is_markdown(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
-fn index_skeleton(title: &str) -> String {
+fn index_skeleton(title: &str, description: &str) -> String {
     format!(
-        "+++\ntitle = \"{}\"\ndescription = \"\"\n+++\n",
-        title.replace('\\', "\\\\").replace('"', "\\\"")
+        "+++\ntitle = \"{}\"\ndescription = \"{}\"\n+++\n",
+        toml_escape(title),
+        toml_escape(description)
     )
+}
+
+fn toml_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn default_title(path: &str) -> String {
@@ -482,20 +494,24 @@ mod tests {
     #[test]
     fn create_makes_the_directory_and_its_index_page() {
         let f = fixture();
-        let created = create(&f.paths, "notes", "随手记").unwrap();
+        let created = create(&f.paths, "notes", "随手记", "零散的记录").unwrap();
         assert_eq!(created.index_source, "notes/index.md");
 
         let raw = std::fs::read_to_string(f.paths.content.join("notes/index.md")).unwrap();
         assert!(raw.contains("title = \"随手记\""), "{raw}");
+        // 简介当场写进索引页：不写的话新栏目一建出来就会被 SEO 体检记一条缺描述
+        assert!(raw.contains("description = \"零散的记录\""), "{raw}");
 
         // 再建一次不覆盖
-        let err = create(&f.paths, "notes", "随手记").unwrap_err();
+        let err = create(&f.paths, "notes", "随手记", "").unwrap_err();
         assert!(err.to_string().contains("已经有索引页"), "{err}");
 
         // 标题留空时退回目录名
-        create(&f.paths, "logs", "  ").unwrap();
+        create(&f.paths, "logs", "  ", "").unwrap();
         let raw = std::fs::read_to_string(f.paths.content.join("logs/index.md")).unwrap();
         assert!(raw.contains("title = \"logs\""), "{raw}");
+        // 简介也留空时仍然留一个空键，编辑器里一眼能看到该补什么
+        assert!(raw.contains("description = \"\""), "{raw}");
     }
 
     #[test]
@@ -664,7 +680,7 @@ mod tests {
     fn traversal_in_names_is_stripped_before_touching_disk() {
         let f = fixture();
         // sanitize 之后是 evil，不会跑到内容目录之外
-        let created = create(&f.paths, "../../evil", "越界").unwrap();
+        let created = create(&f.paths, "../../evil", "越界", "").unwrap();
         assert_eq!(created.path, "evil");
         assert!(f.paths.content.join("evil/index.md").is_file());
     }

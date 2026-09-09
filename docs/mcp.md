@@ -48,17 +48,20 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 
 需要 `--allow-write`：
 
-- `create_content`：按标题生成 front matter 骨架，默认草稿
+- `create_content`：按标题生成 front matter 骨架，默认草稿。
+  路径默认由 `section` + slug/标题推导；要写进归档式目录（`posts/2026/09/hello.md`）
+  就直接给 `path`，它一给就完全按它落盘，`section` 与 `slug` 不再参与推导
 - `write_content`：整文件覆盖写入，返回增量计划
 - `patch_front_matter`：只改指定字段（标题、描述、关键词、标签、日期、旧地址、草稿…），
   正文与其他键原样保留。**补 SEO 字段用这个**，比整文覆盖安全
 - `create_section`：建一层栏目目录并写好索引页（没有索引页的栏目打不开列表页）。
-  栏目的标题、简介、排序权重就是索引页的 front matter，用 `patch_front_matter`
-  改即可，不另开一个工具
+  建的时候一并给 `description`——留空的话新栏目立刻会被 `audit_seo` 记一条
+  `description.missing`。栏目的标题、简介、排序权重就是索引页的 front matter，
+  之后改用 `patch_front_matter` 即可，不另开一个工具
 - `rename_section`：栏目改名。默认 `keep_aliases = true`，给每篇文章补旧地址，
   构建后老链接经重定向页继续可用
-- `move_content`：把一篇内容搬到另一个栏目，默认补旧地址。栏目索引页不能搬；
-  批量搬就逐篇调用
+- `move_content`：把一篇内容搬到另一个栏目，默认补旧地址。`to_section` 传空串
+  表示搬到内容根目录。栏目索引页不能搬；批量搬就逐篇调用
 - `replace_text`：跨文件替换**正文**里的一段文字（改称呼、统一术语）。
   front matter 一个字节都不碰——改字段用 `patch_front_matter`；纯文本，不支持正则。
   **默认 `dry_run = true`**：先回传哪几篇、共几处、每处前后对照，

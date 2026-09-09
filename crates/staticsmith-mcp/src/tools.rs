@@ -153,7 +153,7 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "create_content",
             title: "新建内容",
-            description: "按标题生成 front matter 骨架，默认草稿。重名自动追加序号，不会覆盖已有文件。",
+            description: "按标题生成 front matter 骨架，默认草稿。重名自动追加序号，不会覆盖已有文件。路径要么用 section+slug 让它推导，要么用 path 自己写死。",
             access: Access::Write,
             schema: || {
                 json!({
@@ -162,6 +162,7 @@ pub fn all() -> Vec<ToolDef> {
                         "title": { "type": "string" },
                         "section": { "type": "string", "description": "栏目目录，默认 posts" },
                         "slug": { "type": "string" },
+                        "path": { "type": "string", "description": "直接指定源文路径（相对 content/），如 posts/2026/hello.md。给了它就不再看 section 与 slug；缺扩展名会补 .md；不做 slug 化，中文文件名照原样保留" },
                         "template": { "type": "string" },
                         "description": { "type": "string" },
                         "tags": { "type": "array", "items": { "type": "string" } },
@@ -312,7 +313,8 @@ pub fn all() -> Vec<ToolDef> {
                     "type": "object",
                     "properties": {
                         "path": { "type": "string", "description": "相对 content/ 的目录，如 notes 或 posts/2026" },
-                        "title": { "type": "string", "description": "栏目标题，留空则用目录名" }
+                        "title": { "type": "string", "description": "栏目标题，留空则用目录名" },
+                        "description": { "type": "string", "description": "栏目简介，写进索引页。留空的话 audit_seo 会立刻报 description.missing" }
                     },
                     "required": ["path"],
                     "additionalProperties": false
@@ -595,7 +597,7 @@ fn read_template(builder: &Builder, args: &Value) -> Result<String, String> {
 }
 
 fn build_plan(builder: &Builder, args: &Value) -> Result<String, String> {
-    let plan = builder.plan(parse_mode(args)).map_err(err)?;
+    let plan = builder.plan(parse_mode(args)?).map_err(err)?;
     pretty(&json!(plan))
 }
 
@@ -609,6 +611,7 @@ fn create_content(builder: &mut Builder, args: &Value) -> Result<String, String>
         .unwrap_or("posts")
         .to_string();
     request.slug = args.get("slug").and_then(Value::as_str).map(str::to_string);
+    request.path = args.get("path").and_then(Value::as_str).map(str::to_string);
     request.template = args
         .get("template")
         .and_then(Value::as_str)
@@ -690,7 +693,13 @@ fn replace_text(builder: &mut Builder, args: &Value) -> Result<String, String> {
 
 fn move_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?.to_string();
-    let to_section = require_str(args, "to_section")?.to_string();
+    // `to_section` 必须**出现**，但可以是空串——空串就是搬到根目录，schema 一直这么写。
+    // 原先用 `require_str`，而它把空串 filter 掉判成缺参，于是「搬到根目录」根本做不到。
+    let to_section = args
+        .get("to_section")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "缺少必填参数 to_section（搬到根目录传空串）".to_string())?
+        .to_string();
     let keep_aliases = args
         .get("keep_aliases")
         .and_then(Value::as_bool)
@@ -807,7 +816,14 @@ fn create_section(builder: &mut Builder, args: &Value) -> Result<String, String>
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let created = builder.create_section(&path, &title).map_err(err)?;
+    let description = args
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let created = builder
+        .create_section(&path, &title, &description)
+        .map_err(err)?;
     pretty(&json!({
         "path": created.path,
         "index_source": created.index_source,
@@ -892,6 +908,13 @@ fn patch_front_matter(builder: &mut Builder, args: &Value) -> Result<String, Str
         patch.tags = Some(string_list(value, "tags")?);
         touched.push("tags");
     }
+    // `Patch::aliases` 在 core 里一直都有，schema 与工具描述也都写着能改「旧地址」,
+    // 但这里从来没读过它——传了就被静默丢掉。改 slug 之后补旧地址是最常见的一次改动，
+    // 没有它 Agent 只能整文 `write_content` 覆盖，风险大得多。
+    if let Some(value) = args.get("aliases") {
+        patch.aliases = Some(string_list(value, "aliases")?);
+        touched.push("aliases");
+    }
     if let Some(value) = args.get("draft").and_then(Value::as_bool) {
         patch.draft = Some(value);
         touched.push("draft");
@@ -961,7 +984,7 @@ fn write_template(builder: &mut Builder, args: &Value) -> Result<String, String>
 }
 
 fn build_site(builder: &mut Builder, args: &Value) -> Result<String, String> {
-    let report = builder.build(parse_mode(args)).map_err(err)?;
+    let report = builder.build(parse_mode(args)?).map_err(err)?;
     pretty(&json!(report))
 }
 
@@ -982,10 +1005,23 @@ fn deploy_site(builder: &mut Builder) -> Result<String, String> {
 
 // ---------------------------------------------------------------- 工具函数
 
-fn parse_mode(args: &Value) -> BuildMode {
-    match args.get("mode").and_then(Value::as_str) {
-        Some("full") => BuildMode::Full,
-        _ => BuildMode::Incremental,
+/// 解析 `mode` 参数。
+///
+/// **非法值报错而不是静默降级。** 原先是 `_ => Incremental`，于是 `"FULL"`、`"fulll"`
+/// 这类拼写会被当成增量处理，Agent 只会奇怪「为什么没有全量」而拿不到任何提示。
+/// schema 里既然声明了 enum，服务端就该照着校验——同一个服务里 `audit_seo` 的
+/// `severity` 是会报错的，两套标准更容易让人踩坑。
+fn parse_mode(args: &Value) -> Result<BuildMode, String> {
+    match args.get("mode") {
+        None | Some(Value::Null) => Ok(BuildMode::Incremental),
+        Some(Value::String(raw)) => match raw.as_str() {
+            "incremental" => Ok(BuildMode::Incremental),
+            "full" => Ok(BuildMode::Full),
+            other => Err(format!(
+                "mode 只能是 incremental / full，收到 {other}（区分大小写）"
+            )),
+        },
+        Some(other) => Err(format!("mode 应当是字符串，收到 {other}")),
     }
 }
 
@@ -1011,9 +1047,129 @@ mod tests {
     /// 脚手架出一个真项目，用来跑「体检 → 补字段 → 再体检」这条运营主链路。
     fn project() -> (tempfile::TempDir, Builder) {
         let dir = tempfile::tempdir().unwrap();
-        staticsmith_core::scaffold::init_project(dir.path(), Some("测试站")).unwrap();
+        staticsmith_core::scaffold::init_project(
+            dir.path(),
+            Some("测试站"),
+            staticsmith_core::scaffold::Preset::Docs,
+        )
+        .unwrap();
         let builder = Builder::open(dir.path()).unwrap();
         (dir, builder)
+    }
+
+    /// 写权限齐全的那一套，测试里反复要用。
+    fn writer() -> Permissions {
+        Permissions {
+            write: true,
+            deploy: false,
+        }
+    }
+
+    /// `mode` 拼错要报错，而不是静默按增量跑。
+    ///
+    /// 这条盯的是「schema 声明了 enum，服务端就得校验」——原先 `_ => Incremental`
+    /// 会把 `"FULL"` 当增量，Agent 拿不到任何提示。
+    #[test]
+    fn invalid_build_mode_is_rejected_not_downgraded() {
+        let (_dir, mut builder) = project();
+
+        for bad in [json!("FULL"), json!("fulll"), json!(1)] {
+            for tool in ["build_plan", "build_site"] {
+                let result = call(&mut builder, writer(), tool, &json!({ "mode": bad }));
+                assert_eq!(result["isError"], true, "{tool} 收到 {bad} 应当报错");
+                let text = result["content"][0]["text"].as_str().unwrap();
+                assert!(text.contains("mode"), "{text}");
+            }
+        }
+
+        // 合法值仍然照常工作，且大小写敏感这件事只影响非法值。
+        for good in ["incremental", "full"] {
+            let ok = call(
+                &mut builder,
+                writer(),
+                "build_plan",
+                &json!({ "mode": good }),
+            );
+            assert_eq!(ok["isError"], false, "{good} 应当通过");
+        }
+    }
+
+    /// 搬到根目录：schema 一直写着「根目录传空串」，以前 `require_str` 把空串判成缺参。
+    #[test]
+    fn move_content_can_target_the_root_section() {
+        let (dir, mut builder) = project();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "move_content",
+            &json!({ "source": "posts/hello-staticsmith.md", "to_section": "" }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+        assert!(dir.path().join("content/hello-staticsmith.md").is_file());
+        assert!(!dir
+            .path()
+            .join("content/posts/hello-staticsmith.md")
+            .exists());
+
+        // 完全不给这个参数仍然要报错——「可以是空串」不等于「可以不给」。
+        let missing = call(
+            &mut builder,
+            writer(),
+            "move_content",
+            &json!({ "source": "hello-staticsmith.md" }),
+        );
+        assert_eq!(missing["isError"], true);
+    }
+
+    /// `aliases` 以前在 schema 里有、实现里没读，传了被静默丢掉。
+    #[test]
+    fn patch_front_matter_writes_aliases() {
+        let (dir, mut builder) = project();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "patch_front_matter",
+            &json!({
+                "source": "posts/hello-staticsmith.md",
+                "aliases": ["/old-url/", "/even-older/"]
+            }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+
+        let raw =
+            std::fs::read_to_string(dir.path().join("content/posts/hello-staticsmith.md")).unwrap();
+        assert!(raw.contains("/old-url/"), "{raw}");
+        assert!(raw.contains("/even-older/"), "{raw}");
+
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("aliases"), "改动的字段清单里要有它：{text}");
+    }
+
+    /// 直接给路径：不看 section 与 slug，也不做 slug 化。
+    #[test]
+    fn create_content_accepts_an_explicit_path() {
+        let (dir, mut builder) = project();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "create_content",
+            &json!({
+                "title": "初雪",
+                "section": "posts",
+                "slug": "ignored",
+                "path": "笔记/2026/初雪.md",
+                "draft": false
+            }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+
+        let created: serde_json::Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(created["created"], "笔记/2026/初雪.md");
+        assert!(dir.path().join("content/笔记/2026/初雪.md").is_file());
     }
 
     #[test]

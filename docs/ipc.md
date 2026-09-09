@@ -7,7 +7,9 @@
 
 ## 项目生命周期
 
-- `init_project(path, title?) -> PathBuf[]`：写入脚手架，返回创建的文件。已存在的文件跳过
+- `list_presets() -> PresetOption[]`：可选版式（`slug` / `title` / `description`），供起始页做选择
+- `init_project(path, title?, preset?) -> PathBuf[]`：写入脚手架，返回创建的文件。已存在的文件跳过。
+  `preset` 取 `docs`（默认）或 `blog`；两套版式写出的文件路径完全相同，只是模板与样式不同
 - `is_project(path) -> bool`：目录下是否有 `staticsmith.toml`
 - `open_project(path) -> ProjectSummary`：打开项目并启动文件监听
 - `close_project()`：关闭项目，监听随之停止
@@ -60,9 +62,13 @@
 `PageSummary.tags` 带上了页面标签，属性面板据此给出全站已用过的标签候选。
 
 
-`create_content` 的 `request` 字段：`section`、`title`、`slug?`、`template?`、
+`create_content` 的 `request` 字段：`section`、`title`、`path?`、`slug?`、`template?`、
 `description?`、`tags?`、`draft?`（缺省 true）。文件名由 slug 或标题推导，
 同名时追加 `-2`；`section` 里的 `..` 会被丢弃。
+
+`path` 是**显式指定**的源文件路径（相对 `content/`，如 `posts/2026/hello.md`）。
+给了就完全按它落盘，`section` 与 `slug` 都不再参与推导；省略后缀时补 `.md`。
+归档式目录（按年月分层）推导不出来，只能这样手写。
 
 ## 本地预览服务器
 
@@ -141,7 +147,8 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 说明还没生成过——界面要提示「先生成」，不能显示成「零死链」。
 
 - `list_sections() -> Section[]`：栏目清单（含根目录）
-- `create_section(path, title) -> { path, index_source }`：建目录并写索引页
+- `create_section(path, title, description?) -> { path, index_source }`：建目录并写索引页。
+  `description` 一并写进索引页——留空的话新栏目一建出来就会被 SEO 体检记一条 `description.missing`
 - `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added }`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
 - `save_section_meta(args: { path, title, description, weight }) -> Section[]`：

@@ -12,6 +12,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use staticsmith_core::batch::TagEdit;
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
+use staticsmith_core::scaffold::Preset;
 use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
 use staticsmith_deploy::{DeployReport, Progress};
 use staticsmith_mcp::{McpServer, Permissions};
@@ -61,6 +62,9 @@ pub enum Command {
         /// 站点标题
         #[arg(short, long)]
         title: Option<String>,
+        /// 模板预设：docs（极简文档站）/ blog（博客园风格博客）
+        #[arg(long, default_value = "docs", value_parser = parse_preset)]
+        preset: Preset,
     },
 
     /// 新建一篇内容
@@ -361,7 +365,11 @@ fn main() -> Result<()> {
 
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
-        Command::Init { path, title } => cmd_init(&path, title.as_deref()),
+        Command::Init {
+            path,
+            title,
+            preset,
+        } => cmd_init(&path, title.as_deref(), preset),
         Command::New {
             title,
             section,
@@ -514,10 +522,11 @@ fn mode(full: bool) -> BuildMode {
     }
 }
 
-pub fn cmd_init(path: &PathBuf, title: Option<&str>) -> Result<()> {
-    let report = scaffold::init_project(path, title).context("创建站点骨架失败")?;
+pub fn cmd_init(path: &PathBuf, title: Option<&str>, preset: Preset) -> Result<()> {
+    let report = scaffold::init_project(path, title, preset).context("创建站点骨架失败")?;
     println!(
-        "已创建 {} 个文件，跳过 {} 个已存在文件：{}",
+        "已按「{}」预设创建 {} 个文件，跳过 {} 个已存在文件：{}",
+        preset.title(),
         report.created.len(),
         report.skipped.len(),
         path.display()
@@ -526,6 +535,17 @@ pub fn cmd_init(path: &PathBuf, title: Option<&str>) -> Result<()> {
         println!("下一步：staticsmith build --project {}", path.display());
     }
     Ok(())
+}
+
+/// `--preset` 的取值校验。
+///
+/// 不给 `Preset` 加 clap 派生（那会让 core 依赖 clap），也不在这里抄一遍变体清单——
+/// 可选值从 `Preset::ALL` 现取，加一套预设不必回来改这里。
+fn parse_preset(raw: &str) -> std::result::Result<Preset, String> {
+    Preset::from_slug(raw).ok_or_else(|| {
+        let all: Vec<&str> = Preset::ALL.iter().map(|p| p.slug()).collect();
+        format!("未知预设「{raw}」，可选：{}", all.join(" / "))
+    })
 }
 
 pub fn cmd_new(project: &PathBuf, request: &NewContent) -> Result<String> {
@@ -1281,7 +1301,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
 
-        cmd_init(&root, Some("CLI 测试站")).unwrap();
+        cmd_init(&root, Some("CLI 测试站"), Preset::Docs).unwrap();
         assert!(root.join("staticsmith.toml").is_file());
 
         let source = cmd_new(&root, &NewContent::new("命令行新建").in_section("posts")).unwrap();
@@ -1530,7 +1550,7 @@ mod tests {
     fn audit_fails_on_dead_links_and_can_be_told_not_to() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().to_path_buf();
-        cmd_init(&root, Some("门禁测试站")).unwrap();
+        cmd_init(&root, Some("门禁测试站"), Preset::Docs).unwrap();
 
         std::fs::write(
             root.join("content/posts/dead.md"),

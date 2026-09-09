@@ -5,9 +5,12 @@ use std::path::Path;
 use staticsmith_core::{build::BuildMode, scaffold, Builder, NewContent, OutputKind};
 
 /// 新建一个临时项目并返回其根目录。
+///
+/// 固定用 docs 预设：这些断言查的是**引擎行为**（级联范围、分页产物、增量跳过），
+/// 不是某套模板的标记。换预设会让断言跟着版式漂，那是模板测试该管的事。
 fn new_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();
-    scaffold::init_project(dir.path(), Some("测试站点")).unwrap();
+    scaffold::init_project(dir.path(), Some("测试站点"), scaffold::Preset::Docs).unwrap();
     dir
 }
 

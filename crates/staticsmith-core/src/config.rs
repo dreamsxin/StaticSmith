@@ -563,12 +563,12 @@ pub struct ProjectPaths {
 
 impl ProjectPaths {
     pub fn new(root: impl AsRef<Path>, build: &Build, assets: &Assets) -> Self {
-        let root = root.as_ref().to_path_buf();
+        let root = tidy(root.as_ref());
         let join = |p: &Path| {
             if p.is_absolute() {
-                p.to_path_buf()
+                tidy(p)
             } else {
-                root.join(p)
+                tidy(&root.join(p))
             }
         };
         let static_dir = join(&build.static_dir);
@@ -588,6 +588,15 @@ impl ProjectPaths {
             root,
         }
     }
+}
+
+/// 把 `.` 段折掉。
+///
+/// 配置里的目录默认写成 `./content`，直接 `root.join()` 会留下
+/// `D:\site\.\content` 这种路径——能打开，但显示给人看（`site_info`、错误信息、
+/// 日志）就很扎眼。`Components` 迭代本身会跳过中间的 `.`，重新收集一遍即可。
+fn tidy(path: &Path) -> PathBuf {
+    path.components().collect()
 }
 
 fn default_language() -> String {
@@ -901,10 +910,20 @@ url = "/"
         let build = Build::default();
         let assets = Assets::default();
         let paths = ProjectPaths::new("/tmp/site", &build, &assets);
-        assert_eq!(paths.content, PathBuf::from("/tmp/site/./content"));
+        // 配置默认写成 ./content，但落到路径上要干净——site_info、日志、错误信息都直接给人看
+        assert_eq!(paths.content, PathBuf::from("/tmp/site/content"));
         assert!(paths.index_db.ends_with("index.db"));
         assert!(paths.assets.ends_with("images"));
         assert!(paths.assets.starts_with(&paths.static_dir));
+    }
+
+    #[test]
+    fn project_paths_drop_dot_segments_from_the_root_too() {
+        let build = Build::default();
+        let assets = Assets::default();
+        let paths = ProjectPaths::new("/tmp/./site", &build, &assets);
+        assert_eq!(paths.root, PathBuf::from("/tmp/site"));
+        assert_eq!(paths.output, PathBuf::from("/tmp/site/dist"));
     }
 
     #[test]

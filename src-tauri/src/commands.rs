@@ -121,10 +121,40 @@ pub struct ThemeExportArgs {
 
 // ---------------------------------------------------------------- 项目生命周期
 
-/// 新建项目：写入模板、主题与示例内容，返回创建的文件列表。
+/// 一套可选的站点模板预设，给起始页的「选一套外观」用。
+#[derive(Debug, Serialize)]
+pub struct PresetOption {
+    pub slug: String,
+    pub title: String,
+    pub description: String,
+}
+
+/// 可选的模板预设清单。
+///
+/// 界面不硬编码这几套的名字与说明：加一套预设只该改 core 的 `Preset`，
+/// 而不是同时改 Rust 与前端两处文案。
 #[tauri::command]
-pub fn init_project(path: PathBuf, title: Option<String>) -> Result<Vec<PathBuf>> {
-    let report = scaffold::init_project(&path, title.as_deref())?;
+pub fn list_presets() -> Vec<PresetOption> {
+    scaffold::Preset::ALL
+        .into_iter()
+        .map(|preset| PresetOption {
+            slug: preset.slug().to_string(),
+            title: preset.title().to_string(),
+            description: preset.description().to_string(),
+        })
+        .collect()
+}
+
+/// 新建项目：写入模板、主题与示例内容，返回创建的文件列表。
+///
+/// `preset` 缺省走 `Preset::default()`，让「不选」也能建站。
+#[tauri::command]
+pub fn init_project(
+    path: PathBuf,
+    title: Option<String>,
+    preset: Option<scaffold::Preset>,
+) -> Result<Vec<PathBuf>> {
+    let report = scaffold::init_project(&path, title.as_deref(), preset.unwrap_or_default())?;
     Ok(report.created)
 }
 
@@ -747,9 +777,13 @@ pub fn create_section(
     state: State<'_, AppState>,
     path: String,
     title: String,
+    description: Option<String>,
 ) -> Result<SectionCreated> {
     state.with_session_mut(|session| {
-        let created = session.builder.create_section(&path, &title)?;
+        let created =
+            session
+                .builder
+                .create_section(&path, &title, description.as_deref().unwrap_or(""))?;
         let index = content::resolve_source(&session.builder.paths.content, &created.index_source)?;
         state.note_self_write(&index);
         Ok(created)

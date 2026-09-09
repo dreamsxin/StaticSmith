@@ -209,7 +209,16 @@ async function openHit(hit: SearchHit) {
 const creating = ref(false)
 const newTitle = ref('')
 const newSection = ref('posts')
+/**
+ * 手写源文件路径。
+ *
+ * 留空走「栏目 + 标题」推导，够日常用；但归档结构（`posts/2026/09/hello.md`）
+ * 推导不出来，只能让人直接写。写了就以它为准，栏目退到一边——两个都参与推导
+ * 会出现「栏目填 posts、路径填 notes/x.md」这种自相矛盾的输入。
+ */
+const newPath = ref('')
 const titleBox = ref<HTMLInputElement | null>(null)
+
 
 /** 已有栏目做候选，避免同一个栏目写出 post / posts 两种。 */
 const sections = computed(() => {
@@ -227,8 +236,9 @@ function openCreate() {
 
 async function create() {
   if (!newTitle.value.trim()) return
-  await actions.createContent(newTitle.value.trim(), newSection.value.trim())
+  await actions.createContent(newTitle.value.trim(), newSection.value.trim(), newPath.value.trim())
   newTitle.value = ''
+  newPath.value = ''
   creating.value = false
 }
 
@@ -376,6 +386,8 @@ async function confirmPending() {
 const creatingSection = ref(false)
 const newSectionPath = ref('')
 const newSectionTitle = ref('')
+/** 栏目简介。当场填掉，否则新栏目一建出来体检面板就多一条「缺描述」。 */
+const newSectionDescription = ref('')
 const sectionBox = ref<HTMLInputElement | null>(null)
 
 function openCreateSection() {
@@ -388,9 +400,14 @@ function openCreateSection() {
 async function createSection() {
   const path = newSectionPath.value.trim()
   if (!path) return
-  await actions.createSection(path, newSectionTitle.value.trim())
+  await actions.createSection(
+    path,
+    newSectionTitle.value.trim(),
+    newSectionDescription.value.trim(),
+  )
   newSectionPath.value = ''
   newSectionTitle.value = ''
+  newSectionDescription.value = ''
   creatingSection.value = false
 }
 
@@ -908,7 +925,13 @@ async function copyText(text: string) {
         栏目标题
         <input v-model="newSectionTitle" type="text" placeholder="留空则用目录名" />
       </label>
-      <p class="page-list__hint">会同时生成索引页（index.md）——没有它，栏目列表页打不开。</p>
+      <label>
+        栏目简介
+        <input v-model="newSectionDescription" type="text" placeholder="一句话说明这个栏目写什么" />
+      </label>
+      <p class="page-list__hint">
+        会同时生成索引页（index.md）——没有它，栏目列表页打不开。简介留空的话，体检面板会立刻记一条「缺描述」。
+      </p>
       <div class="page-list__new-actions">
         <button type="submit" class="btn--primary" :disabled="store.busy || !newSectionPath.trim()">
           创建栏目
@@ -930,8 +953,18 @@ async function copyText(text: string) {
           type="text"
           list="known-sections"
           placeholder="posts（留空为根目录）"
+          :disabled="newPath.trim() !== ''"
         />
       </label>
+      <label>
+        路径（可选）
+        <input v-model="newPath" type="text" placeholder="posts/2026/hello.md" />
+      </label>
+      <p class="page-list__new-hint">
+        留空则按「栏目 + 标题」生成文件名。填了就完全按它落盘，栏目由路径本身决定；省略
+        <code>.md</code> 会自动补上。
+      </p>
+
       <div class="page-list__new-actions">
         <button type="submit" class="btn--primary" :disabled="store.busy || !newTitle.trim()">
           创建草稿

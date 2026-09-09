@@ -361,7 +361,7 @@ mod tests {
 
     fn start() -> (tempfile::TempDir, McpHttpServer) {
         let dir = tempfile::tempdir().unwrap();
-        scaffold::init_project(dir.path(), Some("MCP 传输测试")).unwrap();
+        scaffold::init_project(dir.path(), Some("MCP 传输测试"), scaffold::Preset::Docs).unwrap();
         let server = Arc::new(McpServer::open(dir.path(), Permissions::read_only()).unwrap());
         let http = serve_http(server, 0).unwrap();
         (dir, http)

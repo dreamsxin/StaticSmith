@@ -65,8 +65,10 @@ cargo run -p staticsmith-cli -- serve --project ./my-site
 cargo run -p staticsmith-cli -- mcp --sse --project ./my-site
 ```
 
-首次运行界面后：**在空目录新建站点** → 自动写入 `templates/`、`themes/default/`、
-`content/` 与 `staticsmith.toml` → 编辑内容 → 「生成」→「发布」。
+首次运行界面后：**在空目录新建站点**（选一套版式：橙色极简文档站 / 博客园风格博客）
+→ 自动写入 `templates/`、`themes/default/`、`content/` 与 `staticsmith.toml`
+→ 编辑内容 → 「生成」→「发布」。命令行对应 `staticsmith init --preset docs|blog`。
+两套版式写出的文件路径完全一样，换的只是模板与样式。
 
 ## 仓库结构
 
@@ -77,7 +79,10 @@ StaticSmith/
 ├── index.html  vite.config.ts    # 前端入口与构建配置
 ├── crates/
 │   ├── staticsmith-core/         # 生成引擎（无 GUI 依赖，可独立复用）
-│   │   ├── scaffold/             # 新建项目时写入的模板、主题与示例内容
+│   │   ├── scaffold/             # 新建项目时写入的文件
+│   │   │   ├── staticsmith.toml  # 两套版式共用
+│   │   │   ├── content/          # 两套版式共用的示例内容
+│   │   │   └── presets/          # docs（橙色极简文档站）/ blog（博客园风格）各自的模板与样式
 │   │   ├── src/
 │   │   │   ├── config.rs         # staticsmith.toml 读写与校验
 │   │   │   ├── content.rs        # Markdown + front matter 解析

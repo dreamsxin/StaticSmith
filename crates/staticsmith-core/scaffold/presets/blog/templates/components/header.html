@@ -1,0 +1,23 @@
+{# 头部：博客标题 + 签名 + 导航。导航项来自 [[menu]]，分类维度自动补在后面。 #}
+<div id="header">
+  <div id="blogTitle">
+    <h1><a href="/">{{ site.title }}</a></h1>
+    <h2>{{ site.description }}</h2>
+  </div>
+  <div id="navigator">
+    <ul id="navList">
+      {% if menu %}
+        {% for item in menu %}
+        <li><a class="menu" href="{{ item.url | safe }}"{% if item.blank %} target="_blank" rel="noopener"{% endif %}>{{ item.name }}</a></li>
+        {% endfor %}
+      {% else %}
+        <li><a class="menu" href="/">首页</a></li>
+        <li><a class="menu" href="/posts/">随笔</a></li>
+      {% endif %}
+      {% for tax in taxonomies %}
+      <li><a class="menu" href="/{{ tax.slug }}/">{{ tax.title }}</a></li>
+      {% endfor %}
+    </ul>
+    <div class="blogStats">共 {{ pages | length }} 篇 · 由 {{ generator }} 生成</div>
+  </div>
+</div>

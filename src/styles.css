@@ -254,7 +254,67 @@ h3 {
   min-width: 0;
 }
 
+/* 版式选择：每项都要带一句说明，所以用单选列表而不是下拉。
+   选中态给整块换底色 + 描边，而不是只把那个小圆点点上——一眼扫过去要看得出选了哪套。 */
+.welcome__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.welcome__presets legend {
+  padding: 0;
+  margin-bottom: 0.375rem;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.welcome__preset {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.welcome__preset:hover {
+  background: var(--bg-subtle);
+}
+
+.welcome__preset:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+
+.welcome__preset:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.welcome__preset input {
+  margin: 0;
+  align-self: center;
+}
+
+.welcome__preset-title {
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.welcome__preset-desc {
+  grid-column: 2;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+
 .welcome__recent {
+
   width: 100%;
   padding: 0;
   margin: 0;
@@ -992,10 +1052,19 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* 路径与栏目是互斥的两种写法，说明必须紧跟在下面，不能等出错了才讲。 */
+.page-list__new-hint {
+  margin: -0.1rem 0 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  line-height: 1.5;
+}
+
 .page-list__new-actions {
   display: flex;
   gap: 0.4rem;
 }
+
 
 
 .page-list__group {

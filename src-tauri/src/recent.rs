@@ -172,7 +172,12 @@ mod tests {
     #[test]
     fn prune_drops_directories_that_are_no_longer_projects() {
         let dir = tempfile::tempdir().unwrap();
-        staticsmith_core::scaffold::init_project(dir.path(), Some("在的")).unwrap();
+        staticsmith_core::scaffold::init_project(
+            dir.path(),
+            Some("在的"),
+            staticsmith_core::scaffold::Preset::Docs,
+        )
+        .unwrap();
 
         let mut list = RecentProjects::default();
         list.touch(dir.path(), "在的", "t".into());

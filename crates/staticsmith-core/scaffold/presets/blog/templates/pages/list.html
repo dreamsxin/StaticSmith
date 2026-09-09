@@ -1,0 +1,25 @@
+{% extends "layouts/base.html" %}
+{% block og_type %}website{% endblock %}
+{% block main %}
+<div class="entrylistTitle">
+  <h1>{{ page.title }}</h1>
+  {% if page.description %}<div class="entrylistDescription">{{ page.description }}</div>{% endif %}
+</div>
+{% if page.content %}<div class="entrylistDescription">{{ page.content | safe }}</div>{% endif %}
+
+{% for item in items %}
+<div class="day">
+  <div class="postTitle"><h2><a class="postTitle2" href="{{ item.url | safe }}">{{ item.title }}</a></h2></div>
+  {% if item.description %}<div class="postCon"><div class="c_b_p_desc">{{ item.description }}<a class="c_b_p_desc_readmore" href="{{ item.url | safe }}">阅读全文</a></div></div>{% endif %}
+  <div class="clear"></div>
+  <div class="postDesc">
+    posted @ {% if item.date %}<span class="post-date">{{ item.date | date(format="%Y-%m-%d") }}</span>{% else %}<span class="post-date">未标注日期</span>{% endif %}
+    {% if item.tags %} · {% for tag in item.tags %}<span class="tag">{{ tag }}</span>{% if not loop.last %} {% endif %}{% endfor %}{% endif %}
+  </div>
+</div>
+{% else %}
+<div class="day"><div class="postCon">这个栏目还没有文章。</div></div>
+{% endfor %}
+
+{% include "components/pagination.html" %}
+{% endblock %}

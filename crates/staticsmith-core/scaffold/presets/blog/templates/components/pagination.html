@@ -1,0 +1,11 @@
+{# 分页：博客园的「上一页 1 2 3 下一页」样式，所有列表页共用。 #}
+{% if pagination and pagination.total_pages > 1 %}
+<div id="nav_next_page"><div class="pager">
+  {% if pagination.prev_url %}<a href="{{ pagination.prev_url | safe }}">&lt; 上一页</a>{% endif %}
+  {% for url in pagination.page_urls %}
+    {% set number = loop.index %}
+    {% if number == pagination.current_page %}<span class="current">{{ number }}</span>{% else %}<a href="{{ url | safe }}">{{ number }}</a>{% endif %}
+  {% endfor %}
+  {% if pagination.next_url %}<a href="{{ pagination.next_url | safe }}">下一页 &gt;</a>{% endif %}
+</div></div>
+{% endif %}

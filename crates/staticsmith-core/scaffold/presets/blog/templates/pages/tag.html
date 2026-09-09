@@ -1,0 +1,19 @@
+{% extends "layouts/base.html" %}
+{% block og_type %}website{% endblock %}
+{% block main %}
+<div class="entrylistTitle">
+  <h1>{{ taxonomy.title }}：{{ term.name }}</h1>
+  <div class="entrylistDescription">共 {{ term.count }} 篇</div>
+</div>
+
+{% for item in items %}
+<div class="day">
+  <div class="postTitle"><h2><a class="postTitle2" href="{{ item.url | safe }}">{{ item.title }}</a></h2></div>
+  {% if item.description %}<div class="postCon"><div class="c_b_p_desc">{{ item.description }}</div></div>{% endif %}
+  <div class="clear"></div>
+  <div class="postDesc">posted @ {% if item.date %}{{ item.date | date(format="%Y-%m-%d") }}{% else %}未标注日期{% endif %}</div>
+</div>
+{% endfor %}
+
+{% include "components/pagination.html" %}
+{% endblock %}
