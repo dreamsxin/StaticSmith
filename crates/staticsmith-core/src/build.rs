@@ -18,6 +18,7 @@ use crate::index::{AssetRecord, Index, PageRecord};
 use crate::links;
 use crate::media;
 use crate::outputs;
+use crate::replace;
 use crate::sections;
 use crate::seo;
 use crate::taxonomy;
@@ -256,6 +257,26 @@ impl Builder {
         action: &batch::Action,
     ) -> Result<batch::Preview> {
         batch::preview(&self.paths, sources, action)
+    }
+
+    /// 干跑一次跨文件替换：哪几篇、共几处、每处前后长什么样。只读。
+    pub fn preview_replace(
+        &self,
+        scope: &replace::Scope,
+        rule: &replace::Rule,
+    ) -> Result<replace::Report> {
+        replace::preview(&self.paths, scope, rule)
+    }
+
+    /// 执行跨文件替换。调用方要先让人看过 [`Self::preview_replace`]——正文替换没有撤销栈。
+    pub fn apply_replace(
+        &mut self,
+        scope: &replace::Scope,
+        rule: &replace::Rule,
+    ) -> Result<replace::Report> {
+        let report = replace::apply(&self.paths, scope, rule)?;
+        self.reload()?;
+        Ok(report)
     }
 
     /// 扫描待导入的内容：每篇会写到哪、front matter 变成什么样、哪里需要人看一下。

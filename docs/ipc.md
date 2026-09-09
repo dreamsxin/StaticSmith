@@ -159,6 +159,23 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 这些命令会逐个 `note_self_write`（`batch_move` 还会 `note_self_tree` 目标栏目），
 避免批量改完之后界面弹「检测到外部修改」。
 
+跨文件替换（只动正文，front matter 一个字节都不碰）：
+
+- `preview_replace(args: { find, replace, ignore_case, sources }) -> ReplaceResult`：干跑
+- `apply_replace(args: { ... }) -> ReplaceReport`：落盘，多给一个 `plan`
+
+`sources` 为空表示全站；界面上那是一个显式的二选一（「全站」/「只改选中的 N 篇」）。
+`ReplaceResult`：`files`（`{source, hits, lines}`，`lines` 是 `{line, before, after}`，
+行号从**正文**第一行算起）、`hits`（总处数）、`skipped`（`{source, reason}`）。
+每篇最多回传 5 行示例，`hits` 大于 `lines.length` 时界面要说明「另有 N 处未列出」——
+预览是给人读的，一篇 40 处逐行列出只会把面板刷满。
+
+干跑与执行共用 `staticsmith_core::replace` 的同一份判断。`apply_replace` 改哪几篇
+要等跑完才知道，所以它 `note_self_tree` 整棵内容树而不是逐个 `note_self_write`。
+界面还要负责一件事：当前打开的那篇若也被改了，得把磁盘上的新内容读回编辑器，
+否则下一次保存会用旧文本盖掉刚替换好的内容（缓冲区有未保存改动时不覆盖，只提示）。
+
+
 
 `Section`：`path`（相对 `content/`，根目录为空串）、`title`（取索引页标题，
 否则目录名）、`description` 与 `weight`（取索引页的同名字段）、`url`、

@@ -14,7 +14,7 @@ import { parseList } from '../text'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import type { BatchPreview, PageSummary, SearchHit, SeoSeverity } from '../api'
+import type { BatchPreview, PageSummary, ReplaceResult, SearchHit, SeoSeverity } from '../api'
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
@@ -220,6 +220,7 @@ const sections = computed(() => {
 
 function openCreate() {
   creating.value = true
+  replacing.value = false
   // 展开即聚焦到标题，少一次点击
   requestAnimationFrame(() => titleBox.value?.focus())
 }
@@ -380,6 +381,7 @@ const sectionBox = ref<HTMLInputElement | null>(null)
 function openCreateSection() {
   creatingSection.value = true
   creating.value = false
+  replacing.value = false
   requestAnimationFrame(() => sectionBox.value?.focus())
 }
 
@@ -401,6 +403,77 @@ watch(
   },
   { immediate: true },
 )
+
+// ---------------------------------------------------------------- 跨文件替换
+
+/**
+ * 改一个称呼、统一一个术语：以前只能逐篇点开改。
+ *
+ * 与批量动作放在一起而不是做成浮层：它跟「多选」共用一个「范围」概念——
+ * 开着多选并选了几篇时，这里能只改那几篇。
+ *
+ * 只改正文，front matter 不在范围内（理由见 staticsmith_core::replace），
+ * 界面上必须说出来，否则用户会以为标题里的词也一起换了。
+ */
+const replacing = ref(false)
+const findText = ref('')
+const replaceText = ref('')
+const ignoreCase = ref(false)
+const onlySelected = ref(false)
+const findBox = ref<HTMLInputElement | null>(null)
+/** 干跑结果。为 null 表示还没预览过——没预览过不给按「替换」。 */
+const replacePreview = ref<ReplaceResult | null>(null)
+
+function openReplace() {
+  replacing.value = true
+  creating.value = false
+  creatingSection.value = false
+  replacePreview.value = null
+  requestAnimationFrame(() => findBox.value?.focus())
+}
+
+function closeReplace() {
+  replacing.value = false
+  replacePreview.value = null
+}
+
+/** 改了任一条件，之前那份干跑结果就不再对应当前输入，作废掉。 */
+watch([findText, replaceText, ignoreCase, onlySelected, selectedList], () => {
+  replacePreview.value = null
+})
+
+const replaceScope = computed(() => (onlySelected.value ? selectedList.value : []))
+
+async function runReplacePreview() {
+  const result = await actions.previewReplace({
+    find: findText.value,
+    replace: replaceText.value,
+    ignore_case: ignoreCase.value,
+    sources: replaceScope.value,
+  })
+  if (result) replacePreview.value = result
+}
+
+async function confirmReplace() {
+  await actions.applyReplace({
+    find: findText.value,
+    replace: replaceText.value,
+    ignore_case: ignoreCase.value,
+    sources: replaceScope.value,
+  })
+  closeReplace()
+}
+
+watch(
+  () => ui.requestReplace,
+  (asked) => {
+    if (!asked) return
+    ui.requestReplace = false
+    openReplace()
+  },
+  { immediate: true },
+)
+
 
 const renamingSection = ref<string | null>(null)
 const renameTo = ref('')
@@ -749,6 +822,75 @@ async function copyText(text: string) {
       </template>
       <p v-else class="page-list__hint">勾选左侧条目，或点「全选当前」。</p>
     </div>
+
+    <!-- 跨文件替换：只改正文，先干跑再落盘 -->
+    <form v-if="replacing" class="page-list__new" @submit.prevent="runReplacePreview">
+      <h3>跨文件替换</h3>
+      <label>
+        查找
+        <input ref="findBox" v-model="findText" type="text" placeholder="要被换掉的文字" />
+      </label>
+      <label>
+        替换为
+        <input v-model="replaceText" type="text" placeholder="留空即删掉这个词" />
+      </label>
+      <label class="page-list__keep">
+        <input v-model="ignoreCase" type="checkbox" />
+        忽略大小写
+      </label>
+      <label class="page-list__keep">
+        <input v-model="onlySelected" type="checkbox" :disabled="!selected.size" />
+        只改选中的 {{ selected.size }} 篇（不勾就是全站）
+      </label>
+      <p class="page-list__hint">
+        只改正文。标题、标签这些 front matter 字段不会动——那些用「多选」里的批量动作或
+        属性面板改。不支持正则。
+      </p>
+
+      <div class="page-list__batch-row">
+        <button type="submit" :disabled="store.busy || !findText">预览…</button>
+        <button type="button" @click="closeReplace">取消</button>
+      </div>
+
+      <!-- 干跑结果：正文替换没有撤销，先看清「哪几篇、哪几行」 -->
+      <div v-if="replacePreview" class="page-list__dry">
+        <p class="page-list__batch-head">
+          {{ replacePreview.files.length }} 篇、共 {{ replacePreview.hits }} 处
+        </p>
+        <p v-if="!replacePreview.hits" class="page-list__hint">没有找到这段文字。</p>
+        <ul class="page-list__dry-list">
+          <li v-for="file in replacePreview.files" :key="file.source">
+            <code>{{ file.source }}</code>
+            <span>{{ file.hits }} 处</span>
+            <ul class="page-list__dry-lines">
+              <li v-for="line in file.lines" :key="line.line">
+                <span class="page-list__dry-no">第 {{ line.line }} 行</span>
+                <del>{{ line.before }}</del>
+                <ins>{{ line.after }}</ins>
+              </li>
+              <li v-if="file.hits > file.lines.length" class="skip">
+                另有 {{ file.hits - file.lines.length }} 处未列出
+              </li>
+            </ul>
+          </li>
+          <li v-for="item in replacePreview.skipped" :key="item.source" class="skip">
+            <code>{{ item.source }}</code>
+            <span>{{ item.reason }}</span>
+          </li>
+        </ul>
+        <div class="page-list__batch-row">
+          <button
+            type="button"
+            class="btn--primary"
+            :disabled="store.busy || !replacePreview.hits"
+            @click="confirmReplace"
+          >
+            替换这 {{ replacePreview.hits }} 处
+          </button>
+        </div>
+      </div>
+    </form>
+
 
     <form v-if="creatingSection" class="page-list__new" @submit.prevent="createSection">
       <h3>新建栏目</h3>

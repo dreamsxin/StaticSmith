@@ -595,6 +595,49 @@ export interface BatchPreview {
 export const batchPreview = (sources: string[], action: BatchAction) =>
   invoke<BatchPreview>('batch_preview', { sources, action })
 
+/** 跨文件替换的一条规则。只作用于正文，front matter 不在范围内。 */
+export interface ReplaceRule {
+  find: string
+  replace: string
+  ignore_case: boolean
+  /** 只在这几篇里找；空数组表示全站 */
+  sources: string[]
+}
+
+/** 命中的一行。行号从**正文**第一行算起，不含 front matter。 */
+export interface ReplaceLine {
+  line: number
+  before: string
+  after: string
+}
+
+export interface ReplaceFile {
+  source: string
+  /** 这篇命中几处（可能多于 lines 的条数，示例行有上限） */
+  hits: number
+  lines: ReplaceLine[]
+}
+
+export interface ReplaceResult {
+  files: ReplaceFile[]
+  /** 命中总处数 */
+  hits: number
+  skipped: BatchSkipped[]
+}
+
+export interface ReplaceReport extends ReplaceResult {
+  plan: BuildPlan
+}
+
+/** 干跑一次跨文件替换。不碰磁盘。 */
+export const previewReplace = (rule: ReplaceRule) =>
+  invoke<ReplaceResult>('preview_replace', { args: rule })
+
+/** 执行跨文件替换。界面必须先让人看过干跑结果——正文替换没有撤销栈。 */
+export const applyReplace = (rule: ReplaceRule) =>
+  invoke<ReplaceReport>('apply_replace', { args: rule })
+
+
 
 // ---------------------------------------------------------------- 栏目
 

@@ -159,13 +159,23 @@ export async function saveCurrent() {
  * 用户学到的是「这个键不好用」，不是「这个键有前提」。
  */
 export function focusSearch() {
+  openList()
+  ui.requestFocusSearch = true
+}
+
+/**
+ * 把人送到内容页并确保列表栏开着。
+ *
+ * 侧栏里的表单（搜索、新建、替换）都要先满足这个前置条件。写成一处：
+ * 三个入口各写一遍，迟早有一个忘了处理「列表栏被收起来」，那一项就成了死按钮。
+ */
+function openList() {
   goTo('content')
   if (!ui.showList) {
     // 手动打开就跟着关掉自动收放，否则下一次窗口变化又把它收回去
     ui.listOverride = true
     ui.showList = true
   }
-  ui.requestFocusSearch = true
 }
 
 /**
@@ -245,6 +255,15 @@ export function menus(): Menu[] {
           label: '查找内容',
           hint: 'Ctrl+F',
           run: focusSearch,
+        },
+        {
+          id: 'edit.replace',
+          label: '跨文件替换…',
+          hint: '只改正文，front matter 不动；先干跑再落盘',
+          run: () => {
+            openList()
+            ui.requestReplace = true
+          },
         },
         {
           id: 'edit.new',

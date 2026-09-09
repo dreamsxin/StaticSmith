@@ -14,6 +14,9 @@ use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportRep
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
+use staticsmith_core::replace::{
+    Report as ReplaceResult, Rule as ReplaceRule, Scope as ReplaceScope,
+};
 use staticsmith_core::search::Hit as SearchHit;
 use staticsmith_core::sections::{
     Created as SectionCreated, Meta as SectionMeta, Renamed as SectionRenamed, Section,
@@ -614,6 +617,73 @@ fn note_batch(state: &State<'_, AppState>, session: &Session, sources: &[String]
         let path = content::resolve_source(&session.builder.paths.content, source);
         state.note_self_write(&path);
     }
+}
+
+// ---------------------------------------------------------------- 跨文件替换
+
+/// 界面传过来的替换请求。
+///
+/// `sources` 为空表示全站——界面上那是一个显式的二选一（「全站」/「选中的 N 篇」），
+/// 空清单只在选了「全站」时才发得出来。
+#[derive(Debug, Deserialize)]
+pub struct ReplaceArgs {
+    pub find: String,
+    #[serde(default)]
+    pub replace: String,
+    #[serde(default)]
+    pub ignore_case: bool,
+    #[serde(default)]
+    pub sources: Vec<String>,
+}
+
+impl ReplaceArgs {
+    fn split(self) -> (ReplaceScope, ReplaceRule) {
+        let scope = if self.sources.is_empty() {
+            ReplaceScope::All
+        } else {
+            ReplaceScope::Only(self.sources)
+        };
+        (
+            scope,
+            ReplaceRule {
+                find: self.find,
+                replace: self.replace,
+                ignore_case: self.ignore_case,
+            },
+        )
+    }
+}
+
+/// 替换结果 + 增量计划，界面拿到就能更新「待生成」标记。
+#[derive(Debug, Serialize)]
+pub struct ReplaceReport {
+    #[serde(flatten)]
+    pub result: ReplaceResult,
+    pub plan: BuildPlan,
+}
+
+/// 干跑一次跨文件替换：哪几篇、共几处、每处前后长什么样。不碰磁盘。
+#[tauri::command]
+pub fn preview_replace(state: State<'_, AppState>, args: ReplaceArgs) -> Result<ReplaceResult> {
+    let (scope, rule) = args.split();
+    state.with_session(|session| Ok(session.builder.preview_replace(&scope, &rule)?))
+}
+
+/// 执行跨文件替换。界面必须先让人看过干跑结果——正文替换没有撤销栈。
+#[tauri::command]
+pub fn apply_replace(state: State<'_, AppState>, args: ReplaceArgs) -> Result<ReplaceReport> {
+    let (scope, rule) = args.split();
+    state.with_session_mut(|session| {
+        // 改哪几篇要等跑完才知道，所以整棵内容树先登记为自身写入，
+        // 否则监听器会把这一批改动当成外部修改，弹一堆「磁盘上变了」
+        let root = session.builder.paths.content.clone();
+        state.note_self_tree(&root);
+        let result = session.builder.apply_replace(&scope, &rule)?;
+        Ok(ReplaceReport {
+            result,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
 }
 
 // ---------------------------------------------------------------- 栏目

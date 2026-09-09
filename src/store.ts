@@ -339,7 +339,12 @@ export const actions = {
    * 小型版本控制，而这个项目里内容本来就该在 Git 下。所以宁可把「改了几篇、
    * 跳过几篇、为什么」说清楚，让用户自己决定下一步。
    */
-  async afterBatch(changed: number, skipped: api.BatchSkipped[], plan: BuildPlan) {
+  async afterBatch(
+    changed: number,
+    skipped: api.BatchSkipped[],
+    plan: BuildPlan,
+    summary?: string,
+  ) {
     await busySpan(async () => {
       state.plan = plan
       await this.refresh()
@@ -347,14 +352,16 @@ export const actions = {
       if (state.seo) await this.auditSeo()
       if (state.autoBuild && changed > 0) await this.build('incremental', { quiet: true })
 
+      // 「改了几篇」不总是最有用的那句话（替换要说清共几处），所以允许调用方换掉它
+      const done = summary ?? `已处理 ${changed} 篇`
       if (skipped.length === 0) {
-        notify('success', `已处理 ${changed} 篇`)
+        notify('success', done)
         return
       }
       // 只报第一条原因：十几条堆在提示里没人看，剩下的数量给出来就够了
       const first = `${skipped[0].source}：${skipped[0].reason}`
       const rest = skipped.length > 1 ? `，另有 ${skipped.length - 1} 篇被跳过` : ''
-      notify(changed > 0 ? 'info' : 'error', `已处理 ${changed} 篇；跳过 ${first}${rest}`)
+      notify(changed > 0 ? 'info' : 'error', `${done}；跳过 ${first}${rest}`)
     })
   },
 
@@ -409,6 +416,47 @@ export const actions = {
     }
     await this.afterBatch(report.changed.length, report.skipped, report.plan)
   },
+
+  // -------------------------------------------------------------- 跨文件替换
+
+  /** 干跑一次跨文件替换：哪几篇、共几处、每处前后长什么样。不碰磁盘。 */
+  async previewReplace(rule: api.ReplaceRule) {
+    return await run(() => api.previewReplace(rule))
+  },
+
+  /**
+   * 执行跨文件替换。调用方必须已经让人看过干跑结果——正文替换没有撤销栈。
+   *
+   * 当前打开的那篇如果也被改了，要把磁盘上的新内容读回编辑器：不读回来，
+   * 下一次保存就会用旧文本把刚替换好的内容盖掉。缓冲区有未保存改动时不动它，
+   * 只说一声——替人做决定会丢掉他刚写的段落。
+   */
+  async applyReplace(rule: api.ReplaceRule) {
+    const report = await run(() => api.applyReplace(rule))
+    if (!report) return
+    const open = state.currentSource
+    const touched = open !== null && report.files.some((f) => f.source === open)
+    if (touched) {
+      if (isDirty.value) {
+        notify('info', '当前这篇的磁盘内容已替换，但编辑器里有未保存改动，没有覆盖它')
+      } else {
+        const raw = await run(() => api.readContent(open))
+        if (raw !== undefined) {
+          state.currentRaw = raw
+          state.savedRaw = raw
+          await this.loadFrontMatter()
+          await this.refreshPreview()
+        }
+      }
+    }
+    await this.afterBatch(
+      report.files.length,
+      report.skipped,
+      report.plan,
+      `已在 ${report.files.length} 篇里替换 ${report.hits} 处`,
+    )
+  },
+
 
 
   /**

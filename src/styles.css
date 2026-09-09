@@ -1086,6 +1086,28 @@ kbd {
   white-space: nowrap;
 }
 
+/* 替换的逐行对照。用 `del` / `ins` 这两个语义标签而不是两种颜色的 span：
+   读屏能念出「删除 / 插入」，颜色只是给眼睛的第二重提示 */
+.page-list__dry-lines {
+  padding: 0 0 0 0.4rem;
+  margin: 0.1rem 0 0;
+  list-style: none;
+  border-left: 1px solid var(--border);
+}
+
+.page-list__dry-no {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-lines del {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-lines ins {
+  color: var(--success);
+  text-decoration: none;
+}
+
 .page-list__rename {
   display: flex;
   flex-direction: column;

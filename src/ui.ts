@@ -60,6 +60,8 @@ export const ui = reactive({
   requestFocusSearch: false,
   /** 一次性请求：展开侧栏的「新建栏目」表单。 */
   requestNewSection: false,
+  /** 一次性请求：展开侧栏的「跨文件替换」表单。 */
+  requestReplace: false,
 })
 
 /**

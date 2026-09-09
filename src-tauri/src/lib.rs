@@ -61,6 +61,8 @@ pub fn run() {
             commands::batch_move,
             commands::batch_delete,
             commands::batch_preview,
+            commands::preview_replace,
+            commands::apply_replace,
             commands::scan_import,
             commands::import_content,
             commands::export_theme,
