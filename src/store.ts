@@ -734,6 +734,16 @@ export const actions = {
    * 内存预览取不到图片与 CSS（iframe srcdoc 没有文件访问权限），
    * 开启服务器后预览走 HTTP，与线上完全一致。
    */
+  /**
+   * 开合本地预览服务器。
+   *
+   * 启动前若从未生成过，先顺手生成一次：服务器读的是 `dist/`，那目录还空着的时候
+   * 点「启动」只会换来一个白屏或 404——用户会以为服务器起不来，而其实是没有产物。
+   * 「点了没反应」比报错更难排查，所以这里替他把前置条件补上，并在通知里说清做了什么。
+   *
+   * 只在**从未生成过**时补：有过产物的话，旧版本至少能看，而「保存即生成」那个开关
+   * 已经覆盖了「想一直是最新」的诉求；每次启动都强制重建反而会让人等。
+   */
   async togglePreviewServer() {
     if (state.previewServer) {
       await run(() => api.stopPreviewServer())
@@ -741,12 +751,21 @@ export const actions = {
       notify('info', '本地预览服务器已停止')
       return
     }
-    const url = await run(() => api.startPreviewServer())
-    if (url) {
-      state.previewServer = url
-      notify('success', `本地预览服务器：${url}`)
-    }
+
+    await busySpan(async () => {
+      const neverBuilt = (state.project?.recent_builds.length ?? 0) === 0
+      if (neverBuilt) {
+        notify('info', '还没有产物，先生成一次再启动服务器')
+        await this.build('incremental', { quiet: true })
+      }
+      const url = await run(() => api.startPreviewServer())
+      if (url) {
+        state.previewServer = url
+        notify('success', `本地预览服务器：${url}`)
+      }
+    })
   },
+
 
   /** 在系统默认浏览器里打开地址。 */
   async openInBrowser(url: string) {
