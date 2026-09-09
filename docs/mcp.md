@@ -59,6 +59,10 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
   构建后老链接经重定向页继续可用
 - `move_content`：把一篇内容搬到另一个栏目，默认补旧地址。栏目索引页不能搬；
   批量搬就逐篇调用
+- `replace_text`：跨文件替换**正文**里的一段文字（改称呼、统一术语）。
+  front matter 一个字节都不碰——改字段用 `patch_front_matter`；纯文本，不支持正则。
+  **默认 `dry_run = true`**：先回传哪几篇、共几处、每处前后对照，
+  确认后再带 `dry_run: false` 落盘。正文替换没有撤销，默认值取那个「说错了也没损失」的方向
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物

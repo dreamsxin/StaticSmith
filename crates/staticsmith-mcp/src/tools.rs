@@ -261,6 +261,30 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "replace_text",
+            title: "跨文件替换正文",
+            description: "在多篇内容的正文里把一段文字换成另一段（改称呼、统一术语）。只动正文，front matter 一个字节都不碰——改标题、标签用 patch_front_matter。纯文本，不支持正则。默认 dry_run=true 只算不写：先看清哪几篇、共几处，再用 dry_run=false 落盘。正文替换没有撤销。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "find": { "type": "string", "description": "要被换掉的文字，不能跨行" },
+                        "replace": { "type": "string", "description": "换成什么，留空即删掉这个词" },
+                        "ignore_case": { "type": "boolean", "description": "忽略大小写，默认 false" },
+                        "sources": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "只在这几篇里替换；不给就是全站"
+                        },
+                        "dry_run": { "type": "boolean", "description": "默认 true：只算不写" }
+                    },
+                    "required": ["find"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
             name: "move_content",
             title: "搬动内容",
             description: "把一篇内容搬到另一个栏目。默认补 aliases（旧地址），构建后老链接经重定向页继续可用。栏目索引页不能搬（改结构用 rename_section）。批量搬就逐篇调用。",
@@ -417,6 +441,7 @@ pub fn call(builder: &mut Builder, permissions: Permissions, name: &str, args: &
 fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, String> {
     match name {
         "move_content" => move_content(builder, args),
+        "replace_text" => replace_text(builder, args),
         "site_info" => site_info(builder),
         "list_pages" => list_pages(builder, args),
         "read_content" => read_content(builder, args),
@@ -612,6 +637,56 @@ fn create_content(builder: &mut Builder, args: &Value) -> Result<String, String>
 ///
 /// 底层用批量接口，但这里只搬一篇：搬不动就返回错误而不是「跳过」——
 /// Agent 明确要求搬某一篇，静默跳过会让它以为成功了。
+/// 跨文件替换正文。
+///
+/// **默认只干跑**：Agent 会照着描述连着调好几次工具，而正文替换没有撤销栈；
+/// 默认值必须是那个「说错了也没损失」的方向。落盘要显式 `dry_run: false`。
+fn replace_text(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    use staticsmith_core::replace::{Rule, Scope};
+
+    let rule = Rule {
+        find: require_str(args, "find")?.to_string(),
+        replace: args
+            .get("replace")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        ignore_case: args
+            .get("ignore_case")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    };
+    let sources = match args.get("sources") {
+        Some(value) => string_list(value, "sources")?,
+        None => Vec::new(),
+    };
+    let scope = if sources.is_empty() {
+        Scope::All
+    } else {
+        Scope::Only(sources)
+    };
+    let dry_run = args.get("dry_run").and_then(Value::as_bool).unwrap_or(true);
+
+    let report = if dry_run {
+        builder.preview_replace(&scope, &rule)
+    } else {
+        builder.apply_replace(&scope, &rule)
+    }
+    .map_err(err)?;
+
+    pretty(&json!({
+        "dry_run": dry_run,
+        "hits": report.hits,
+        "files": report.files,
+        "skipped": report.skipped,
+        "next": if dry_run {
+            "确认无误后带 dry_run: false 再调一次；每篇最多列 5 行示例，hits 是全量处数"
+        } else {
+            "改动要下一次 build_site 才出现在产物里"
+        }
+    }))
+}
+
 fn move_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?.to_string();
     let to_section = require_str(args, "to_section")?.to_string();
@@ -1009,6 +1084,51 @@ mod tests {
             &json!({ "source": source }),
         );
         assert_eq!(result["isError"], true);
+    }
+
+    #[test]
+    fn replace_text_is_dry_run_unless_told_otherwise() {
+        let (_dir, mut builder) = project();
+        let perms = Permissions {
+            write: true,
+            deploy: false,
+        };
+        let source = builder.pages()[0].source.clone();
+        let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+        std::fs::write(
+            &path,
+            "+++\ntitle = \"旧名\"\n+++\n\n正文里的旧名要换掉。\n",
+        )
+        .unwrap();
+
+        // 不给 dry_run：只算不写
+        let dry = call(
+            &mut builder,
+            perms,
+            "replace_text",
+            &json!({ "find": "旧名", "replace": "新名" }),
+        );
+        let report: Value =
+            serde_json::from_str(dry["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(report["dry_run"], true, "{report}");
+        assert_eq!(report["hits"], 1, "{report}");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("正文里的旧名"), "干跑不该写盘：{raw}");
+
+        // 显式落盘：正文改了，front matter 里的同一个词不动
+        let done = call(
+            &mut builder,
+            perms,
+            "replace_text",
+            &json!({ "find": "旧名", "replace": "新名", "dry_run": false }),
+        );
+        assert_eq!(done["isError"], false, "{done}");
+        let raw = std::fs::read_to_string(&path).unwrap();
+        assert!(raw.contains("正文里的新名"), "{raw}");
+        assert!(
+            raw.contains("title = \"旧名\""),
+            "front matter 不能被动：{raw}"
+        );
     }
 
     #[test]
