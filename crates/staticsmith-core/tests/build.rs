@@ -211,9 +211,12 @@ fn preview_renders_without_writing_files() {
     let dir = new_project();
     let builder = Builder::open(dir.path()).unwrap();
 
-    let html = builder.preview("posts/hello-staticsmith.md").unwrap();
+    let (html, inlined) = builder.preview("posts/hello-staticsmith.md").unwrap();
     assert!(html.contains("site-header"), "预览应包含父级布局");
     assert!(!dir.path().join("dist").exists(), "预览不应写盘");
+    // 骨架站点的样式表是本地文件，应当已经内联成 <style>——srcdoc 沙箱取不到磁盘文件
+    assert!(inlined.replaced > 0, "本地样式应被内联：{inlined:?}");
+    assert!(!html.contains("<link rel=\"stylesheet\""), "{html}");
 }
 
 #[test]

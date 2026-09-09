@@ -10,6 +10,39 @@ pub fn to_slash(path: &Path) -> String {
         .join("/")
 }
 
+/// 静态站点会用到的 MIME 类型。未知扩展名按二进制流处理。
+///
+/// 放在 util 而不是 serve：预览服务器要它填响应头，内存预览要它拼 data URL
+/// （[`crate::preview`]），而 `serve` 是可选特性——两处各写一份扩展名表，
+/// 迟早出现「服务器认得 .avif、内存预览不认」。
+pub fn mime_for(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("html" | "htm") => "text/html; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("xml") => "application/xml; charset=utf-8",
+        Some("txt" | "md") => "text/plain; charset=utf-8",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("avif") => "image/avif",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        Some("pdf") => "application/pdf",
+        _ => "application/octet-stream",
+    }
+}
+
 /// 内容哈希（截取前 16 字节十六进制，足够做变更判定且节省索引空间）。
 pub fn hash_str(input: &str) -> String {
     let digest = Sha256::digest(input.as_bytes());

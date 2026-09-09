@@ -18,6 +18,7 @@ use crate::index::{AssetRecord, Index, PageRecord};
 use crate::links;
 use crate::media;
 use crate::outputs;
+use crate::preview;
 use crate::replace;
 use crate::sections;
 use crate::seo;
@@ -562,7 +563,12 @@ impl Builder {
     }
 
     /// 渲染单个内容页在其父级布局下的最终 HTML（供编辑器实时预览使用，不写盘）。
-    pub fn preview(&self, source: &str) -> Result<String> {
+    ///
+    /// 返回的 HTML 里，指向本地文件的样式与图片已经就地内联（见 [`crate::preview`]）：
+    /// 内存预览跑在 iframe 的 `srcdoc` 沙箱里，取不到磁盘文件，不内联的话
+    /// 「预览」只能看结构、看不出长相。第二个返回值说清换了几处、放弃了几处——
+    /// 界面要能回答「这一屏是不是完整效果」。
+    pub fn preview(&self, source: &str) -> Result<(String, preview::Inlined)> {
         let page = self
             .pages
             .iter()
@@ -576,12 +582,13 @@ impl Builder {
             term_urls: term_urls(&self.collect_taxonomies(&all_pages)),
         };
         let rendered = renderer.render_page(page, &self.site_context(), &all_pages)?;
-        rendered
+        let html = rendered
             .files
             .into_iter()
             .next()
             .map(|f| f.html)
-            .ok_or_else(|| Error::Other("渲染结果为空".to_string()))
+            .ok_or_else(|| Error::Other("渲染结果为空".to_string()))?;
+        Ok(preview::inline_assets(&html, &self.paths))
     }
 
     /// 逐个维度聚合词条。

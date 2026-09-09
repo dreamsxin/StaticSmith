@@ -56,6 +56,8 @@ interface State {
   /** 打开或上次保存时的模板源码快照，用来判断模板是否有未保存改动 */
   savedTemplateSource: string
   previewHtml: string
+  /** 上一次内存预览里有几处本地资源没能内联（超预算或读不出来） */
+  previewSkipped: number
   /** 本地预览服务器地址，未启动时为 null */
   previewServer: string | null
   /** MCP 服务端状态（AI 接入），未启动时为 null。权限由服务端回报，前端不自己记 */
@@ -109,6 +111,7 @@ const state = reactive<State>({
   currentTemplateSource: '',
   savedTemplateSource: '',
   previewHtml: '',
+  previewSkipped: 0,
   previewServer: null,
   mcp: null,
   previewTarget: null,
@@ -886,8 +889,12 @@ export const actions = {
 
   async refreshPreview() {
     if (!state.currentSource) return
-    const html = await run(() => api.previewPage(state.currentSource!))
-    if (html !== undefined) state.previewHtml = html
+    const page = await run(() => api.previewPage(state.currentSource!))
+    if (page !== undefined) {
+      state.previewHtml = page.html
+      // 放弃内联的处数要留住：预览栏据此说明「这一屏不是完整效果」
+      state.previewSkipped = page.inlined.skipped
+    }
   },
 
   /**

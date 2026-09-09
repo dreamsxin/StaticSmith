@@ -3,7 +3,8 @@
  * 预览面板，两种模式：
  *
  * - **内存预览**（默认）：后端用同一条渲染路径渲出完整 HTML 灌进 iframe 的 `srcdoc`。
- *   保存即可见，但 iframe 没有文件访问权限，图片与 CSS 取不到。
+ *   保存即可见。`srcdoc` 是没有文件访问权限的沙箱，所以本地样式与图片由后端
+ *   就地内联进 HTML（`staticsmith_core::preview`）；超预算的大文件与脚本仍取不到。
  * - **本地服务器**：起一个只监听 127.0.0.1 的静态服务器指向产物目录，预览与线上完全一致，
  *   代价是需要先生成一次。
  *
@@ -92,7 +93,9 @@ const serverPageUrl = computed(() =>
       }}
     </footer>
     <footer v-else class="editor__foot">
-      内存预览不加载图片与 CSS；需要完整效果请启动本地服务器
+      内存预览已就地嵌入本地样式与图片<template v-if="store.previewSkipped">
+        ；还有 {{ store.previewSkipped }} 处没嵌进来（单个超过 2 MB 或累计超过 8 MB）</template
+      >。脚本与外链资源仍不加载，要看最终效果请启动本地服务器
     </footer>
   </section>
 </template>

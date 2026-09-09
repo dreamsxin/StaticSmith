@@ -266,34 +266,8 @@ fn percent_decode(input: &str) -> String {
     String::from_utf8_lossy(&out).to_string()
 }
 
-/// 静态站点会用到的 MIME 类型。未知扩展名按二进制流处理。
-pub fn mime_for(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(str::to_ascii_lowercase)
-        .as_deref()
-    {
-        Some("html" | "htm") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js" | "mjs") => "text/javascript; charset=utf-8",
-        Some("json") => "application/json; charset=utf-8",
-        Some("xml") => "application/xml; charset=utf-8",
-        Some("txt" | "md") => "text/plain; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        Some("jpg" | "jpeg") => "image/jpeg",
-        Some("gif") => "image/gif",
-        Some("webp") => "image/webp",
-        Some("avif") => "image/avif",
-        Some("ico") => "image/x-icon",
-        Some("woff2") => "font/woff2",
-        Some("woff") => "font/woff",
-        Some("ttf") => "font/ttf",
-        Some("pdf") => "application/pdf",
-        _ => "application/octet-stream",
-    }
-}
+/// 静态站点会用到的 MIME 类型。定义在 [`crate::util::mime_for`]，内存预览也用同一份。
+pub use crate::util::mime_for;
 
 #[cfg(test)]
 mod tests {

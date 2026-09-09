@@ -36,7 +36,10 @@
 - `create_content(request) -> string`：新建内容，返回其相对 `content/` 的路径
 - `save_content({ source, raw }) -> BuildPlan`：写盘 + 重新解析 + 返回增量计划
 - `delete_content(source) -> BuildPlan`
-- `preview_page(source) -> string`：在父级布局下渲染完整 HTML，不写盘
+- `preview_page(source) -> { html, inlined: { replaced, skipped } }`：在父级布局下渲染完整
+  HTML，不写盘。`srcdoc` 沙箱取不到磁盘文件，所以本地样式表变 `<style>`、图片与字体变
+  data URL（`staticsmith_core::preview`）；`skipped` 是放弃内联的处数（单个超 2 MB 或
+  累计超 8 MB），界面据此说明「这一屏不是完整效果」
 - `read_front_matter(raw) -> FrontMatter`：读出字段供属性面板回填
 - `apply_front_matter(raw, patch) -> string`：把属性改动折算成新的源文
 
@@ -58,8 +61,8 @@
 - `stop_preview_server()`
 - `preview_server_url() -> string | null`
 
-服务器只监听 127.0.0.1，指向产物目录。内存预览（`preview_page`）取不到图片与 CSS，
-因为 iframe 的 `srcdoc` 没有文件访问权限；需要完整效果时启动这个服务器。
+服务器只监听 127.0.0.1，指向产物目录。内存预览（`preview_page`）会把本地样式与图片
+就地内联，但脚本、外链资源与超预算的大文件仍取不到——要与线上完全一致就启动这个服务器。
 它随项目关闭一起停止。
 
 ## AI 接入（MCP）

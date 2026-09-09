@@ -285,7 +285,18 @@ export const saveContent = (source: string, raw: string) =>
 
 export const deleteContent = (source: string) => invoke<BuildPlan>('delete_content', { source })
 
-export const previewPage = (source: string) => invoke<string>('preview_page', { source })
+/** 一次内存预览：渲染结果 + 本地资源内联情况。 */
+export interface PreviewPage {
+  html: string
+  inlined: {
+    /** 换成内联内容的处数（样式表、图片、CSS 里的 url()） */
+    replaced: number
+    /** 放弃内联的处数：超过单个 2 MB 或累计 8 MB 预算、或读不出来 */
+    skipped: number
+  }
+}
+
+export const previewPage = (source: string) => invoke<PreviewPage>('preview_page', { source })
 
 /** front matter 字段，与 Rust 的 `FrontMatter` 对应。 */
 export interface FrontMatter {

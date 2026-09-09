@@ -14,6 +14,7 @@ use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportRep
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
+use staticsmith_core::preview::Inlined as PreviewInlined;
 use staticsmith_core::replace::{
     Report as ReplaceResult, Rule as ReplaceRule, Scope as ReplaceScope,
 };
@@ -275,9 +276,22 @@ pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<Buil
 }
 
 /// 在父级布局下渲染单页，用于「所见即所得」预览。
+///
+/// 本地样式与图片已经内联进 HTML（`srcdoc` 沙箱取不到磁盘文件），
+/// 顺带回传「换了几处、放弃了几处」，界面据此说明这一屏是不是完整效果。
 #[tauri::command]
-pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<String> {
-    state.with_session(|session| Ok(session.builder.preview(&source)?))
+pub fn preview_page(state: State<'_, AppState>, source: String) -> Result<PreviewPage> {
+    state.with_session(|session| {
+        let (html, inlined) = session.builder.preview(&source)?;
+        Ok(PreviewPage { html, inlined })
+    })
+}
+
+/// 一次内存预览的结果。
+#[derive(Debug, Serialize)]
+pub struct PreviewPage {
+    pub html: String,
+    pub inlined: PreviewInlined,
 }
 
 /// 读出源文里的 front matter 字段，供属性面板回填。
