@@ -364,12 +364,12 @@ impl Builder {
 
         let mut source = base.clone();
         let mut suffix = 2;
-        while content::resolve_source(&self.paths.content, &source).exists() {
+        while content::resolve_source(&self.paths.content, &source)?.exists() {
             source = format!("{stem}-{suffix}.{ext}");
             suffix += 1;
         }
 
-        let path = content::resolve_source(&self.paths.content, &source);
+        let path = content::resolve_source(&self.paths.content, &source)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }

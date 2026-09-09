@@ -87,6 +87,23 @@ pub fn slugify_name(input: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
+/// 清洗要拼进 URL 与 HTML 属性的那一段（slug、别名）。
+///
+/// 起因是一个真的能利用的注入点：`slug::slugify` 只作用于**兜底的文件名**，
+/// front matter 里显式写的 `slug` 一路直通到模板，而模板里那些位置都带 `| safe`
+/// （URL 被 Tera 转义成 `&#x2F;` 就不能用了）。于是
+/// `slug = 'a" onmouseover="alert(1)'` 会渲染成 `href="/posts/a" onmouseover="..."`，
+/// 逃出了属性。
+///
+/// 这里**不套 `slugify`**：那会把中文 slug 整段抹成空串，用中文文件名的站点 URL 全变。
+/// 只剔掉能破坏属性或路径的那几个字符，非 ASCII 原样保留。
+pub fn sanitize_url_segment(input: &str) -> String {
+    input
+        .chars()
+        .filter(|c| !matches!(c, '"' | '\'' | '<' | '>' | '`' | '\\') && !c.is_control())
+        .collect()
+}
+
 /// 清洗相对目录：统一正斜杠、去掉首尾斜杠与 `.` / `..` 片段。
 ///
 /// 用于所有来自界面输入的目录（新建内容的栏目、资源子目录），杜绝路径穿越。

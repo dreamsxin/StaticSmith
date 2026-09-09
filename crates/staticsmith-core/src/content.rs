@@ -123,10 +123,13 @@ impl Page {
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "index".to_string());
+        // 显式 slug 不套 slugify（会抹掉中文），但必须剔掉能逃出 href 属性的字符：
+        // 模板里的 URL 位置都带 `| safe`，Tera 不会替我们转义。
         let slug = fm
             .slug
             .clone()
-            .filter(|s| !s.trim().is_empty())
+            .map(|s| util::sanitize_url_segment(s.trim()))
+            .filter(|s| !s.is_empty())
             .unwrap_or_else(|| slug::slugify(&file_stem));
 
         let dir = util::to_slash(rel.parent().unwrap_or_else(|| Path::new("")));
@@ -206,7 +209,8 @@ impl Page {
 fn normalize_aliases(raw: &[String], url: &str) -> Vec<String> {
     let mut out = Vec::new();
     for alias in raw {
-        let trimmed = alias.trim();
+        let trimmed = util::sanitize_url_segment(alias.trim());
+        let trimmed = trimmed.as_str();
         if trimmed.is_empty() {
             continue;
         }
@@ -389,15 +393,55 @@ pub fn markdown_to_html(markdown: &str) -> String {
     out
 }
 
-/// 内容目录相对路径 → 绝对路径（供 Tauri 命令层保存文件用）。
-pub fn resolve_source(content_root: &Path, source: &str) -> PathBuf {
-    content_root.join(source.replace('\\', "/"))
+/// 内容目录相对路径 → 绝对路径，并确保结果没有越出内容目录。
+///
+/// **返回 `Result` 而不是 `PathBuf` 是有意的。** `source` 可能来自 Agent、命令行参数
+/// 或 IPC 调用方，两类越界都必须挡掉：
+///
+/// - `../../etc/passwd` 这样的相对逃逸；
+/// - `C:/Windows/x` 这样的绝对路径——Windows 上 `join` 一个绝对路径会**替换整条路径**，
+///   而不是拼在后面。
+///
+/// 曾经这里是纯拼接，越界判断放在另一个需要调用方自己想起来调的 [`is_within`] 里。
+/// 结果是 8 个读写入口（桌面端与 MCP 的内容读 / 写 / 删）一个都没调它，
+/// 而 core 内部的批量动作与跨文件替换反倒调了。
+/// 让不安全的那个版本**不存在**，才是这类漏洞不再复发的唯一办法。
+///
+/// 判断是词法的（不解析符号链接）：内容目录里若有指向外部的符号链接，仍能穿出去。
+/// 这一点与 `media` 模块的 `canonicalize` 双边校验不同——内容文件常常还不存在，
+/// 规范化无从下手。
+pub fn resolve_source(content_root: &Path, source: &str) -> Result<PathBuf> {
+    let path = content_root.join(source.replace('\\', "/"));
+    if !is_within(content_root, &path) {
+        return Err(Error::Other(format!(
+            "内容路径越出内容目录：{source}（只能写在 content/ 里面）"
+        )));
+    }
+    Ok(path)
+}
+
+/// 给一篇内容补一条旧地址别名，返回是否真的改了文件。
+///
+/// 搬动文章（`batch`）与栏目改名（`sections`）都要做这件事，曾经**两处各写了一份
+/// 逐字相同的实现**——别名规则改一处漏一处，代价是外部链接 404。
+///
+/// 规则本身在 [`crate::frontmatter::push_alias`] 里（那个模块刻意不碰磁盘），
+/// 这里只负责读文件、调它、写回去。
+pub fn add_alias(file: &Path, old_url: &str) -> Result<bool> {
+    let raw = std::fs::read_to_string(file).map_err(|e| Error::io(file, e))?;
+    match crate::frontmatter::push_alias(&raw, old_url)? {
+        Some(updated) => {
+            std::fs::write(file, updated).map_err(|e| Error::io(file, e))?;
+            Ok(true)
+        }
+        None => Ok(false),
+    }
 }
 
 /// 这个路径是否真的落在内容目录里。
 ///
-/// 相对路径可能来自 Agent 或命令行参数，`../../etc/passwd` 一类必须挡掉。
-/// 批量动作与跨文件替换共用这一份判断：越界检查写两遍，迟早有一处漏了写。
+/// [`resolve_source`] 已经内置这项检查，这里保留为 `pub` 是给「路径不是由
+/// `resolve_source` 拼出来的」那些场合用（例如遍历磁盘拿到的绝对路径）。
 pub fn is_within(content_root: &Path, path: &Path) -> bool {
     match path.strip_prefix(content_root) {
         Ok(rest) => !rest
@@ -500,6 +544,68 @@ fn toml_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 越界的 source 必须在拼路径这一步就被拒，而不是等调用方想起来查。
+    ///
+    /// 逐个列出来而不是只测一个 `..`：绝对路径与 Windows 盘符走的是
+    /// `strip_prefix` 失败那条分支，`..` 走的是 `ParentDir` 那条，
+    /// 只测一种的话另一条分支删掉了测试照样绿。
+    #[test]
+    fn resolve_source_rejects_paths_outside_content() {
+        let root = Path::new("/site/content");
+        for bad in [
+            "../secret.txt",
+            "../../etc/passwd",
+            "posts/../../secret.txt",
+            r"..\secret.txt",
+            "/etc/passwd",
+        ] {
+            assert!(
+                resolve_source(root, bad).is_err(),
+                "{bad} 应当被拒绝，但通过了"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_source_keeps_normal_relative_paths() {
+        let root = Path::new("/site/content");
+        assert_eq!(
+            resolve_source(root, "posts/hello.md").unwrap(),
+            root.join("posts/hello.md")
+        );
+        // 反斜杠是 Windows 上界面传过来的常态，统一成正斜杠后仍在目录内。
+        assert_eq!(
+            resolve_source(root, r"posts\hello.md").unwrap(),
+            root.join("posts/hello.md")
+        );
+    }
+
+    /// 显式 slug 里的引号会逃出 `href` 属性——模板那些位置带 `| safe`，没人替它转义。
+    #[test]
+    fn explicit_slug_cannot_break_out_of_an_attribute() {
+        let raw = "+++\ntitle = \"注入\"\nslug = 'a\" onmouseover=\"alert(1)'\n+++\n正文\n";
+        let page =
+            Page::from_str(Path::new("content"), Path::new("content/posts/x.md"), raw).unwrap();
+
+        assert!(!page.url.contains('"'), "URL 里不该留下引号：{}", page.url);
+        assert!(
+            !page.output.contains('"'),
+            "产物路径里不该留下引号：{}",
+            page.output
+        );
+        assert_eq!(page.url, "/posts/a onmouseover=alert(1)/");
+    }
+
+    /// 中文 slug 必须原样保留：套 slugify 会把它抹成空串，整站 URL 都变。
+    #[test]
+    fn non_ascii_slug_survives() {
+        let raw = "+++\ntitle = \"中文\"\nslug = \"你好\"\n+++\n正文\n";
+        let page =
+            Page::from_str(Path::new("content"), Path::new("content/posts/x.md"), raw).unwrap();
+
+        assert_eq!(page.url, "/posts/你好/");
+    }
 
     /// 站点设为 html 时正文原样输出，与 Markdown 那条路真的不同。
     ///

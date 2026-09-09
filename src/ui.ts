@@ -166,7 +166,7 @@ export const tabGroups: Array<{
     tabs: [
       { id: 'audit', label: '体检', hint: 'SEO 字段、站内死链、媒体资源——上线前该修的都在这一页' },
       { id: 'build', label: '生成', hint: '把内容与模板渲染成 dist/ 里的静态文件（Ctrl+Enter 也可）' },
-      { id: 'deploy', label: '发布', hint: '把 dist/ 送到 Git 或 FTP/SFTP；凭据存系统凭据管理器' },
+      { id: 'deploy', label: '发布', hint: '把 dist/ 送到 Git 或 FTP；凭据存系统凭据管理器' },
     ],
   },
   {

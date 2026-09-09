@@ -75,7 +75,7 @@ pub fn scan(paths: &ProjectPaths, from: &Path, section: &str) -> Result<Vec<Cand
         let raw = std::fs::read_to_string(entry.path()).map_err(|e| Error::io(entry.path(), e))?;
         let converted = convert(&raw, &relative);
         let target = target_path(&section, &relative, &converted.slug_from_name);
-        let full = content::resolve_source(&paths.content, &target);
+        let full = content::resolve_source(&paths.content, &target)?;
         out.push(Candidate {
             source: relative,
             target,
@@ -104,7 +104,7 @@ pub fn import(paths: &ProjectPaths, from: &Path, section: &str) -> Result<Report
         let origin = from.join(&candidate.source);
         let raw = std::fs::read_to_string(&origin).map_err(|e| Error::io(&origin, e))?;
         let body = body_of(&raw);
-        let target = content::resolve_source(&paths.content, &candidate.target);
+        let target = content::resolve_source(&paths.content, &candidate.target)?;
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }
@@ -616,9 +616,10 @@ mod tests {
 
         let report = import(&f.paths, &f.from, "posts").unwrap();
         assert_eq!(report.imported, vec!["posts/hello.md".to_string()]);
-        let written =
-            std::fs::read_to_string(content::resolve_source(&f.paths.content, "posts/hello.md"))
-                .unwrap();
+        let written = std::fs::read_to_string(
+            content::resolve_source(&f.paths.content, "posts/hello.md").unwrap(),
+        )
+        .unwrap();
         assert!(written.contains("正文第一段。"), "正文必须原样：{written}");
         assert!(written.starts_with("+++\n"));
     }
@@ -708,10 +709,9 @@ mod tests {
             .any(|w| w.contains("没有 front matter")));
 
         import(&f.paths, &f.from, "posts").unwrap();
-        let written = std::fs::read_to_string(content::resolve_source(
-            &f.paths.content,
-            "posts/notes/纯正文.md",
-        ))
+        let written = std::fs::read_to_string(
+            content::resolve_source(&f.paths.content, "posts/notes/纯正文.md").unwrap(),
+        )
         .unwrap();
         assert!(written.contains("只有正文，没有围栏。"));
     }
@@ -720,7 +720,7 @@ mod tests {
     fn existing_targets_are_never_overwritten() {
         let f = fixture();
         write(&f, "hello.md", "---\ntitle: 新的\n---\n新正文\n");
-        let target = content::resolve_source(&f.paths.content, "posts/hello.md");
+        let target = content::resolve_source(&f.paths.content, "posts/hello.md").unwrap();
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, "+++\ntitle = \"原有的\"\n+++\n原有正文\n").unwrap();
 

@@ -28,6 +28,9 @@
 - `read_config_source() -> string`：`staticsmith.toml` 的原文（含注释与键序）
 - `save_config_source(raw) -> string[]`：**逐字**写回原文，写前先 `SiteConfig::parse` + 校验
 
+两个 `save_*` 的返回值**恒为空数组**。签名留着 `string[]` 是给「将来要回警告」占位的，
+现在不要指望从里面读出任何东西——校验不通过一律走 `Err`，前端在 reject 分支里拿消息。
+
 表单保存走 `save_config`，它是**保序改写**（`merge_into`）：只动到的键，注释与不认识的
 段留在原处。「源码」分段走 `save_config_source`，写的就是用户手里那份文本——
 不格式化、不重排键。两条路都会在成功后重开 Builder（目录、`page_size` 变了要重算）。

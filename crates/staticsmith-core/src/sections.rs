@@ -296,7 +296,7 @@ pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) ->
         let Some(old_url) = old_urls.get(&old_source) else {
             continue;
         };
-        if add_alias(entry.path(), old_url)? {
+        if content::add_alias(entry.path(), old_url)? {
             aliases_added += 1;
         }
     }
@@ -342,21 +342,6 @@ pub fn remove(paths: &ProjectPaths, path: &str) -> Result<()> {
     }
 
     std::fs::remove_dir_all(&dir).map_err(|e| Error::io(&dir, e))
-}
-
-/// 给一篇文章补上旧地址。已经写过就不重复加。
-///
-/// 规则本身在 `frontmatter::push_alias`：搬动单篇文章也要做同一件事，
-/// 两处各写一遍迟早会不一致。
-fn add_alias(file: &Path, old_url: &str) -> Result<bool> {
-    let raw = std::fs::read_to_string(file).map_err(|e| Error::io(file, e))?;
-    match frontmatter::push_alias(&raw, old_url)? {
-        Some(updated) => {
-            std::fs::write(file, updated).map_err(|e| Error::io(file, e))?;
-            Ok(true)
-        }
-        None => Ok(false),
-    }
 }
 
 /// 目录路径，并确认它没有越出 `content/`。

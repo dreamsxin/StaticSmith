@@ -105,14 +105,16 @@ fn run(paths: &ProjectPaths, scope: &Scope, rule: &Rule, write: bool) -> Result<
     let mut out = Report::default();
 
     for source in sources_in(paths, scope)? {
-        let path = content::resolve_source(&paths.content, &source);
-        if !content::is_within(&paths.content, &path) {
-            out.skipped.push(Skipped {
-                source,
-                reason: "不在内容目录内".to_string(),
-            });
-            continue;
-        }
+        let path = match content::resolve_source(&paths.content, &source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.skipped.push(Skipped {
+                    source,
+                    reason: err.to_string(),
+                });
+                continue;
+            }
+        };
         let raw = match std::fs::read_to_string(&path) {
             Ok(raw) => raw,
             Err(err) => {
@@ -285,13 +287,13 @@ mod tests {
     }
 
     fn write(f: &Fixture, source: &str, raw: &str) {
-        let path = content::resolve_source(&f.paths.content, source);
+        let path = content::resolve_source(&f.paths.content, source).unwrap();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, raw).unwrap();
     }
 
     fn read(f: &Fixture, source: &str) -> String {
-        std::fs::read_to_string(content::resolve_source(&f.paths.content, source)).unwrap()
+        std::fs::read_to_string(content::resolve_source(&f.paths.content, source).unwrap()).unwrap()
     }
 
     fn rule(find: &str, to: &str) -> Rule {
@@ -441,7 +443,7 @@ mod tests {
         assert!(out
             .skipped
             .iter()
-            .any(|s| s.reason.contains("不在内容目录内")));
+            .any(|s| s.reason.contains("越出内容目录")));
         assert!(
             read(&f, "posts/broken.md").contains("旧名"),
             "坏文件不能被写"

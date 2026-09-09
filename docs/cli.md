@@ -17,7 +17,7 @@ staticsmith build [--full]                    # 默认智能增量
 staticsmith plan  [--full]                    # 只算影响范围，不写文件
 staticsmith serve [--port 5321] [--no-watch]  # 本地预览，仅监听 127.0.0.1
 
-staticsmith deploy [--build] [--check-only]   # Git 或 FTP/SFTP 发布
+staticsmith deploy [--build] [--check-only]   # Git 或 FTP 发布（SFTP 暂不支持）
 staticsmith check                             # 校验配置、模板与内容
 staticsmith import <目录> [--section posts] [--dry-run] [--json]
                                               # 导入 Hugo / Jekyll 的内容（YAML → TOML）
@@ -41,6 +41,10 @@ staticsmith mcp [--sse] [--port 5330] [--allow-write] [--allow-deploy]
 ```
 
 除 `init` 外，所有命令接受 `--project <目录>` 指定站点根目录（默认当前目录）。
+
+短旗标注意一处：`--port` 的短形式是**大写 `-P`**（`serve` 与 `mcp` 都是），
+因为小写 `-p` 已经被 `--project` 占用。写 `-p 5321` 不会报错——它会把**站点根目录**
+设成名为 `5321` 的目录，然后抱怨找不到配置。其余短旗标：`new -s` / `init -t`。
 
 `new` 默认建为草稿（`draft = true`），加 `--publish` 才直接发布——写了一行就被推上线不是好默认值。
 

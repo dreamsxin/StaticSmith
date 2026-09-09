@@ -34,7 +34,7 @@ TOML，界面不隐藏这一层，也不做块级富文本。写作者不必因�
 - 命令行工具 `staticsmith`：init / new / build / plan / serve / deploy / check，适合 CI
 - MCP 服务端：AI Agent 可通过 stdio 或 SSE 操作站点，权限默认只读
 - Git 发布（`git2`，产物独立仓库 + 强制推送产物分支）
-- FTP / SFTP 差异同步（按大小与修改时间比对，只传变化文件）
+- FTP 差异同步（按大小与修改时间比对，只传变化文件；SFTP 暂不支持）
 - 凭证写入操作系统凭据管理器（Windows Credential Manager / macOS Keychain / Secret Service）
 - 桌面界面：内容编辑与布局继承预览、布局管理器、生成面板、发布面板、设置
 - 界面模式：标准 / 专注写作 / 源码，一键切换整套布局（记在本机）

@@ -242,24 +242,38 @@ const stats = computed(() => {
 /** 距上次发布多少天——比「本月几篇」更能说明节奏是不是断了。 */
 const sinceLast = computed(() => {
   const days = (store.project?.pages ?? [])
+    // 「已经发布」只认 Rust 的结论：`scheduled` 是它用 `Utc::now()` 算好的
+    // 「日期没到、这次不进产物」。这里**不再自己比一遍日期**——原先多了一道
+    // `day <= todayKey`，用的是浏览器本地时区，跨日边界上会和构建计划给出相反答案，
+    // 而这个文件顶部恰好写着「会不会进产物由 Rust 算好」。
     .filter((page) => !page.is_index && !page.draft && !page.scheduled)
     .map((page) => dayOf(page as PageSummary))
-    .filter((day): day is string => day !== null && day <= todayKey)
+    .filter((day): day is string => day !== null)
     .sort()
   const last = days.at(-1)
   if (!last) return null
-  const diff = Math.round(
-    (Date.parse(`${todayKey}T00:00:00`) - Date.parse(`${last}T00:00:00`)) / 86_400_000,
+  // 站点开着「立即发布未来日期的文章」时，已发布的稿子日期可以在今天之后，
+  // 差值会是负数。那种情况按 0 天算——它确实已经在线上了。
+  const diff = Math.max(
+    0,
+    Math.round((Date.parse(`${todayKey}T00:00:00`) - Date.parse(`${last}T00:00:00`)) / 86_400_000),
   )
   return { last, diff }
 })
 
-/** 排在今天之后的稿子，按日期升序——「下周要发什么」看这里。 */
+/** 还没上线、排在后面的稿子，按日期升序——「下周要发什么」看这里。 */
 const upcoming = computed(() =>
   (store.project?.pages ?? [])
     .filter((page) => !page.is_index)
     .map((page) => ({ page: page as PageSummary, day: dayOf(page as PageSummary) }))
-    .filter((row): row is { page: PageSummary; day: string } => !!row.day && row.day > todayKey)
+    // 「还没上线」分两种，只有第二种才需要看日期：
+    // - `scheduled`：Rust 已经判定「日期没到，这次不进产物」，直接用它的结论；
+    // - 草稿：无论日期到没到都不进产物，它的日期只是计划，本地比一下不会与
+    //   构建计划冲突。
+    .filter(
+      (row): row is { page: PageSummary; day: string } =>
+        !!row.day && (row.page.scheduled || (row.page.draft && row.day > todayKey)),
+    )
     .sort((a, b) => a.day.localeCompare(b.day))
     .slice(0, 8),
 )
@@ -374,7 +388,9 @@ async function submitDate(page: PageSummary) {
 
     <div class="build__panel">
       <h3>接下来</h3>
-      <p v-if="!upcoming.length" class="build__muted">今天之后没有排期的稿子。</p>
+      <p v-if="!upcoming.length" class="build__muted">
+        没有排队中的稿子。给文章的日期填一个将来的日子，它就会出现在这里。
+      </p>
       <ul v-else class="calendar__list">
         <li v-for="row in upcoming" :key="row.page.source">
           <span class="calendar__date">{{ row.day }}</span>

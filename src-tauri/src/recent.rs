@@ -74,7 +74,11 @@ pub fn load(app: &AppHandle) -> RecentProjects {
         .and_then(|raw| serde_json::from_str::<RecentProjects>(&raw).ok())
         .unwrap_or_default();
     if list.prune_missing() > 0 {
-        let _ = save(app, &list);
+        // 清理结果写不回去就记一声，别静默：不然「删掉的站点反复出现在最近列表里」
+        // 会被当成界面 bug 去查，而真正的原因在磁盘上。策略与 `record` 保持一致。
+        if let Err(err) = save(app, &list) {
+            tracing::warn!("清理后的最近列表写盘失败，下次打开还会看到失效条目: {err}");
+        }
     }
     list
 }

@@ -563,7 +563,7 @@ function onDeployKindChange() {
         <select v-model="form.deploy.type" @change="onDeployKindChange">
           <option value="none">暂不配置</option>
           <option value="git">Git</option>
-          <option value="ftp">FTP / SFTP</option>
+          <option value="ftp">FTP</option>
         </select>
       </label>
 
@@ -586,10 +586,13 @@ function onDeployKindChange() {
         <label>用户名<input v-model="form.deploy.ftp.username" type="text" /></label>
         <label>远端路径<input v-model="form.deploy.ftp.remote_path" type="text" /></label>
         <label>密码环境变量名<input v-model="form.deploy.ftp.password_env" type="text" /></label>
-        <label class="settings__checkbox">
-          <input v-model="form.deploy.ftp.sftp" type="checkbox" />
-          使用 SFTP
-        </label>
+        <!-- SFTP 暂不支持，所以这里没有「使用 SFTP」开关。
+             一个能勾、能存、只在点发布时才失败的开关比没有它更糟。 -->
+        <p class="build__muted">
+          FTP 是<strong>明文</strong>协议：用户名、密码与全部内容都会以明文过网。
+          在不受信的网络上传（公共 Wi-Fi、共享办公网）请改用 Git 发布。
+          暂不支持 SFTP。
+        </p>
       </template>
 
       <p class="build__muted">

@@ -121,6 +121,26 @@ pub struct DeployReport {
     pub warnings: Vec<String>,
 }
 
+/// 去掉 URL 里的凭据部分，供报告、进度消息与日志使用。
+///
+/// 起因：`DeployReport.target` 与「推送到 …」这类进度消息直接用了用户填的 remote。
+/// 只要有人把 remote 写成 `https://user:token@github.com/o/r.git`（这是常见做法），
+/// token 就会显示在界面上、随报告落进日志。代码本身没拼凭据，但也没把它摘掉。
+///
+/// 只处理 `scheme://…@host` 这一种形态；SSH 的 `git@host:path` 里的 `git@`
+/// 是用户名不是密钥，原样保留。
+pub fn redact_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    // `@` 要在第一个 `/` 之前才算 userinfo，否则那是路径里的 @。
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    match rest[..authority_end].rfind('@') {
+        Some(at) => format!("{scheme}://***@{}", &rest[at + 1..]),
+        None => url.to_string(),
+    }
+}
+
 /// 所有发布通道的统一接口。
 pub trait Deployer {
     /// 把 `dist_dir` 的内容发布出去。`progress` 会被多次回调。
@@ -217,6 +237,33 @@ pub(crate) fn ensure_output_ready(dist_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// remote 里带 token 是常见做法，报告与进度消息里不能把它显示出来。
+    #[test]
+    fn redact_url_strips_credentials() {
+        assert_eq!(
+            redact_url("https://user:ghp_secret@github.com/o/r.git"),
+            "https://***@github.com/o/r.git"
+        );
+        assert_eq!(
+            redact_url("https://ghp_secret@github.com/o/r.git"),
+            "https://***@github.com/o/r.git"
+        );
+    }
+
+    /// 不该动的形态一律原样返回：SSH 的 `git@host` 里那是用户名，不是密钥；
+    /// 路径里出现 `@` 也不能被当成 userinfo 截掉。
+    #[test]
+    fn redact_url_leaves_clean_urls_alone() {
+        for url in [
+            "https://github.com/o/r.git",
+            "git@github.com:o/r.git",
+            "https://github.com/o/r@v1.git",
+            "/tmp/local/bare.git",
+        ] {
+            assert_eq!(redact_url(url), url, "{url} 不该被改写");
+        }
+    }
 
     #[test]
     fn empty_output_is_rejected() {

@@ -270,7 +270,7 @@ const steps = computed(() => [
   {
     id: 'deploy',
     label: '发布出去',
-    hint: '在「发布」页配置 Git 或 FTP/SFTP，凭据存系统凭据管理器',
+    hint: '在「发布」页配置 Git 或 FTP，凭据存系统凭据管理器',
     done: store.lastDeploy !== null,
     run: () => goTo('deploy'),
   },

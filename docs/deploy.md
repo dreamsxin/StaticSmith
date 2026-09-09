@@ -22,7 +22,10 @@
 提交信息按 Tera 一次性渲染，因此 `站点更新于 {{ now() }}` 会展开为时间戳。
 模板写错时退回原文，不会中断发布。
 
-## FTP / SFTP
+## FTP
+
+**FTP 是明文协议**：用户名、密码与全部内容都以明文过网。在不受信的网络上传
+（公共 Wi-Fi、共享办公网）请改用 Git 发布。**SFTP 暂不支持**，见本文末尾。
 
 差异同步逻辑与协议解耦：`RemoteFs` 抽象出「查状态 / 建目录 / 上传」三个原语，
 `ftp::sync` 负责比对与进度推进。因此同步算法可以用内存假实现完整测试。
@@ -38,7 +41,7 @@
 **远端多余文件不会被删除。** 静态站点目录经常混有手工上传的资源，
 静默删除的代价高于留下少量陈旧文件。需要清理时手动处理。
 
-远端状态通过逐个文件的 `SIZE` / `MDTM`（FTP）或 `stat`（SFTP）查询获得，
+远端状态通过逐个文件的 `SIZE` / `MDTM` 查询获得，
 不解析 `LIST` 输出——各家 FTP 服务器的 LIST 格式差异过大。代价是文件数多时
 往返次数较多。
 
@@ -69,13 +72,22 @@ macOS Keychain、Linux Secret Service。前端保存后立即清空输入框，
 Git 的 `auth_type = "ssh"` 时，凭据管理器里的条目被当作私钥口令（passphrase）使用，
 私钥本身通过 `ssh_key_path` 指定。
 
-## Feature 开关
+## Feature 开关与 SFTP 现状
 
-`staticsmith-deploy` 的默认特性是 `["git", "ftp"]`。SFTP 需要显式开启：
+`staticsmith-deploy` 的默认特性是 `["git", "ftp"]`。**SFTP 暂不支持**：
+
+- 界面上没有「使用 SFTP」开关——一个能勾、能存、只在点「发布」时才失败的开关
+  比没有它更糟；
+- `deploy.ftp.sftp` 字段还留着（写过它的老配置仍能解析），但 `SiteConfig::validate()`
+  会在保存时就拦下 `true` 并说明原因，而不是等到发布那一步；
+- 代码本身在 `ftp.rs` 的 `mod secure` 里，由 `sftp` feature 控制。CI 现在带
+  `--all-features` 跑 clippy 与测试，所以它不会再腐烂成「从不编译」的死代码。
+
+要启用得自己加特性，代价是把 `ssh2` / `libssh2-sys` 打进产物——libssh2 是 C 库，
+部分平台还需要额外的构建工具链：
 
 ```toml
 staticsmith-deploy = { path = "...", features = ["sftp"] }
 ```
 
-单独拆开是因为 `ssh2` 依赖 libssh2，在部分平台需要额外构建工具链。
-未启用时选择 SFTP 会得到明确的配置错误，而不是运行期失败。
+需要加密通道又不想等这个开关的话，Git 发布走的是 HTTPS，现在就能用。

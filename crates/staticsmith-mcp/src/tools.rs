@@ -535,7 +535,8 @@ fn list_pages(builder: &Builder, args: &Value) -> Result<String, String> {
 
 fn read_content(builder: &Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?;
-    let path = staticsmith_core::content::resolve_source(&builder.paths.content, source);
+    let path =
+        staticsmith_core::content::resolve_source(&builder.paths.content, source).map_err(err)?;
     std::fs::read_to_string(&path).map_err(|e| format!("读取 {source} 失败: {e}"))
 }
 
@@ -837,7 +838,8 @@ fn rename_section(builder: &mut Builder, args: &Value) -> Result<String, String>
 fn write_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?.to_string();
     let raw = require_str(args, "raw")?;
-    let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+    let path =
+        staticsmith_core::content::resolve_source(&builder.paths.content, &source).map_err(err)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
@@ -856,7 +858,8 @@ fn patch_front_matter(builder: &mut Builder, args: &Value) -> Result<String, Str
     use staticsmith_core::frontmatter;
 
     let source = require_str(args, "source")?.to_string();
-    let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+    let path =
+        staticsmith_core::content::resolve_source(&builder.paths.content, &source).map_err(err)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| format!("读取 {source} 失败: {e}"))?;
 
     let mut patch = frontmatter::Patch::default();
@@ -931,7 +934,8 @@ fn string_list(value: &Value, field: &str) -> Result<Vec<String>, String> {
 
 fn delete_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let source = require_str(args, "source")?.to_string();
-    let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+    let path =
+        staticsmith_core::content::resolve_source(&builder.paths.content, &source).map_err(err)?;
     std::fs::remove_file(&path).map_err(|e| format!("删除 {source} 失败: {e}"))?;
     builder.reload().map_err(err)?;
     pretty(&json!({ "deleted": source }))
@@ -940,14 +944,12 @@ fn delete_content(builder: &mut Builder, args: &Value) -> Result<String, String>
 fn write_template(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let name = require_str(args, "name")?.to_string();
     let source = require_str(args, "source")?;
-    // 模板名来自 Agent，必须按相对路径清洗，避免写到 templates/ 之外。
-    let relative = staticsmith_core::util::sanitize_relative_dir(&name);
-    if relative.is_empty() {
-        return Err(format!("模板名无效: {name}"));
-    }
-    let path = relative
-        .split('/')
-        .fold(builder.paths.templates.clone(), |acc, s| acc.join(s));
+    // 模板名来自 Agent，清洗与越界判断与桌面端共用 core 里的那一份。
+    let path = staticsmith_core::templates::resolve_template(&builder.paths.templates, &name)
+        .map_err(err)?;
+    let relative = staticsmith_core::util::to_slash(
+        path.strip_prefix(&builder.paths.templates).unwrap_or(&path),
+    );
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
     }
@@ -1094,7 +1096,8 @@ mod tests {
             deploy: false,
         };
         let source = builder.pages()[0].source.clone();
-        let path = staticsmith_core::content::resolve_source(&builder.paths.content, &source);
+        let path =
+            staticsmith_core::content::resolve_source(&builder.paths.content, &source).unwrap();
         std::fs::write(
             &path,
             "+++\ntitle = \"旧名\"\n+++\n\n正文里的旧名要换掉。\n",

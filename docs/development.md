@@ -56,8 +56,18 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 - 构建流程走 `crates/staticsmith-core/tests/build.rs` 的端到端测试：
   在临时目录跑脚手架 → 全量生成 → 改组件 → 验证级联范围 → 增量生成
 - Git 发布测试用本地裸仓库当远端，真实跑完 commit + push，不 mock git2
-- FTP/SFTP 同步测试用内存假远端（`RemoteFs` 实现），覆盖首次全量、二次跳过、
-  单文件变更、远端多余文件保留
+- FTP 同步测试用内存假远端（`RemoteFs` 实现），覆盖首次全量、二次跳过、
+  单文件变更、远端多余文件保留（SFTP 那条路在 `sftp` feature 后面，CI 用
+  `--all-features` 跑，见 [发布](deploy.md)）
+- 前端用 vitest（`npm test`，配置在 `vitest.config.ts`）。当前覆盖两个着色器的
+  **HTML 转义**与文本解析：着色结果经 `v-html` 插入，那是唯一的防线，
+  却一直没有测试。断言的是「除了着色器自己的 `<span class="tok-*">`，
+  输出里不该有别的标签」——逐个断言「这个 payload 被转义了」追不上新 payload。
+  注意 payload 的**文字**该出现（源码视图本来就要显示源文），成为标签才是问题。
+
+前端还没测到的部分：`store.ts` 的忙态计数器与未保存确认流（要先 mock
+`@tauri-apps/api`）、`useSplit` 的夹取（要 jsdom）、组件渲染（要 `@vue/test-utils`）。
+那三样各自需要新依赖，等真要测时再装，不提前付账。
 
 新增行为时优先在这些既有位置扩展，而不是新建测试文件。
 

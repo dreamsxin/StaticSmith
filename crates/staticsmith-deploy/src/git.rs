@@ -117,7 +117,7 @@ impl Deployer for GitDeployer {
 
         if uploaded.is_empty() && parent.is_some() {
             return Ok(DeployReport {
-                target: self.remote.clone(),
+                target: crate::redact_url(&self.remote),
                 warnings: vec!["产物与上次提交一致，已跳过提交".to_string()],
                 duration_ms: started.elapsed().as_millis() as u64,
                 ..Default::default()
@@ -144,7 +144,7 @@ impl Deployer for GitDeployer {
         repo.checkout_head(Some(CheckoutBuilder::new().force().remove_untracked(false)))?;
 
         progress(Progress {
-            message: format!("推送到 {}", self.remote),
+            message: format!("推送到 {}", crate::redact_url(&self.remote)),
             current: 3,
             total: 4,
         });
@@ -173,7 +173,7 @@ impl Deployer for GitDeployer {
         });
 
         Ok(DeployReport {
-            target: self.remote.clone(),
+            target: crate::redact_url(&self.remote),
             uploaded,
             deleted: Vec::new(),
             skipped: 0,

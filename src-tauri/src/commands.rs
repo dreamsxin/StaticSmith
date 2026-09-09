@@ -28,8 +28,8 @@ use staticsmith_core::theme::{
     Preview as ThemePreview,
 };
 use staticsmith_core::{
-    content, frontmatter, scaffold, NewContent, OutputFile, PreviewServer, SavedAsset, SeoReport,
-    SiteConfig,
+    content, frontmatter, scaffold, templates, NewContent, OutputFile, PreviewServer, SavedAsset,
+    SeoReport, SiteConfig,
 };
 use staticsmith_deploy::{Credentials, DeployReport, Progress};
 use staticsmith_mcp::Permissions as McpPermissions;
@@ -52,8 +52,6 @@ pub struct ProjectSummary {
     pub components: Vec<TemplateInfo>,
     pub templates: Vec<TemplateInfo>,
     pub recent_builds: Vec<BuildRecord>,
-    /// 索引中被标记为待重新生成的页面。
-    pub dirty_pages: Vec<String>,
 }
 
 /// 页面列表项（不含正文，避免一次性传输整站内容）。
@@ -186,7 +184,6 @@ pub fn project_summary(state: State<'_, AppState>) -> Result<ProjectSummary> {
                 .collect(),
             templates: builder.templates().infos().cloned().collect(),
             recent_builds: builder.index().recent_builds(10)?,
-            dirty_pages: builder.index().dirty_pages()?,
         })
     })
 }
@@ -275,7 +272,7 @@ pub fn search_content(
 #[tauri::command]
 pub fn read_content(state: State<'_, AppState>, source: String) -> Result<String> {
     state.with_session(|session| {
-        let path = content::resolve_source(&session.builder.paths.content, &source);
+        let path = content::resolve_source(&session.builder.paths.content, &source)?;
         Ok(std::fs::read_to_string(path)?)
     })
 }
@@ -284,7 +281,7 @@ pub fn read_content(state: State<'_, AppState>, source: String) -> Result<String
 #[tauri::command]
 pub fn save_content(state: State<'_, AppState>, args: SaveContentArgs) -> Result<BuildPlan> {
     state.with_session_mut(|session| {
-        let path = content::resolve_source(&session.builder.paths.content, &args.source);
+        let path = content::resolve_source(&session.builder.paths.content, &args.source)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -299,7 +296,7 @@ pub fn save_content(state: State<'_, AppState>, args: SaveContentArgs) -> Result
 #[tauri::command]
 pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<BuildPlan> {
     state.with_session_mut(|session| {
-        let path = content::resolve_source(&session.builder.paths.content, &source);
+        let path = content::resolve_source(&session.builder.paths.content, &source)?;
         state.note_self_write(&path);
         std::fs::remove_file(&path)?;
         session.builder.reload()?;
@@ -348,7 +345,7 @@ pub fn create_content(state: State<'_, AppState>, request: NewContent) -> Result
         state.note_self_write(&content::resolve_source(
             &session.builder.paths.content,
             &source,
-        ));
+        )?);
         Ok(source)
     })
 }
@@ -496,7 +493,7 @@ pub fn import_content(
         let content_root = session.builder.paths.content.clone();
         for candidate in session.builder.scan_import(from, &section)? {
             if candidate.importable {
-                state.note_self_write(&content::resolve_source(&content_root, &candidate.target));
+                state.note_self_write(&content::resolve_source(&content_root, &candidate.target)?);
             }
         }
         Ok(session.builder.import_content(from, &section)?)
@@ -587,7 +584,7 @@ pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<Bat
     state.with_session_mut(|session| {
         note_batch(&state, session, &args.sources);
         // 目标目录会新增文件，一并登记，免得改完弹「检测到外部修改」
-        let target = content::resolve_source(&session.builder.paths.content, &args.to_section);
+        let target = content::resolve_source(&session.builder.paths.content, &args.to_section)?;
         state.note_self_tree(&target);
         let out = session
             .builder
@@ -658,10 +655,14 @@ impl From<BatchActionArgs> for BatchAction {
 }
 
 /// 批量动作会写很多文件，逐个登记自身写入，避免监听器把它们当成外部改动。
+///
+/// 越界的 source 在这里静默跳过：登记只是给文件监听器消噪，真正的拦截在
+/// `content::resolve_source` 里，动作本身会带着原因失败。
 fn note_batch(state: &State<'_, AppState>, session: &Session, sources: &[String]) {
     for source in sources {
-        let path = content::resolve_source(&session.builder.paths.content, source);
-        state.note_self_write(&path);
+        if let Ok(path) = content::resolve_source(&session.builder.paths.content, source) {
+            state.note_self_write(&path);
+        }
     }
 }
 
@@ -749,7 +750,7 @@ pub fn create_section(
 ) -> Result<SectionCreated> {
     state.with_session_mut(|session| {
         let created = session.builder.create_section(&path, &title)?;
-        let index = content::resolve_source(&session.builder.paths.content, &created.index_source);
+        let index = content::resolve_source(&session.builder.paths.content, &created.index_source)?;
         state.note_self_write(&index);
         Ok(created)
     })
@@ -765,7 +766,7 @@ pub fn rename_section(
         let content_root = session.builder.paths.content.clone();
         // 整棵子树的变更都是自己造成的，别让「检测到外部修改」在改名后弹出来
         for section in [&args.from, &args.to] {
-            let dir = content::resolve_source(&content_root, section);
+            let dir = content::resolve_source(&content_root, section)?;
             state.note_self_tree(&dir);
         }
         Ok(session
@@ -778,7 +779,7 @@ pub fn rename_section(
 #[tauri::command]
 pub fn remove_section(state: State<'_, AppState>, path: String) -> Result<Vec<Section>> {
     state.with_session_mut(|session| {
-        let dir = content::resolve_source(&session.builder.paths.content, &path);
+        let dir = content::resolve_source(&session.builder.paths.content, &path)?;
         state.note_self_tree(&dir);
         session.builder.remove_section(&path)?;
         Ok(session.builder.sections())
@@ -804,7 +805,7 @@ pub fn save_section_meta(
                 } else {
                     format!("{}/{name}", args.path)
                 },
-            );
+            )?;
             state.note_self_write(&file);
         }
         session.builder.set_section_meta(&args.path, &args.meta)?;
@@ -941,7 +942,7 @@ pub fn save_template(
     source: String,
 ) -> Result<BuildPlan> {
     state.with_session_mut(|session| {
-        let path = session.builder.paths.templates.join(&name);
+        let path = templates::resolve_template(&session.builder.paths.templates, &name)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }

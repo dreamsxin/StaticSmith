@@ -80,7 +80,8 @@ my-site/
 「发布」页选一种方式：
 
 - **Git**：把 `dist/` 推到一个仓库（GitHub Pages、Cloudflare Pages 这类）。
-- **FTP / SFTP**：传到自己的虚拟主机。
+- **FTP**：传到自己的虚拟主机。注意 FTP 是**明文**协议，密码与内容都明文过网；
+  在公共 Wi-Fi 这类不受信网络上请改用 Git。SFTP 暂不支持。
 
 密码与 Token **不写进配置文件**，而是存进操作系统自带的凭据管理器
 （Windows 凭据管理器 / macOS 钥匙串 / Linux Secret Service）。这样把站点文件夹

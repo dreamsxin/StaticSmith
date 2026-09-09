@@ -14,7 +14,9 @@ name = "staticsmith_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+# 钉到 minor：npm 侧的 @tauri-apps/api 与 cli 是精确锁定的，Rust 侧写成 "2" 就意味着
+# 一次 cargo update 能把两边拉开，而那正是「tauri dev 起不来」那个 bug 的成因。
+tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
 staticsmith-core.workspace = true
@@ -22,9 +24,9 @@ staticsmith-deploy.workspace = true
 # MCP 服务端内嵌进桌面端：AI 接入不该只能从终端开（见 docs/mcp.md）
 staticsmith-mcp.workspace = true
 
-tauri = { version = "2", features = [] }
-tauri-plugin-dialog = "2"
-tauri-plugin-opener = "2"
+tauri = { version = "2.11", features = [] }
+tauri-plugin-dialog = "2.7"
+tauri-plugin-opener = "2.5"
 
 serde.workspace = true
 serde_json.workspace = true

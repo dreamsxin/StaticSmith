@@ -69,7 +69,7 @@ port = 21
 username = "user"
 password_env = "FTP_PASSWORD"
 remote_path = "/public_html"
-sftp = false
+sftp = false                  # 暂不支持，必须为 false
 ```
 
 ## 字段说明
@@ -198,7 +198,8 @@ categories = ["工程实践"]
 - `[deploy.git]`：`remote`、`branch`、`commit_message`（支持 Tera 语法，如
   `{{ now() }}`）、`auth_type`、`ssh_key_path`
 - `[deploy.ftp]`：`host`、`port`、`username`、`remote_path`、`password_env`、
-  `sftp`（为真时走 SFTP）
+  `sftp`（**暂不支持，必须为 `false`**；写成 `true` 会在保存时被校验拒绝。
+  FTP 是明文协议，需要加密通道请改用 Git 发布，详见 [发布](deploy.md)）
 
 ## 设置页保存会保留你写的注释
 

@@ -62,7 +62,7 @@ async function removeSecret() {
         尚未配置发布方式，请在「设置」中选择 Git 或 FTP。
       </p>
       <ul v-else class="build__stats">
-        <li>方式：{{ deploy.type === 'git' ? 'Git 仓库' : (deploy.ftp?.sftp ? 'SFTP' : 'FTP') }}</li>
+        <li>方式：{{ deploy.type === 'git' ? 'Git 仓库' : 'FTP（明文）' }}</li>
         <li v-if="deploy.git">远端：{{ deploy.git.remote }}（分支 {{ deploy.git.branch }}）</li>
         <li v-if="deploy.ftp">
           主机：{{ deploy.ftp.host }}:{{ deploy.ftp.port }} → {{ deploy.ftp.remote_path }}

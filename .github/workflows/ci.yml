@@ -27,13 +27,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: 格式检查
         run: cargo fmt --all --check
+      # --all-features 不是可选的：sftp 不在 deploy 的 default 里，不开这个开关
+      # 那 120 行代码从不编译、从不 lint、从不测试，而界面上却有一个能勾的复选框。
       - name: Clippy
         run: >-
-          cargo clippy --all-targets
+          cargo clippy --all-targets --all-features
           -p staticsmith-core -p staticsmith-cli -p staticsmith-deploy -p staticsmith-mcp
       - name: 测试
         run: >-
-          cargo test
+          cargo test --all-features
           -p staticsmith-core -p staticsmith-cli -p staticsmith-deploy -p staticsmith-mcp
 
   # 桌面端要连 WebView 一起编，放在 Windows 上跑（自带 WebView2）
@@ -47,11 +49,19 @@ jobs:
           node-version: 20
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: 安装前端依赖
         run: npm ci
       # tauri-build 需要 frontendDist 目录存在，所以先打前端
       - name: 前端类型检查与打包
         run: npm run build
+      - name: 前端测试
+        run: npm test
+      # IPC 层放在这里 lint 而不是 core 那个 job：它要连 WebView 一起编，
+      # Linux 上得装一串 GUI 系统库。1200 行命令代码不该是唯一没过 clippy 的地方。
+      - name: Clippy（桌面端）
+        run: cargo clippy --all-targets -p staticsmith-app
       - name: 全量测试
-        run: cargo test --workspace
+        run: cargo test --workspace --all-features

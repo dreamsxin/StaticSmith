@@ -13,6 +13,27 @@ use crate::util;
 /// 模板文件扩展名白名单。
 const TEMPLATE_EXTS: [&str; 3] = ["html", "tera", "xml"];
 
+/// 模板名 → 绝对路径，并确保结果没有越出模板目录。
+///
+/// 与 [`crate::content::resolve_source`] 同一个道理：模板名可能来自 Agent 或 IPC 调用方。
+/// 桌面端曾经直接 `templates.join(&name)`，而 MCP 那侧记得先清洗——**同一个操作两端
+/// 一个洗一个不洗**，这正是把校验留给调用方自觉的下场。现在两端都走这里。
+pub fn resolve_template(template_root: &Path, name: &str) -> Result<PathBuf> {
+    let relative = util::sanitize_relative_dir(name);
+    if relative.is_empty() {
+        return Err(Error::Other(format!("模板名无效：{name}")));
+    }
+    let path = relative
+        .split('/')
+        .fold(template_root.to_path_buf(), |acc, part| acc.join(part));
+    // 清洗已经剔掉 `..` 与空片段，这里再兜一层：Windows 盘符（`C:`）里不含斜杠，
+    // 会被当成一个普通片段留下来，`join` 上去就把整条路径换掉了。
+    if !path.starts_with(template_root) {
+        return Err(Error::Other(format!("模板路径越出模板目录：{name}")));
+    }
+    Ok(path)
+}
+
 /// 模板在「统一模板」体系中的角色，由所在目录决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -183,6 +204,54 @@ pub fn extract_dependencies(source: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 模板名的不变量：**清洗之后结果必须还在模板目录里**。
+    ///
+    /// 注意断言的是「落在里面」而不是「被拒绝」——`..` 是被剔掉而不是报错，
+    /// MCP 侧那条 `template_writes_cannot_escape_the_template_dir` 明确认可这个语义。
+    /// 只有拼不出名字（空）或真的换掉了整条路径（Windows 盘符）才报错。
+    #[test]
+    fn resolve_template_never_escapes_the_template_dir() {
+        let root = Path::new("/site/templates");
+        for hostile in [
+            "../evil.html",
+            r"..\evil.html",
+            "../../evil.html",
+            "./x.html",
+        ] {
+            let path = resolve_template(root, hostile)
+                .unwrap_or_else(|e| panic!("{hostile} 不该报错：{e}"));
+            assert!(
+                path.starts_with(root),
+                "{hostile} 解析成了 {path:?}，越出模板目录"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_template_rejects_unusable_names() {
+        let root = Path::new("/site/templates");
+        // 清洗后什么都不剩，无处可写。
+        for bad in ["", "..", "./.."] {
+            assert!(
+                resolve_template(root, bad).is_err(),
+                "{bad} 应当被拒绝，但通过了"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_template_keeps_normal_names() {
+        let root = Path::new("/site/templates");
+        assert_eq!(
+            resolve_template(root, "components/header.html").unwrap(),
+            root.join("components").join("header.html")
+        );
+        assert_eq!(
+            resolve_template(root, r"pages\post.html").unwrap(),
+            root.join("pages").join("post.html")
+        );
+    }
 
     #[test]
     fn extracts_extends_include_and_import() {

@@ -23,7 +23,7 @@ pub enum Error {
     },
 
     #[error("配置序列化失败: {0}")]
-    ConfigSerialize(Box<toml::ser::Error>),
+    ConfigSerialize(#[source] Box<toml::ser::Error>),
 
     #[error("项目目录无效: {0}")]
     InvalidProject(String),
@@ -31,14 +31,17 @@ pub enum Error {
     #[error("内容文件 front matter 无效（{path}）: {message}")]
     FrontMatter { path: PathBuf, message: String },
 
+    /// `#[source]` 不是可选的：`tera::Error` 的 `Display` 只说「哪个模板渲染失败」，
+    /// **缺哪个变量、第几行都在它的 `source()` 里**。不挂 source，IPC 层就没法把
+    /// 真正的原因拼给用户，界面上只剩一句「模板错误: Failed to render …」。
     #[error("模板错误: {0}")]
-    Template(Box<tera::Error>),
+    Template(#[source] Box<tera::Error>),
 
     #[error("本地索引错误: {0}")]
-    Index(Box<rusqlite::Error>),
+    Index(#[source] Box<rusqlite::Error>),
 
     #[error("文件监听错误: {0}")]
-    Watch(Box<notify::Error>),
+    Watch(#[source] Box<notify::Error>),
 
     #[error("{0}")]
     Other(String),
@@ -110,5 +113,28 @@ mod tests {
             std::io::Error::new(std::io::ErrorKind::NotFound, "缺失"),
         );
         assert!(err.to_string().contains("a/b.md"));
+    }
+
+    /// 模板错误的真正原因必须能顺着 `source()` 走到。
+    ///
+    /// IPC 层靠这条链把「缺哪个变量」拼给用户；`Template` 少挂一个 `#[source]`，
+    /// 界面上就只剩一句「模板错误: Failed to render …」。
+    #[test]
+    fn template_error_exposes_its_cause() {
+        use std::error::Error as _;
+
+        let cause = tera::Error::msg("Variable `page.titel` not found");
+        let err: Error = tera::Error::chain("Failed to render 'pages/post.html'", cause).into();
+
+        let mut found = false;
+        let mut current = err.source();
+        while let Some(step) = current {
+            if step.to_string().contains("page.titel") {
+                found = true;
+                break;
+            }
+            current = step.source();
+        }
+        assert!(found, "source 链里应当能找到真正的原因：{err}");
     }
 }

@@ -156,6 +156,18 @@ fn route(mut request: Request, server: Arc<McpServer>, sessions: Sessions) {
     let url = request.url().to_string();
     let path = url.split('?').next().unwrap_or("/").to_string();
 
+    // 浏览器发来的请求一概不认，无论走哪个端点。
+    //
+    // 这个端口没有鉴权，唯一的边界就是「谁能发出这个请求」。MCP 客户端是本机进程，
+    // 不会带 `Origin`；网页里的 `fetch` / `EventSource` 一定会带。所以「带了 Origin」
+    // 等价于「这是网页发来的」，直接 403。放行「本机来源的 Origin」是没有意义的——
+    // 恶意页面完全可以由本机的另一个服务托管。
+    if let Some(origin) = header_value(&request, "Origin") {
+        let body = format!("拒绝网页发起的请求（Origin: {origin}）。MCP 客户端应当是本机进程。");
+        respond(request, StatusCode(403), body);
+        return;
+    }
+
     let outcome = match (method.as_str(), path.as_str()) {
         ("POST", "/mcp") => handle_streamable(&mut request, &server),
         ("POST", "/messages") => handle_legacy_message(&mut request, &url, &server, &sessions),
@@ -177,6 +189,12 @@ fn route(mut request: Request, server: Arc<McpServer>, sessions: Sessions) {
         Err((code, message)) => Response::from_string(message).with_status_code(StatusCode(code)),
     };
     if let Err(e) = request.respond(response) {
+        tracing::debug!("MCP 响应发送失败: {e}");
+    }
+}
+
+fn respond(request: Request, code: StatusCode, body: String) {
+    if let Err(e) = request.respond(Response::from_string(body).with_status_code(code)) {
         tracing::debug!("MCP 响应发送失败: {e}");
     }
 }
@@ -262,12 +280,32 @@ fn handle_sse(request: Request, sessions: &Sessions) {
 }
 
 fn read_body(request: &mut Request) -> std::result::Result<String, (u16, String)> {
+    // 必须是 JSON。`text/plain` 属于 CORS「简单请求」，**不触发预检**——恶意网页可以
+    // 朝 127.0.0.1 的每个端口盲打而浏览器不拦（虽然读不到响应，但写操作已经发生了）。
+    // 要求 application/json 之后浏览器必须先发 OPTIONS 预检，而这里从不放行预检。
+    // 这一条与 `route` 里的 Origin 检查是两道独立的门，缺任一条都能被绕过。
+    match header_value(request, "Content-Type") {
+        Some(ct) if ct.to_ascii_lowercase().contains("application/json") => {}
+        Some(ct) => return Err((415, format!("请求体必须是 application/json，收到：{ct}"))),
+        None => return Err((415, "缺少 Content-Type: application/json".to_string())),
+    }
+
     let mut body = String::new();
     request
         .as_reader()
         .read_to_string(&mut body)
         .map_err(|e| (400, format!("读取请求体失败: {e}")))?;
     Ok(body)
+}
+
+/// 取一个请求头的值。`name` 要求 `'static`：`HeaderField::equiv` 只接受静态字符串，
+/// 而调用点全是字面量。
+fn header_value(request: &Request, name: &'static str) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|h| h.field.equiv(name))
+        .map(|h| h.value.as_str().to_string())
 }
 
 fn query_param(url: &str, key: &str) -> Option<String> {
@@ -377,6 +415,53 @@ mod tests {
     }
 
     const INITIALIZE: &str = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}"#;
+
+    /// 带自定义头的 POST，用来模拟浏览器发来的请求。
+    fn post_with(addr: SocketAddr, path: &str, extra: &str, body: &str) -> String {
+        request(
+            addr,
+            &format!(
+                "POST {path} HTTP/1.1\r\nHost: localhost\r\n{extra}\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+    }
+
+    /// 带 `Origin` 就说明是网页发来的，一律 403。
+    ///
+    /// 这个端口没有鉴权，用户开着 MCP 时任意网页都能朝本机端口发请求；
+    /// 挡住 Origin 是唯一不需要用户配置的边界。
+    #[test]
+    fn requests_from_web_pages_are_refused() {
+        let (_dir, http) = start();
+
+        let response = post_with(
+            http.addr(),
+            "/mcp",
+            "Origin: https://evil.example\r\nContent-Type: application/json\r\n",
+            INITIALIZE,
+        );
+
+        assert!(response.starts_with("HTTP/1.1 403"), "{response}");
+    }
+
+    /// `text/plain` 是 CORS 简单请求，不触发预检——必须堵掉。
+    #[test]
+    fn non_json_bodies_are_refused() {
+        let (_dir, http) = start();
+
+        let plain = post_with(
+            http.addr(),
+            "/mcp",
+            "Content-Type: text/plain\r\n",
+            INITIALIZE,
+        );
+        assert!(plain.starts_with("HTTP/1.1 415"), "{plain}");
+
+        let missing = post_with(http.addr(), "/mcp", "", INITIALIZE);
+        assert!(missing.starts_with("HTTP/1.1 415"), "{missing}");
+    }
 
     #[test]
     fn streamable_endpoint_answers_with_json() {

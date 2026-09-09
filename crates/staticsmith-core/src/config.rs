@@ -194,7 +194,11 @@ pub struct FtpDeploy {
     pub password_env: Option<String>,
     #[serde(default = "default_remote_path")]
     pub remote_path: String,
-    /// 为 true 时使用 SFTP（22 端口）而非明文 FTP。
+    /// **暂不支持**，必须为 false，`validate()` 会拦下 true。
+    ///
+    /// 字段保留是为了让写过 `sftp = true` 的老配置仍能解析——直接删字段的话 serde 会
+    /// 静默忽略它，用户会以为 SFTP 开着。要支持它得开 deploy 的 `sftp` feature，
+    /// 那会把 `ssh2` / `libssh2-sys` 打进产物。
     #[serde(default)]
     pub sftp: bool,
 }
@@ -526,6 +530,17 @@ impl SiteConfig {
             }
             _ => {}
         }
+        // SFTP 暂不支持：字段还留着（老配置照旧能解析），但在这里就拦下来。
+        // 不拦的话用户要到点「发布」时才撞上「当前构建未启用 sftp 特性」——
+        // 一个能填、能存、只在最后一步失败的开关比没有这个开关更糟。
+        if let Some(ftp) = &self.deploy.ftp {
+            if ftp.sftp {
+                issues.push(
+                    "deploy.ftp.sftp 暂不支持，请设为 false（改用 Git 发布，或先本地生成再自行上传）"
+                        .to_string(),
+                );
+            }
+        }
         issues
     }
 }
@@ -739,6 +754,30 @@ enabled = true
         let cfg: SiteConfig =
             toml::from_str("[site]\ntitle = \"t\"\n\n[deploy]\ntype = \"ftp\"\n").unwrap();
         assert_eq!(cfg.validate().len(), 1);
+    }
+
+    /// `sftp = true` 要在保存时就被拦下，而不是等点了「发布」才失败。
+    ///
+    /// 同时确认字段本身仍能解析——写过它的老配置不该在打开站点时就报错。
+    #[test]
+    fn validate_rejects_unsupported_sftp() {
+        let raw = "[site]\ntitle = \"t\"\n\n[deploy]\ntype = \"ftp\"\n\n\
+                   [deploy.ftp]\nhost = \"h\"\nusername = \"u\"\nsftp = true\n";
+        let cfg: SiteConfig = toml::from_str(raw).unwrap();
+
+        let issues = cfg.validate();
+        assert!(
+            issues.iter().any(|i| i.contains("sftp")),
+            "应当明确指出 sftp 不支持：{issues:?}"
+        );
+    }
+
+    #[test]
+    fn validate_accepts_ftp_without_sftp() {
+        let raw = "[site]\ntitle = \"t\"\n\n[deploy]\ntype = \"ftp\"\n\n\
+                   [deploy.ftp]\nhost = \"h\"\nusername = \"u\"\n";
+        let cfg: SiteConfig = toml::from_str(raw).unwrap();
+        assert!(cfg.validate().is_empty(), "{:?}", cfg.validate());
     }
 
     #[test]

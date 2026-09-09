@@ -153,7 +153,6 @@ export interface ProjectSummary {
   components: TemplateInfo[]
   templates: TemplateInfo[]
   recent_builds: BuildRecord[]
-  dirty_pages: string[]
 }
 
 export interface BuildPlan {

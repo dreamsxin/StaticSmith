@@ -6,12 +6,20 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// 本服务端实现的协议版本，按新旧顺序排列。
+/// 本服务端实现的协议版本，**严格按新到旧排列**。
 ///
-/// `initialize` 时如果客户端请求的版本在这个列表里就原样回应，否则回落到第一个。
+/// `initialize` 时如果客户端请求的版本在这个列表里就原样回应，否则回落到第一个，
+/// 也就是本服务端实现的最新版本——规范要求的正是「回落到服务端支持的最新版本」。
+/// **新增版本必须插到对应位置，不能图省事追加在末尾**：`2025-11-25` 曾经被追加在末位，
+/// 于是回落值悄悄变成了 `2025-06-18`，文档却写着「回落到最新」。
+///
 /// 目前主流客户端仍大量使用 2024-11-05（旧 HTTP+SSE 传输），因此必须继续兼容。
+///
+/// 生态里的当前版本是 `2026-07-28`（无状态内核、去掉 `initialize` 握手、
+/// 改用 `server/discover`），本服务端**尚未实现**——那是一次破坏性迁移，
+/// 不是往这个数组里加一个字符串就能了事的。
 pub const SUPPORTED_PROTOCOL_VERSIONS: [&str; 4] =
-    ["2025-06-18", "2025-03-26", "2024-11-05", "2025-11-25"];
+    ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 
 pub const SERVER_NAME: &str = "staticsmith";
 pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -112,12 +120,27 @@ pub fn tool_result(text: impl Into<String>, is_error: bool) -> Value {
 mod tests {
     use super::*;
 
+    /// 回落值必须是本服务端实现的**最新**版本，而不是数组里恰好排在前面的那个。
+    ///
+    /// `1999-01-01` 这类不认识的版本走回落分支；`None` 是旧客户端不带这个字段的情形。
     #[test]
-    fn negotiates_known_versions_and_falls_back() {
+    fn negotiates_known_versions_and_falls_back_to_the_newest() {
         assert_eq!(negotiate_version(Some("2024-11-05")), "2024-11-05");
         assert_eq!(negotiate_version(Some("2025-06-18")), "2025-06-18");
-        assert_eq!(negotiate_version(Some("1999-01-01")), "2025-06-18");
-        assert_eq!(negotiate_version(None), "2025-06-18");
+        assert_eq!(negotiate_version(Some("2025-11-25")), "2025-11-25");
+        assert_eq!(negotiate_version(Some("1999-01-01")), "2025-11-25");
+        assert_eq!(negotiate_version(None), "2025-11-25");
+    }
+
+    /// 数组一旦被人追加在末尾，回落值就会悄悄退回旧版本——用不变量把它钉住。
+    #[test]
+    fn supported_versions_stay_sorted_newest_first() {
+        let mut sorted = SUPPORTED_PROTOCOL_VERSIONS;
+        sorted.sort_unstable_by(|a, b| b.cmp(a));
+        assert_eq!(
+            SUPPORTED_PROTOCOL_VERSIONS, sorted,
+            "新增版本要插到对应位置，不能追加在末尾"
+        );
     }
 
     #[test]

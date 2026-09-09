@@ -198,8 +198,13 @@ fn move_decision(paths: &ProjectPaths, page: &Page, target: &str) -> MoveDecisio
     } else {
         format!("{target}/{file_name}")
     };
-    if content::resolve_source(&paths.content, &new_source).exists() {
-        return MoveDecision::Blocked(format!("{new_source} 已存在同名文件"));
+    // 目标路径由用户填的栏目名拼出来，越界要在干跑阶段就说清楚，而不是等落盘时报错。
+    match content::resolve_source(&paths.content, &new_source) {
+        Err(err) => return MoveDecision::Blocked(err.to_string()),
+        Ok(path) if path.exists() => {
+            return MoveDecision::Blocked(format!("{new_source} 已存在同名文件"))
+        }
+        Ok(_) => {}
     }
     MoveDecision::Go {
         new_source,
@@ -223,8 +228,8 @@ fn move_one(
         } => (new_source, old_url),
     };
 
-    let from_path = content::resolve_source(&paths.content, &page.source);
-    let to_path = content::resolve_source(&paths.content, &new_source);
+    let from_path = content::resolve_source(&paths.content, &page.source)?;
+    let to_path = content::resolve_source(&paths.content, &new_source)?;
     if let Some(parent) = to_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
     }
@@ -232,7 +237,7 @@ fn move_one(
 
     let mut alias_added = false;
     if keep_aliases {
-        alias_added = add_alias(&to_path, &old_url)?;
+        alias_added = content::add_alias(&to_path, &old_url)?;
     }
     Ok(Some(Moved {
         from: page.source.clone(),
@@ -245,14 +250,16 @@ fn move_one(
 pub fn delete(paths: &ProjectPaths, sources: &[String]) -> Result<Outcome> {
     let mut out = Outcome::default();
     for source in sources {
-        let path = content::resolve_source(&paths.content, source);
-        if !under_content(paths, &path) {
-            out.skipped.push(Skipped {
-                source: source.clone(),
-                reason: "不在内容目录内".to_string(),
-            });
-            continue;
-        }
+        let path = match content::resolve_source(&paths.content, source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.skipped.push(Skipped {
+                    source: source.clone(),
+                    reason: err.to_string(),
+                });
+                continue;
+            }
+        };
         match std::fs::remove_file(&path) {
             Ok(()) => out.changed.push(source.clone()),
             Err(err) => out.skipped.push(Skipped {
@@ -313,15 +320,17 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
     };
 
     for source in sources {
-        let path = content::resolve_source(&paths.content, source);
-        if !under_content(paths, &path) {
-            out.changes.push(Change {
-                source: source.clone(),
-                changes: false,
-                effect: "不在内容目录内".to_string(),
-            });
-            continue;
-        }
+        let path = match content::resolve_source(&paths.content, source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.changes.push(Change {
+                    source: source.clone(),
+                    changes: false,
+                    effect: err.to_string(),
+                });
+                continue;
+            }
+        };
 
         let change = match action {
             Action::Delete => Change {
@@ -388,11 +397,17 @@ fn describe_patch(
     tag_edit: Option<&(Vec<String>, Vec<String>)>,
 ) -> Change {
     let described = match action {
-        Action::Tags(_) => {
-            let (add, remove) = tag_edit.expect("标签动作一定带着清洗后的增删表");
-            tags_after(raw, add, remove)
-                .map(|after| after.map(|tags| format!("标签改为 {}", tags.join("、"))))
-        }
+        Action::Tags(_) => match tag_edit {
+            // 调用方一定先 `clean_tag_edit` 再进来，所以正常不可能是 None。
+            // 但**不用 `expect`**：这是全仓唯一一处真正的逻辑不变量断言，而
+            // `panic = "abort"` 下它会让整个应用当场消失、未保存的编辑一起丢。
+            // 将来若有人加了新入口忘了传，报一行「说不出会改什么」远比 abort 好。
+            None => Err(Error::Other(
+                "内部错误：标签动作没有带上清洗后的增删表".to_string(),
+            )),
+            Some((add, remove)) => tags_after(raw, add, remove)
+                .map(|after| after.map(|tags| format!("标签改为 {}", tags.join("、")))),
+        },
         Action::Draft(draft) => frontmatter::read(raw).map(|fm| {
             if fm.draft == *draft {
                 None
@@ -431,14 +446,16 @@ fn each(
 ) -> Result<Outcome> {
     let mut out = Outcome::default();
     for source in sources {
-        let path = content::resolve_source(&paths.content, source);
-        if !under_content(paths, &path) {
-            out.skipped.push(Skipped {
-                source: source.clone(),
-                reason: "不在内容目录内".to_string(),
-            });
-            continue;
-        }
+        let path = match content::resolve_source(&paths.content, source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.skipped.push(Skipped {
+                    source: source.clone(),
+                    reason: err.to_string(),
+                });
+                continue;
+            }
+        };
         let result = std::fs::read_to_string(&path)
             .map_err(|e| Error::io(&path, e))
             .and_then(|raw| match patch_for(&raw)? {
@@ -467,22 +484,6 @@ fn each(
     Ok(out)
 }
 
-/// 传进来的 source 可能来自 Agent，越界的一律拒绝。
-fn under_content(paths: &ProjectPaths, path: &Path) -> bool {
-    content::is_within(&paths.content, path)
-}
-
-fn add_alias(file: &Path, old_url: &str) -> Result<bool> {
-    let raw = std::fs::read_to_string(file).map_err(|e| Error::io(file, e))?;
-    match frontmatter::push_alias(&raw, old_url)? {
-        Some(updated) => {
-            std::fs::write(file, updated).map_err(|e| Error::io(file, e))?;
-            Ok(true)
-        }
-        None => Ok(false),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -501,13 +502,13 @@ mod tests {
     }
 
     fn write(f: &Fixture, source: &str, raw: &str) {
-        let path = content::resolve_source(&f.paths.content, source);
+        let path = content::resolve_source(&f.paths.content, source).unwrap();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, raw).unwrap();
     }
 
     fn read(f: &Fixture, source: &str) -> String {
-        std::fs::read_to_string(content::resolve_source(&f.paths.content, source)).unwrap()
+        std::fs::read_to_string(content::resolve_source(&f.paths.content, source).unwrap()).unwrap()
     }
 
     #[test]
@@ -568,12 +569,14 @@ mod tests {
         assert_eq!(publishing.changes[1].effect, "已经是目标状态");
 
         // 干跑不写盘
-        assert!(
-            std::fs::read_to_string(content::resolve_source(&f.paths.content, "posts/a.md"))
-                .unwrap()
-                .contains("draft = true")
-        );
-        assert!(!content::resolve_source(&f.paths.content, "essays/a.md").exists());
+        assert!(std::fs::read_to_string(
+            content::resolve_source(&f.paths.content, "posts/a.md").unwrap()
+        )
+        .unwrap()
+        .contains("draft = true"));
+        assert!(!content::resolve_source(&f.paths.content, "essays/a.md")
+            .unwrap()
+            .exists());
     }
 
     #[test]
@@ -715,7 +718,9 @@ mod tests {
         let moved = read(&f, "essays/hello.md");
         assert!(moved.contains("aliases = [\"/posts/hello/\"]"), "{moved}");
         assert!(moved.contains("正文"));
-        assert!(!content::resolve_source(&f.paths.content, "posts/hello.md").exists());
+        assert!(!content::resolve_source(&f.paths.content, "posts/hello.md")
+            .unwrap()
+            .exists());
     }
 
     #[test]
@@ -747,7 +752,7 @@ mod tests {
         assert!(out
             .skipped
             .iter()
-            .any(|s| s.reason.contains("不在内容目录内")));
+            .any(|s| s.reason.contains("越出内容目录")));
     }
 
     #[test]
