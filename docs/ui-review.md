@@ -108,6 +108,10 @@
    `staticsmith_core::replace`。只改正文、纯文本不支持正则、必须先看干跑结果。
    仍缺的是**单篇内**的查找替换——那是另一件事，见 ui-design 第九节。）*
 5. **主结构的键盘模型**（五号）。
+   *（已做：标签栏是 `tablist`（方向键切页、roving tabindex），分隔条是
+   `separator`（方向键 16px / Shift 64px / Home-End 到两端、`aria-valuenow`），
+   月历是 `grid`（方向键走格子、PageUp-PageDown 翻月、回车进条目、Esc 退回），
+   三栏 Tab 序核过：DOM 序即视线序，全项目无正数 `tabindex`。）*
 
 前两条是结构性的、会持续制造误解；三是定位问题；四五是清晰的工程任务。
 逐项修掉之后，把结论回写进 [界面设计](ui-design.md) 的规范与欠账两节，

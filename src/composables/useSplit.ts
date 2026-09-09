@@ -19,6 +19,16 @@ const MIN_LIST = 180
 const MAX_LIST = 480
 const MIN_PREVIEW = 260
 
+/**
+ * 键盘一次调多少像素。
+ *
+ * 拖拽是连续的，键盘只能是离散的：步长太小（1px）要按几百次，太大（50px）
+ * 又没法微调。16px 一档、按住 Shift 走 64px，与「一次一行 / 一次一屏」同一种手感。
+ */
+const STEP = 16
+const BIG_STEP = 64
+
+
 export function useSplit(options: SplitOptions) {
   const listWidth = ref(options.list)
   const previewWidth = ref(options.preview)
@@ -107,6 +117,34 @@ export function useSplit(options: SplitOptions) {
     document.body.style.cursor = 'col-resize'
   }
 
+  /**
+   * 键盘调宽。
+   *
+   * 分隔条以前只有鼠标能拖：键盘用户既改不了分栏，也完全感知不到它存在
+   * （见 docs/ui-review.md 第 5 条）。方向键走 16px、按住 Shift 走 64px，
+   * `Home` / `End` 直接到两端——夹取仍走 `clampList` / `clampPreview` 那一份，
+   * 键盘不该能拖出鼠标拖不到的宽度。
+   */
+  function nudge(side: 'list' | 'preview', direction: -1 | 1, big = false) {
+    const delta = (big ? BIG_STEP : STEP) * direction
+    if (side === 'list') listWidth.value = clampList(listWidth.value + delta)
+    // 右侧分隔条往左 = 预览变宽，与拖拽的符号一致
+    else previewWidth.value = clampPreview(previewWidth.value - delta)
+  }
+
+  /** 跳到某一栏的最窄 / 最宽。`Home` / `End` 用。 */
+  function jump(side: 'list' | 'preview', to: 'min' | 'max') {
+    const large = to === 'max' ? Number.MAX_SAFE_INTEGER : 0
+    if (side === 'list') listWidth.value = clampList(large)
+    else previewWidth.value = clampPreview(large)
+  }
+
+  /** 当前区间，供 `role="separator"` 的 `aria-valuemin/max` 用。 */
+  function bounds(side: 'list' | 'preview') {
+    if (side === 'list') return { min: MIN_LIST, max: MAX_LIST }
+    return { min: MIN_PREVIEW, max: clampPreview(Number.MAX_SAFE_INTEGER) }
+  }
+
   onBeforeUnmount(() => {
     stop?.()
     window.removeEventListener('resize', reclamp)
@@ -120,5 +158,5 @@ export function useSplit(options: SplitOptions) {
     }
   })
 
-  return { listWidth, previewWidth, startDrag }
+  return { listWidth, previewWidth, startDrag, nudge, jump, bounds }
 }

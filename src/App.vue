@@ -25,13 +25,77 @@ import ToastStack from './components/ToastStack.vue'
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, isTemplateDirty, store } from './store'
-import { applyResponsive, tabGroups, tabHint, ui } from './ui'
+import { applyResponsive, allTabs, tabGroups, tabHint, ui } from './ui'
 
-const { listWidth, previewWidth, startDrag } = useSplit({
+const { listWidth, previewWidth, startDrag, nudge, jump, bounds } = useSplit({
   key: 'staticsmith.split',
   list: 260,
   preview: 460,
 })
+
+/**
+ * 分隔条的键盘操作。
+ *
+ * `role="separator"` + `tabindex=0` 之后它才是个能被 Tab 走到的控件；
+ * 没有这段，键盘用户既改不了分栏，也完全感知不到它存在。
+ * 方向键 16px、Shift 64px、`Home` / `End` 到两端，判断与拖拽共用 `useSplit`。
+ */
+function onSplitterKey(side: 'list' | 'preview', event: KeyboardEvent) {
+  switch (event.key) {
+    case 'ArrowLeft':
+      nudge(side, -1, event.shiftKey)
+      break
+    case 'ArrowRight':
+      nudge(side, 1, event.shiftKey)
+      break
+    case 'Home':
+      jump(side, 'min')
+      break
+    case 'End':
+      jump(side, 'max')
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+}
+
+/**
+ * 标签栏的方向键。
+ *
+ * 标签栏现在是真正的 `tablist`：整条只占一个 Tab 停靠点（roving tabindex），
+ * 页间移动用方向键。七个视图各占一个 Tab 停靠点的话，键盘用户每次想进工作区
+ * 都要按七下。
+ *
+ * 采用「焦点即选中」：切视图是纯导航、代价很低，多按一次回车只是多一步。
+ */
+function onTabKey(event: KeyboardEvent) {
+  const index = allTabs.findIndex((item) => item.id === ui.tab)
+  const last = allTabs.length - 1
+  let next: number
+  switch (event.key) {
+    case 'ArrowRight':
+      next = index >= last ? 0 : index + 1
+      break
+    case 'ArrowLeft':
+      next = index <= 0 ? last : index - 1
+      break
+    case 'Home':
+      next = 0
+      break
+    case 'End':
+      next = last
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  ui.tab = allTabs[next].id
+  // 选中态换了，roving tabindex 也跟着换，焦点要手动搬到新的那颗，
+  // 否则它留在一个 tabindex=-1 的按钮上，再按方向键就没反应了
+  requestAnimationFrame(() => document.getElementById(`tab-${ui.tab}`)?.focus())
+}
+
 
 /** 当前页的一句话说明：标签只有两个字，关系与用途放在这里说清。 */
 const hint = computed(() => tabHint(ui.tab))
@@ -153,22 +217,23 @@ onBeforeUnmount(() => {
       <button type="button" @click="actions.closeProject()">关闭站点</button>
     </header>
 
-    <nav class="app__tabs" aria-label="工作区">
-      <div
-        v-for="group in tabGroups"
-        :key="group.label"
-        class="app__tabs-cluster"
-        role="group"
-        :aria-label="group.label"
-      >
+    <!-- 真正的 tablist：整条只占一个 Tab 停靠点，页间移动用方向键。
+         分组容器只能是 presentation——ARIA 规定 tablist 的子节点除 tab 之外
+         只能是无语义包装，组名（写／外观／上线／站点）本来就是给眼睛的装饰 -->
+    <nav class="app__tabs" role="tablist" aria-label="工作区" @keydown="onTabKey">
+      <div v-for="group in tabGroups" :key="group.label" class="app__tabs-cluster" role="presentation">
         <span class="app__tabs-group" aria-hidden="true">{{ group.label }}</span>
         <button
           v-for="item in group.tabs"
+          :id="`tab-${item.id}`"
           :key="item.id"
           type="button"
+          role="tab"
           class="app__tab"
           :class="{ active: ui.tab === item.id }"
-          :aria-current="ui.tab === item.id ? 'page' : undefined"
+          :aria-selected="ui.tab === item.id"
+          :tabindex="ui.tab === item.id ? 0 : -1"
+          aria-controls="app-workspace"
           :title="item.hint"
           @click="ui.tab = item.id"
         >
@@ -187,21 +252,44 @@ onBeforeUnmount(() => {
       <button type="button" @click="actions.refresh()">刷新组件树</button>
     </p>
 
-    <main class="app__body" :style="bodyStyle">
+    <main
+      id="app-workspace"
+      class="app__body"
+      role="tabpanel"
+      :aria-labelledby="`tab-${ui.tab}`"
+      :style="bodyStyle"
+    >
       <template v-if="ui.tab === 'content'">
         <PageList v-if="ui.showList" />
+        <!-- 分隔条是控件而不是装饰：能被 Tab 走到，方向键调宽，读屏念得出当前值 -->
         <div
           v-if="ui.showList"
           class="splitter"
-          title="拖动调整列表宽度"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="列表栏宽度（方向键调整，Shift 加速）"
+          :aria-valuenow="listWidth"
+          :aria-valuemin="bounds('list').min"
+          :aria-valuemax="bounds('list').max"
+          title="拖动或用方向键调整列表宽度"
           @pointerdown="startDrag('list', $event)"
+          @keydown="onSplitterKey('list', $event)"
         />
         <ContentEditor />
         <div
           v-if="ui.showPreview"
           class="splitter"
-          title="拖动调整预览宽度"
+          role="separator"
+          tabindex="0"
+          aria-orientation="vertical"
+          aria-label="预览栏宽度（方向键调整，Shift 加速）"
+          :aria-valuenow="previewWidth"
+          :aria-valuemin="bounds('preview').min"
+          :aria-valuemax="bounds('preview').max"
+          title="拖动或用方向键调整预览宽度"
           @pointerdown="startDrag('preview', $event)"
+          @keydown="onSplitterKey('preview', $event)"
         />
         <PreviewPane v-if="ui.showPreview" />
       </template>

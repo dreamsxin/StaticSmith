@@ -638,6 +638,14 @@ h3 {
   background: var(--accent);
 }
 
+/* 分隔条可聚焦（方向键调宽），焦点态必须看得见：6px 宽的条子上画不了描边，
+   所以整条变主色——这也顺手告诉用户「现在方向键作用在这里」 */
+.splitter:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+
+
 /* ---------------------------------------------------------------- 命令面板 */
 
 /*
@@ -2025,6 +2033,13 @@ kbd {
   overflow: hidden;
 }
 
+/* 行容器只为 `role="row"` 而存在：`display: contents` 让格子照旧落进外层七列网格，
+   语义补齐而布局一动不动 */
+.calendar__row {
+  display: contents;
+}
+
+
 .calendar__weekday {
   padding: 0.3rem 0.5rem;
   background: var(--bg-subtle);
@@ -2041,6 +2056,14 @@ kbd {
   padding: 0.3rem;
   background: var(--bg);
 }
+
+/* 格子现在能被方向键走到，落点必须看得见。用内描边而不是 outline：
+   格子之间只有 1px 缝，outline 会被相邻格子盖掉一半 */
+.calendar__cell:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 
 /* 跨月的格子压暗，但仍然显示条目——月初月末的稿子常常就在那几格 */
 .calendar__cell.outside {
