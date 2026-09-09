@@ -10,7 +10,7 @@
  * - 有未保存改动时切换文章会被拦下来问一句，而不是静默丢弃
  * - 粘贴或拖入图片先落盘到站点资源目录（内容寻址命名），再把地址插到光标处
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import { actions, isDirty, store } from '../store'
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
@@ -338,6 +338,29 @@ const findMatches = computed<number[]>(() => {
   return out
 })
 
+/**
+ * 计数文案。
+ *
+ * 定位之前只报总数（「12 处」），定位之后才报位置（「3 / 12」）——一上来就显示
+ * 「1 / 12」是在骗人：光标并没有停在第一处。
+ * 显示位置时对总数取小：边打字边找时命中表会变短，旧序号会指向不存在的位置。
+ */
+const findLabel = computed(() => {
+  const total = findMatches.value.length
+  if (!findQuery.value) return ''
+  if (!total) return '没有命中'
+  if (findIndex.value < 0) return `${total} 处`
+  return `${Math.min(findIndex.value + 1, total)} / ${total}`
+})
+
+// 换文章后命中表整个变了，旧序号必须作废，否则会显示成「3 / 1」这种不存在的位置
+watch(
+  () => store.currentSource,
+  () => {
+    findIndex.value = -1
+  },
+)
+
 function openFind() {
   finding.value = true
   const el = textarea.value
@@ -659,9 +682,7 @@ onBeforeUnmount(() => {
         @keydown.enter.prevent="selectMatch(findIndex + 1)"
         @keydown.esc.prevent="closeFind"
       />
-      <span class="editor__find-count">
-        {{ findQuery ? (findMatches.length ? `${findIndex + 1} / ${findMatches.length}` : '没有命中') : '' }}
-      </span>
+      <span class="editor__find-count">{{ findLabel }}</span>
       <button
         type="button"
         :disabled="!findMatches.length"
