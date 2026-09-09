@@ -10,6 +10,11 @@
   --fg-muted: #656d76;
   --accent: #b7410e;
   --border: #d0d7de;
+  /* 控件的边界与选中态用这一档：`--border` 对底只有 1.45:1，画分隔线够用，
+     但当它是「这是个按钮 / 这是个输入框」的唯一线索时不够（WCAG 1.4.11 要 3:1）。
+     两档分开而不是把 `--border` 一起调深：面板之间那些纯装饰的分隔线一变深，
+     整个界面会显得被网格切碎 */
+  --border-strong: #7d8590;
   --bg: #ffffff;
   --bg-subtle: #f6f8fa;
   --warn: #9a6700;
@@ -35,6 +40,9 @@
     /* 砖红提亮到能在近黑底上过 3:1，色相保持一致，界面还认得出是同一个主色 */
     --accent: #ff7b47;
     --border: #30363d;
+    /* 深色下同样要过 3:1（对 #0d1117 是 5.62:1、对 #161b22 是 5.14:1）。
+       比浅色那档再亮一点：近黑底上偏灰的线看着更容易「陷进去」 */
+    --border-strong: #848d97;
     --bg: #0d1117;
     --bg-subtle: #161b22;
     --warn: #d29922;
@@ -66,11 +74,13 @@ body {
   font: 14px/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
 
+/* 按钮与输入框的边界是「这里能点 / 能输入」的唯一线索，所以用 --border-strong
+   （1.4.11 的 3:1）。底色 --bg-subtle 与 --bg 只差 1.07:1，指望它撑起边界是自欺 */
 button {
   padding: 0.3rem 0.75rem;
   color: inherit;
   background: var(--bg-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -96,7 +106,7 @@ textarea {
   padding: 0.3rem 0.5rem;
   color: inherit;
   background: var(--bg);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: 6px;
   font: inherit;
 }
@@ -635,7 +645,9 @@ h3 {
 .splitter {
   overflow: hidden;
   border-right: none;
-  background: var(--border);
+  /* 它是控件（可聚焦、可拖），静止时的可见度也要过 3:1——用 --border 那档
+     几乎看不出这里能拖 */
+  background: var(--border-strong);
   cursor: col-resize;
   transition: background 0.15s;
 }
