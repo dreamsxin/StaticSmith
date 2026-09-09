@@ -3,6 +3,7 @@
 import { computed } from 'vue'
 
 import { actions, store } from '../store'
+import { outputKindLabel } from '../labels'
 import type { OutputFile, OutputKind } from '../api'
 
 const plan = computed(() => store.plan)
@@ -12,14 +13,6 @@ const report = computed(() => store.lastBuild)
 const emit = defineEmits<{ preview: [] }>()
 
 
-const KIND_LABEL: Record<OutputKind, string> = {
-  page: '内容页',
-  pagination: '分页页',
-  taxonomy: '标签页',
-  sitemap: '站点地图',
-  feed: '订阅源',
-  asset: '静态资源',
-}
 
 /** 按类型分组的产物清单。顺序沿用后端的排序，不再二次打乱。 */
 const outputGroups = computed(() => {
@@ -97,7 +90,7 @@ async function showOutput(url: string) {
         还没有产物。先点「生成全站」，标签页、分页页、订阅源都会出现在这里。
       </p>
       <div v-for="[kind, files] in outputGroups" :key="kind" class="build__outputs">
-        <h4>{{ KIND_LABEL[kind] }}（{{ files.length }}）</h4>
+        <h4>{{ outputKindLabel(kind) }}（{{ files.length }}）</h4>
         <ul>
           <li v-for="file in files" :key="file.path">
             <button

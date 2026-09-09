@@ -13,6 +13,7 @@ import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
 import { ui } from '../ui'
 import { searchContent } from '../api'
+import { outputKindLabel } from '../labels'
 import type { BatchPreview, PageSummary, SearchHit, SeoSeverity } from '../api'
 
 const keyword = ref('')
@@ -1000,9 +1001,7 @@ async function copyText(text: string) {
             @click="actions.previewOutput(item.url)"
           >
             <span class="page-list__title">{{ item.url }}</span>
-            <span class="badge badge--draft">{{
-              item.kind === 'taxonomy' ? '标签' : '分页'
-            }}</span>
+            <span class="badge badge--kind">{{ outputKindLabel(item.kind) }}</span>
           </button>
         </li>
       </ul>
