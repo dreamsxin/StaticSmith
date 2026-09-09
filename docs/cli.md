@@ -29,6 +29,9 @@ staticsmith batch draft <源文件…> [--publish] [--json]
 staticsmith batch move <源文件…> --to <栏目> [--no-aliases] [--dry-run] [--json]
 staticsmith batch delete <源文件…> [--yes] [--json]
                                               # 批量改内容，判断与桌面端 / MCP 同源
+staticsmith replace --find <文字> [--to <文字>] [--in <源文件>…] [--ignore-case] [--yes] [--json]
+                                              # 跨文件替换正文，默认只干跑
+
 
 staticsmith theme export <out.zip> [--name 名字] [--version 1.0.0] [--author 谁] [--description 一句话]
 staticsmith theme import <包.zip> [--dry-run] [--overwrite] [--json]
@@ -107,6 +110,38 @@ staticsmith batch delete posts/old.md --yes
 
 输出都可以 `--json`，跳过的条目一定带原因（不带原因的话，看的人分不清
 「本来就这样」还是「程序没做」）。
+
+## 跨文件查找替换
+
+改一个称呼、换一个产品名、统一一个术语——以前只能逐篇点开改，
+或者退到 `sed`（然后连 front matter 一起改坏）。
+
+```bash
+# 先干跑：列出哪几篇、共几处、每处前后长什么样
+staticsmith replace --find 旧名 --to 新名
+
+# 确认后落盘
+staticsmith replace --find 旧名 --to 新名 --yes
+
+# 只在几篇里改；忽略大小写；--to 省掉就是删掉这个词
+staticsmith replace --find Meta --to 元 --in posts/a.md --in posts/b.md --ignore-case
+staticsmith replace --find "（务必）" --yes
+```
+
+四条约束（判断在 `staticsmith_core::replace`，桌面端与 MCP 走同一份）：
+
+- **只动正文，front matter 一个字节都不碰。** 在 TOML 区域做纯文本替换会撞上引号与
+  转义，把 `"` 换掉就毁了整份 front matter。要改标题、标签这类字段用 `batch`
+  或桌面端的属性面板，那条路是保序改写
+- **纯文本，不支持正则。** 正则最容易「本想改一个词、实际扫掉半篇」，
+  而且干跑看着正常、命中却在别处。需要正则的人手里有 `sed`
+- **默认只干跑**，与删除同一条理由：正文替换没有撤销栈，改错一个词不会报错，
+  只会安静地把内容改坏
+- **逐篇独立**：一篇 front matter 坏了不影响其余，结果里说清哪篇为什么没改
+
+干跑与执行走同一份判断，「预览说三处、执行改了五处」不会发生。
+每篇最多列 5 行示例，命中更多时写明「另有 N 处未列出」——处数总是全的。
+
 
 ## 主题包
 

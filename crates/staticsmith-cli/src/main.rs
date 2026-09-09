@@ -180,6 +180,33 @@ pub enum Command {
         action: BatchAction,
     },
 
+    /// 跨文件查找替换正文里的一段文字。默认只干跑，加 --yes 才落盘
+    ///
+    /// 只动正文，front matter 一个字节都不碰：在 TOML 区域做纯文本替换会撞上
+    /// 引号与转义。要改标题、标签这类字段用 `batch` 或桌面端的属性面板。
+    /// 也不支持正则——输入框里的正则最容易「本想改一个词、实际扫掉半篇」。
+    Replace {
+        /// 要查找的文字（不能跨行）
+        #[arg(long)]
+        find: String,
+        /// 替换成什么，留空即删掉这个词
+        #[arg(long, default_value = "")]
+        to: String,
+        /// 只在这几篇里找（相对 content/ 的源路径），不给就是全站
+        #[arg(long = "in", value_name = "SOURCE")]
+        sources: Vec<String>,
+        /// 忽略大小写
+        #[arg(long)]
+        ignore_case: bool,
+        /// 确认写盘（正文替换没有撤销）
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
     /// 主题包：把外观（模板 + 主题静态资源）打包带走，或装到另一个站点
     Theme {
         #[command(subcommand)]
@@ -418,6 +445,25 @@ pub fn run(cli: Cli) -> Result<()> {
                 project,
             } => cmd_batch_delete(&project.project, &sources, yes, json),
         },
+        Command::Replace {
+            find,
+            to,
+            sources,
+            ignore_case,
+            yes,
+            json,
+            project,
+        } => cmd_replace(
+            &project.project,
+            &staticsmith_core::replace::Rule {
+                find,
+                replace: to,
+                ignore_case,
+            },
+            &sources,
+            yes,
+            json,
+        ),
         Command::Theme { action } => match action {
             ThemeAction::Export {
                 out,
@@ -725,6 +771,61 @@ fn report_preview(preview: &staticsmith_core::batch::Preview, json: bool) -> Res
     for change in &preview.changes {
         let mark = if change.changes { "+" } else { "=" };
         println!("{mark} {} —— {}", change.source, change.effect);
+    }
+    Ok(())
+}
+
+/// 跨文件替换正文。
+///
+/// **默认只干跑**，与批量删除同一条理由：CLI 里没有就地确认，脚本一跑就落盘，
+/// 而正文替换没有撤销栈——改错一个词不会报错，只会安静地把内容改坏。
+fn cmd_replace(
+    project: &PathBuf,
+    rule: &staticsmith_core::replace::Rule,
+    sources: &[String],
+    yes: bool,
+    json: bool,
+) -> Result<()> {
+    use staticsmith_core::replace::{self, Scope};
+
+    let builder = open(project)?;
+    let scope = if sources.is_empty() {
+        Scope::All
+    } else {
+        Scope::Only(sources.to_vec())
+    };
+
+    let report = if yes {
+        replace::apply(&builder.paths, &scope, rule).context("替换失败")?
+    } else {
+        replace::preview(&builder.paths, &scope, rule).context("干跑失败")?
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+    println!(
+        "{} 篇、共 {} 处{}",
+        report.files.len(),
+        report.hits,
+        if yes { "已替换" } else { "会被替换" }
+    );
+    for file in &report.files {
+        println!("+ {} （{} 处）", file.source, file.hits);
+        for line in &file.lines {
+            println!("    第 {} 行: {} → {}", line.line, line.before, line.after);
+        }
+        // 示例行有上限，命中更多时说清「还有多少没列出来」，否则会以为只改这几行
+        if file.hits > file.lines.len() {
+            println!("    …… 另有 {} 处未列出", file.hits - file.lines.len());
+        }
+    }
+    for skipped in &report.skipped {
+        println!("! {} —— {}", skipped.source, skipped.reason);
+    }
+    if !yes {
+        println!("以上只是干跑，确认无误后加 --yes 才会写盘。");
     }
     Ok(())
 }
@@ -1303,6 +1404,56 @@ mod tests {
                     !no_aliases,
                     "默认补旧地址，与桌面端一致——改 URL 不补等于打断外链"
                 );
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replace_is_dry_run_and_site_wide_by_default() {
+        let cli = Cli::try_parse_from(["staticsmith", "replace", "--find", "旧名", "--to", "新名"])
+            .unwrap();
+        match cli.command {
+            Command::Replace {
+                find,
+                to,
+                sources,
+                ignore_case,
+                yes,
+                ..
+            } => {
+                assert_eq!(find, "旧名");
+                assert_eq!(to, "新名");
+                assert!(sources.is_empty(), "不给 --in 就是全站");
+                assert!(!ignore_case, "默认区分大小写：默认值取更保守的那个");
+                assert!(!yes, "默认只干跑：正文替换没有撤销栈");
+            }
+            other => panic!("解析到了 {other:?}"),
+        }
+    }
+
+    #[test]
+    fn replace_can_delete_a_word_and_limit_the_files() {
+        // --to 可以省：留空就是「删掉这个词」
+        let cli = Cli::try_parse_from([
+            "staticsmith",
+            "replace",
+            "--find",
+            "（务必）",
+            "--in",
+            "posts/a.md",
+            "--in",
+            "posts/b.md",
+            "--yes",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Replace {
+                to, sources, yes, ..
+            } => {
+                assert_eq!(to, "");
+                assert_eq!(sources, vec!["posts/a.md", "posts/b.md"]);
+                assert!(yes);
             }
             other => panic!("解析到了 {other:?}"),
         }

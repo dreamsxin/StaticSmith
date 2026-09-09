@@ -394,6 +394,19 @@ pub fn resolve_source(content_root: &Path, source: &str) -> PathBuf {
     content_root.join(source.replace('\\', "/"))
 }
 
+/// 这个路径是否真的落在内容目录里。
+///
+/// 相对路径可能来自 Agent 或命令行参数，`../../etc/passwd` 一类必须挡掉。
+/// 批量动作与跨文件替换共用这一份判断：越界检查写两遍，迟早有一处漏了写。
+pub fn is_within(content_root: &Path, path: &Path) -> bool {
+    match path.strip_prefix(content_root) {
+        Ok(rest) => !rest
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir)),
+        Err(_) => false,
+    }
+}
+
 /// 新建内容的请求参数。
 ///
 /// 界面上「新建文章」只需要填标题与栏目，其余字段给默认值即可。

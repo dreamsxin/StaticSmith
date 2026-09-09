@@ -141,19 +141,43 @@ fn set_string_array(table: &mut toml_edit::Table, key: &str, values: &[String]) 
 
 /// 拆出 front matter 文本与正文。没有围栏时 front matter 为空串。
 fn split(raw: &str) -> Result<(String, String)> {
-    let trimmed = raw.trim_start_matches('\u{feff}');
-    let Some(rest) = trimmed.strip_prefix(FENCE) else {
-        return Ok((String::new(), trimmed.to_string()));
+    let start = body_start(raw)?;
+    let (head, body) = raw.split_at(start);
+    let head = head.trim_start_matches('\u{feff}');
+    let fm = match head.strip_prefix(FENCE) {
+        // 没有围栏：整份都是正文，front matter 为空
+        None => String::new(),
+        Some(rest) => {
+            let rest = rest.trim_start_matches(['\r', '\n']);
+            // `head` 到结束围栏为止，所以第一个 `+++` 就是那道结束围栏
+            let end = rest.find(FENCE).unwrap_or(rest.len());
+            rest[..end].to_string()
+        }
     };
-    let rest = rest.trim_start_matches(['\r', '\n']);
-    let Some(end) = rest.find(FENCE) else {
+    Ok((fm, body.to_string()))
+}
+
+/// 正文在源文里从第几个字节开始。
+///
+/// 为什么要偏移量而不是拆好的两段：跨文件替换（[`crate::replace`]）只动正文，
+/// 且必须逐字保留源文的其余部分——用 `compose` 拼回去会顺手把围栏与空行规范化，
+/// 那是「改一个词却让整份文件都变了」。`split` 也走这一份判断，围栏规则只有一处。
+pub fn body_start(raw: &str) -> Result<usize> {
+    let trimmed = raw.trim_start_matches('\u{feff}');
+    let bom = raw.len() - trimmed.len();
+    let Some(rest) = trimmed.strip_prefix(FENCE) else {
+        return Ok(bom);
+    };
+    let after_open = rest.trim_start_matches(['\r', '\n']);
+    let lead = rest.len() - after_open.len();
+    let Some(end) = after_open.find(FENCE) else {
         return Err(Error::Other(
             "front matter 缺少结束的 `+++`，请先补齐再用属性面板".to_string(),
         ));
     };
-    let (fm, body) = rest.split_at(end);
-    let body = body[FENCE.len()..].trim_start_matches(['\r', '\n']);
-    Ok((fm.to_string(), body.to_string()))
+    let body = &after_open[end + FENCE.len()..];
+    let gap = body.len() - body.trim_start_matches(['\r', '\n']).len();
+    Ok(bom + FENCE.len() + lead + end + FENCE.len() + gap)
 }
 
 /// 拼回源文：围栏内恰好一个换行结尾，围栏后空一行接正文。

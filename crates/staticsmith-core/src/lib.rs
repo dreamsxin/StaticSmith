@@ -38,6 +38,7 @@ pub mod index;
 pub mod links;
 pub mod media;
 pub mod outputs;
+pub mod replace;
 pub mod scaffold;
 pub mod search;
 pub mod sections;

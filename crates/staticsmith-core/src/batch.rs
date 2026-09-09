@@ -469,13 +469,7 @@ fn each(
 
 /// 传进来的 source 可能来自 Agent，越界的一律拒绝。
 fn under_content(paths: &ProjectPaths, path: &Path) -> bool {
-    let segments = path.strip_prefix(&paths.content).ok();
-    match segments {
-        Some(rest) => !rest
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir)),
-        None => false,
-    }
+    content::is_within(&paths.content, path)
 }
 
 fn add_alias(file: &Path, old_url: &str) -> Result<bool> {
