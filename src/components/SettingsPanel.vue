@@ -67,7 +67,16 @@ async function runImport() {
  * 会话级动作（导入、AI 接入，做完即生效）。这个字段是唯一来源——
  * 保存条据此显示，不再写成一串 `section !== 'x'`。
  */
-type Section = 'site' | 'build' | 'assets' | 'taxonomy' | 'menu' | 'deploy' | 'import' | 'ai'
+type Section =
+  | 'site'
+  | 'build'
+  | 'assets'
+  | 'taxonomy'
+  | 'menu'
+  | 'deploy'
+  | 'source'
+  | 'import'
+  | 'ai'
 
 const sections: Array<{ id: Section; label: string; hint: string; config: boolean }> = [
   {
@@ -107,6 +116,12 @@ const sections: Array<{ id: Section; label: string; hint: string; config: boolea
     config: true,
   },
   {
+    id: 'source',
+    label: '源码',
+    hint: '直接改 staticsmith.toml：注释、键序、我们不认识的段都由你说了算',
+    config: false,
+  },
+  {
     id: 'import',
     label: '导入内容',
     hint: '一次性动作：把 Hugo / Jekyll 的内容搬进来',
@@ -142,6 +157,7 @@ watch(
   section,
   (current) => {
     if (current === 'ai') void actions.loadMcpStatus()
+    if (current === 'source') void loadSource()
   },
   { immediate: true },
 )
@@ -160,6 +176,32 @@ async function copyEndpoint() {
 
 /** 当前分段。标题与说明都从这里取，面板里不再各写一个 `<h3>` 重复分段名。 */
 const current = computed(() => sections.find((item) => item.id === section.value) ?? sections[0])
+
+/**
+ * 「源码」分段：直接编辑 `staticsmith.toml`。
+ *
+ * 定位是「正文与配置都是源码」，那配置就不该只有表单一条路：表单认不出的键、
+ * 写在配置里的注释、给别的工具看的段，都得有地方改。
+ *
+ * 它有自己的保存按钮（`config: false`，不吃公共保存条）：公共那颗保存的是表单
+ * 折算出的配置，会盖掉这里手写的文本——两颗按钮做两件事，就该长在两处。
+ */
+const sourceDraft = ref('')
+const sourceSaved = ref('')
+
+const sourceDirty = computed(() => sourceDraft.value !== sourceSaved.value)
+
+async function loadSource() {
+  const raw = await actions.readConfigSource()
+  sourceDraft.value = raw
+  sourceSaved.value = raw
+}
+
+async function saveSource() {
+  // 校验在 Rust 侧：解析不了就不落盘，报错由 run() 弹出来，草稿留在编辑框里
+  if (await actions.saveConfigSource(sourceDraft.value)) sourceSaved.value = sourceDraft.value
+}
+
 
 
 
@@ -554,6 +596,39 @@ function onDeployKindChange() {
         密码与 Token 不会写入配置文件，请在「发布」页保存到系统凭据管理器。
       </p>
     </div>
+
+    <!-- 源码：表单认不出的键、写在配置里的注释、给别的工具看的段，都在这里改 -->
+    <div v-if="section === 'source'" class="settings__panel">
+      <p class="settings__hint">
+        这是磁盘上那份 <code>staticsmith.toml</code> 的原文，保存时逐字写回——
+        不格式化、不重排键。保存前会先解析并校验，写不进去的配置不会落盘。
+      </p>
+      <textarea
+        v-model="sourceDraft"
+        class="settings__source"
+        spellcheck="false"
+        aria-label="staticsmith.toml 原文"
+      />
+      <div class="page-list__batch-row">
+        <button
+          type="button"
+          class="btn--primary"
+          :disabled="store.busy || !sourceDirty"
+          @click="saveSource"
+        >
+          保存 staticsmith.toml
+        </button>
+        <button type="button" :disabled="store.busy || !sourceDirty" @click="loadSource">
+          放弃改动，重新读取
+        </button>
+        <span v-if="sourceDirty" class="editor__dirty" title="有未保存改动">●</span>
+      </div>
+      <p class="build__muted">
+        上面各段的「保存设置」写的是表单折算出的配置，会盖掉这里手写的文本；
+        反过来也一样。两颗按钮做两件事，别交替按。
+      </p>
+    </div>
+
 
     <div v-if="section === 'import'" class="settings__panel">
       <p class="build__muted">

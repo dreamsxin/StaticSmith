@@ -1012,6 +1012,26 @@ export const actions = {
     }
   },
 
+  /** 读 `staticsmith.toml` 原文，供「源码」分段编辑。读不出来返回空串。 */
+  async readConfigSource(): Promise<string> {
+    return (await run(() => api.readConfigSource())) ?? ''
+  },
+
+  /**
+   * 逐字保存 `staticsmith.toml`。
+   *
+   * 校验失败时 Rust 侧抛错，`run()` 把原因弹出来，正文不落盘——
+   * 用户手里那份文本仍在编辑器里，可以照着报错改。返回是否真的保存了。
+   */
+  async saveConfigSource(raw: string): Promise<boolean> {
+    const issues = await run(() => api.saveConfigSource(raw))
+    if (!issues) return false
+    await this.refresh()
+    notify('success', '已按你写的原文保存 staticsmith.toml')
+    return true
+  },
+
+
   async saveSecret(account: string, secret: string) {
     const done = await run(() => api.saveSecret(account, secret))
     if (done !== undefined) notify('success', '凭证已写入系统凭据管理器')

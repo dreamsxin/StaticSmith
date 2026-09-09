@@ -212,6 +212,38 @@ pub fn save_config(state: State<'_, AppState>, config: SiteConfig) -> Result<Vec
     })
 }
 
+/// `staticsmith.toml` 的原文，供「源码」分段编辑。
+///
+/// 读文件而不是把 `SiteConfig` 序列化回去：源码视图要给出的是**磁盘上那份文本**，
+/// 连注释与键序一起。序列化出来的那份长得不一样，用户会以为文件被改过。
+#[tauri::command]
+pub fn read_config_source(state: State<'_, AppState>) -> Result<String> {
+    state.with_session(|session| {
+        let path = session.root.join(staticsmith_core::CONFIG_FILE_NAME);
+        Ok(std::fs::read_to_string(&path)?)
+    })
+}
+
+/// 保存 `staticsmith.toml` 原文。
+///
+/// **逐字写盘**——源码视图的意义就在于「我写的就是文件里的」，不做格式化、不重排键。
+/// 但写之前必须先解析 + 校验：写进一份解析不了的配置，下一次打开站点就直接报错，
+/// 而那时界面已经帮不上忙（配置读不出来，连设置页都进不去）。
+#[tauri::command]
+pub fn save_config_source(state: State<'_, AppState>, raw: String) -> Result<Vec<String>> {
+    let config = SiteConfig::parse(&raw)?;
+    let issues = config.validate();
+    if !issues.is_empty() {
+        return Err(AppError::Message(issues.join("；")));
+    }
+    state.with_session_mut(|session| {
+        let path = session.root.join(staticsmith_core::CONFIG_FILE_NAME);
+        std::fs::write(&path, &raw)?;
+        session.builder = staticsmith_core::Builder::open(&session.root)?;
+        Ok(Vec::new())
+    })
+}
+
 // ---------------------------------------------------------------- 内容
 
 #[tauri::command]

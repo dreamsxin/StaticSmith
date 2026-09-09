@@ -415,7 +415,19 @@ impl SiteConfig {
     pub fn load(project_root: impl AsRef<Path>) -> Result<Self> {
         let path = project_root.as_ref().join(CONFIG_FILE_NAME);
         let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
-        toml::from_str(&raw).map_err(|source| Error::config_parse(path, source))
+        Self::parse_at(&path, &raw)
+    }
+
+    /// 解析一份配置文本（源码视图保存前要先过这一道）。
+    ///
+    /// 与 [`Self::load`] 共用同一份解析：两处各写一次 `toml::from_str`，
+    /// 迟早出现「界面说这份配置能用、打开站点却报错」。
+    pub fn parse(raw: &str) -> Result<Self> {
+        Self::parse_at(Path::new(CONFIG_FILE_NAME), raw)
+    }
+
+    fn parse_at(path: &Path, raw: &str) -> Result<Self> {
+        toml::from_str(raw).map_err(|source| Error::config_parse(path.to_path_buf(), source))
     }
 
     /// 写回 `staticsmith.toml`（可视化界面保存设置时调用）。

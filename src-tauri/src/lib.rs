@@ -30,6 +30,8 @@ pub fn run() {
             commands::project_summary,
             commands::read_config,
             commands::save_config,
+            commands::read_config_source,
+            commands::save_config_source,
             commands::list_pages,
             commands::search_content,
             commands::read_content,

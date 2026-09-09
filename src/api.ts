@@ -254,6 +254,18 @@ export const readConfig = () => invoke<SiteConfig>('read_config')
 
 export const saveConfig = (config: SiteConfig) => invoke<string[]>('save_config', { config })
 
+/** `staticsmith.toml` 的原文（磁盘上那份文本，含注释与键序）。 */
+export const readConfigSource = () => invoke<string>('read_config_source')
+
+/**
+ * 逐字保存 `staticsmith.toml`。
+ *
+ * 写盘前 Rust 侧会先解析并校验：一份解析不了的配置写进去，下一次打开站点就报错，
+ * 那时连设置页都进不去。校验失败会抛错，正文不落盘。
+ */
+export const saveConfigSource = (raw: string) =>
+  invoke<string[]>('save_config_source', { raw })
+
 // ---------------------------------------------------------------- 内容
 
 export const listPages = () => invoke<PageSummary[]>('list_pages')

@@ -1746,6 +1746,17 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* 配置源码框：等宽字体、不自动换行——TOML 的对齐是有意义的，软换行会读错缩进 */
+.settings__source {
+  min-height: 24rem;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
+
+
 /* 表单不铺满整个宽屏：一行输入框拉到 80rem 宽，眼睛要从标签走很远才到值 */
 .settings__panel {
   max-width: 44rem;
