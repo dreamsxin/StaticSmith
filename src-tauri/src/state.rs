@@ -195,57 +195,68 @@ impl AppState {
     /// 唯一分派点，界面这边没有等价物，所以做成一个**必须用它才能写**的访问器：
     /// 需求写在方法名上，而不是靠每个命令记得多调一行。
     ///
+    /// 快照与写入在**同一次加锁**里完成。分成两次（先取锁快照、放开、再取锁写入）
+    /// 会留一个窗口：内嵌的 MCP 服务端可以在中间插进来改文件，那样快照对应的
+    /// 就不是「这次操作之前」的状态了。
+    ///
     /// 快照失败不阻断操作，只记日志：没有安全网也比「因为 git 出问题就不让删内容」好。
     pub fn with_writing_session<T>(
         &self,
         operation: &str,
         f: impl FnOnce(&mut Session) -> Result<T>,
     ) -> Result<T> {
-        {
-            let guard = self.session.lock().expect("状态锁被污染");
-            if let Some(session) = guard.as_ref() {
-                snapshot_before(&session.builder.paths, operation);
-            }
+        let mut guard = self.session.lock().expect("状态锁被污染");
+        if let Some(session) = guard.as_ref() {
+            snapshot_before(&session.builder.paths, operation);
         }
-        self.with_session_mut(f)
+        run_writing(&mut guard, f)
     }
 
     /// 以可写方式访问当前项目（构建、reload 需要 `&mut Builder`）。
     ///
     /// 会写源文件的命令请改用 [`AppState::with_writing_session`]——这个方法不留快照。
-    ///
-    /// panic 在这里被兜住并**立刻重开项目**：写入路径上的 panic 可能把 `Builder`
-    /// 停在改了一半的状态上，拿着半套内存状态继续生成产物比报错更糟。
     pub fn with_session_mut<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
         let mut guard = self.session.lock().expect("状态锁被污染");
-        let session = guard.as_mut().ok_or(AppError::NoProject)?;
-        let message = match catch_panics(|| f(session)) {
-            Ok(result) => return result,
-            Err(message) => message,
-        };
+        run_writing(&mut guard, f)
+    }
+}
 
-        // 重开也要兜住 panic。第一次 panic 很可能来自模板或内容的解析，
-        // 而重开正是把同一份磁盘内容再解析一遍——同一个 panic 会再来一次。
-        // 那一次若穿过这里的 `MutexGuard`，Mutex 会被标记 poisoned，
-        // 此后每个操作都会再炸，也就是这段代码本来要防的那件事。
-        let root = session.root.clone();
-        let reopened = catch_panics(|| Builder::open(&root));
-        match reopened {
-            Ok(Ok(builder)) => {
-                session.builder = builder;
-                Err(panic_error(&message, "项目状态已从磁盘重新载入"))
-            }
-            // 重开失败：留着半套状态比没有状态更危险，直接关掉，让用户重开项目
-            Ok(Err(err)) => {
-                tracing::error!("panic 后重开项目失败: {err}");
-                *guard = None;
-                Err(panic_error(&message, "项目已关闭，请重新打开"))
-            }
-            Err(second) => {
-                tracing::error!("panic 后重开项目时又 panic 了: {second}");
-                *guard = None;
-                Err(panic_error(&message, "项目已关闭，请重新打开"))
-            }
+/// 写入访问的公共部分：兜住 panic，并在 panic 后重开项目。
+///
+/// 取锁留给调用方，这样「先快照再写入」能在一次加锁里做完。
+///
+/// panic 在这里被兜住并**立刻重开项目**：写入路径上的 panic 可能把 `Builder`
+/// 停在改了一半的状态上，拿着半套内存状态继续生成产物比报错更糟。
+fn run_writing<T>(
+    slot: &mut Option<Session>,
+    f: impl FnOnce(&mut Session) -> Result<T>,
+) -> Result<T> {
+    let session = slot.as_mut().ok_or(AppError::NoProject)?;
+    let message = match catch_panics(|| f(session)) {
+        Ok(result) => return result,
+        Err(message) => message,
+    };
+
+    // 重开也要兜住 panic。第一次 panic 很可能来自模板或内容的解析，
+    // 而重开正是把同一份磁盘内容再解析一遍——同一个 panic 会再来一次。
+    // 那一次若穿过调用方的 `MutexGuard`，Mutex 会被标记 poisoned，
+    // 此后每个操作都会再炸，也就是这段代码本来要防的那件事。
+    let root = session.root.clone();
+    match catch_panics(|| Builder::open(&root)) {
+        Ok(Ok(builder)) => {
+            session.builder = builder;
+            Err(panic_error(&message, "项目状态已从磁盘重新载入"))
+        }
+        // 重开失败：留着半套状态比没有状态更危险，直接关掉，让用户重开项目
+        Ok(Err(err)) => {
+            tracing::error!("panic 后重开项目失败: {err}");
+            *slot = None;
+            Err(panic_error(&message, "项目已关闭，请重新打开"))
+        }
+        Err(second) => {
+            tracing::error!("panic 后重开项目时又 panic 了: {second}");
+            *slot = None;
+            Err(panic_error(&message, "项目已关闭，请重新打开"))
         }
     }
 }

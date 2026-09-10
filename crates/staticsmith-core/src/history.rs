@@ -253,9 +253,18 @@ fn tracked_paths(paths: &ProjectPaths) -> Vec<String> {
 /// 签出时会把 LF 换成 CRLF——等于我们悄悄改写了用户每一行的行尾。后果不只是
 /// 难看：他自己的 git 会看到满屏改动，内容哈希也全变了，下次构建变成全量重建。
 /// 快照的语义是「原样还回去」，不是「按平台习惯规范化」。
+/// 两处写入都先读一遍再决定：`open()` 现在是每次写盘操作的前置步骤
+/// （界面上每个破坏性动作、MCP 每个写工具都会调一次），而 libgit2 写 config
+/// 走的是 `config.lock` → 改写 → rename，`info/attributes` 也是一次真实的
+/// 文件写。值本身是固定的，重复写没有任何收益，只是每次操作多两次磁盘 I/O。
+/// 仍然保留「不对就写回去」的分支：用户手动改过或删掉之后，下次打开要能自动补上。
 fn configure(repo: &Repository) -> Result<()> {
     let mut config = repo.config()?;
-    config.set_bool("core.autocrlf", false)?;
+    // snapshot() 拿的是快照视图，避免读到的是别的进程写了一半的内容
+    let current = config.snapshot()?.get_bool("core.autocrlf").ok();
+    if current != Some(false) {
+        config.set_bool("core.autocrlf", false)?;
+    }
     write_no_text_attributes(repo.path())
 }
 
@@ -273,7 +282,11 @@ fn write_no_text_attributes(git_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(&info).map_err(|e| Error::io(&info, e))?;
     let path = info.join("attributes");
     let body = "# 快照要字节级还原：不转行尾，也不跑任何过滤器\n* -text\n";
-    // 每次都写：内容固定，且要保证用户手动删掉之后下次打开能自动补回来
+    // 内容一致就不写：用户手动删改之后仍然会被补回来，但正常情况下
+    // 每次 open() 不再多一次文件写
+    if std::fs::read(&path).is_ok_and(|existing| existing == body.as_bytes()) {
+        return Ok(());
+    }
     std::fs::write(&path, body).map_err(|e| Error::io(&path, e))
 }
 
@@ -520,6 +533,24 @@ mod tests {
             !raw.windows(2).any(|w| w == b"\r\n"),
             "不能被换成 CRLF: {raw:?}"
         );
+    }
+
+    /// 被改坏的 `info/attributes` 要在下次打开时修回来。
+    ///
+    /// `configure()` 现在会先读再写（`open()` 是每次写盘操作的前置步骤，重复写
+    /// 纯属浪费），跳过写入的前提是「内容已经对了」。这里验证反面：内容不对时
+    /// 仍然会被写回去，否则上面那条行尾保护会在某次手改之后静默失效。
+    #[test]
+    fn a_tampered_attributes_file_is_repaired_on_the_next_open() {
+        let dir = project();
+        let attributes = git_dir(dir.path()).join("info/attributes");
+
+        Snapshots::open(&paths(&dir)).unwrap();
+        std::fs::write(&attributes, "* text=auto eol=crlf\n").unwrap();
+        Snapshots::open(&paths(&dir)).unwrap();
+
+        let body = std::fs::read_to_string(&attributes).unwrap();
+        assert!(body.contains("* -text"), "被改坏的属性文件应被修回: {body}");
     }
 
     /// 改过 `content_dir` 的站点也要有安全网。
