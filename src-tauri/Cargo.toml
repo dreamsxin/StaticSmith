@@ -19,7 +19,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.6", features = [] }
 
 [dependencies]
-staticsmith-core.workspace = true
+staticsmith-core = { workspace = true, features = ["history"] }
 staticsmith-deploy.workspace = true
 # MCP 服务端内嵌进桌面端：AI 接入不该只能从终端开（见 docs/mcp.md）
 staticsmith-mcp.workspace = true

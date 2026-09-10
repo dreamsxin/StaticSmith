@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use staticsmith_core::history::Snapshots;
 use staticsmith_core::watch::{ChangeSet, ProjectWatcher};
-use staticsmith_core::{Builder, PreviewServer};
+use staticsmith_core::{Builder, PreviewServer, ProjectPaths};
 use staticsmith_mcp::McpHttpServer;
 use tauri::{Emitter, Manager, Window};
 
@@ -187,7 +188,31 @@ impl AppState {
         }
     }
 
+    /// 以可写方式访问当前项目，**并在动手之前留一份内容快照**。
+    ///
+    /// 界面上的批量动作、删除、栏目改名、跨文件替换都是不可逆的：改的是磁盘上的
+    /// 源文件，没有撤销栈。MCP 那侧的安全网挂在 `tools::call` 上——那是个天然的
+    /// 唯一分派点，界面这边没有等价物，所以做成一个**必须用它才能写**的访问器：
+    /// 需求写在方法名上，而不是靠每个命令记得多调一行。
+    ///
+    /// 快照失败不阻断操作，只记日志：没有安全网也比「因为 git 出问题就不让删内容」好。
+    pub fn with_writing_session<T>(
+        &self,
+        operation: &str,
+        f: impl FnOnce(&mut Session) -> Result<T>,
+    ) -> Result<T> {
+        {
+            let guard = self.session.lock().expect("状态锁被污染");
+            if let Some(session) = guard.as_ref() {
+                snapshot_before(&session.builder.paths, operation);
+            }
+        }
+        self.with_session_mut(f)
+    }
+
     /// 以可写方式访问当前项目（构建、reload 需要 `&mut Builder`）。
+    ///
+    /// 会写源文件的命令请改用 [`AppState::with_writing_session`]——这个方法不留快照。
     ///
     /// panic 在这里被兜住并**立刻重开项目**：写入路径上的 panic 可能把 `Builder`
     /// 停在改了一半的状态上，拿着半套内存状态继续生成产物比报错更糟。
@@ -222,6 +247,21 @@ impl AppState {
                 Err(panic_error(&message, "项目已关闭，请重新打开"))
             }
         }
+    }
+}
+
+/// 动手之前留一份内容快照。
+///
+/// 与 MCP 那侧同一套机制（`staticsmith_core::history`），所以界面与 Agent 共用
+/// 一条历史：Agent 回退掉的东西，界面这边留下的那一笔也在里面。
+///
+/// 失败只记日志。事后发现某次改动没有可回退的版本时，原因得查得到。
+fn snapshot_before(paths: &ProjectPaths, operation: &str) {
+    match Snapshots::open(paths).and_then(|s| s.snapshot(operation)) {
+        Ok(Some(snapshot)) => tracing::info!("{operation} 之前已留快照 {}", snapshot.id),
+        // 内容与上次快照一致，不留空提交
+        Ok(None) => {}
+        Err(err) => tracing::warn!("{operation} 之前的快照没留下，这次改动将无法回退: {err}"),
     }
 }
 

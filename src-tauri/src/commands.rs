@@ -325,7 +325,7 @@ pub fn save_content(state: State<'_, AppState>, args: SaveContentArgs) -> Result
 
 #[tauri::command]
 pub fn delete_content(state: State<'_, AppState>, source: String) -> Result<BuildPlan> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("delete_content", |session| {
         let path = content::resolve_source(&session.builder.paths.content, &source)?;
         state.note_self_write(&path);
         std::fs::remove_file(&path)?;
@@ -573,7 +573,7 @@ pub struct BatchMoveReport {
 /// 批量增删标签。加什么、去什么分开传：整集合覆盖会把各篇原有的标签洗掉。
 #[tauri::command]
 pub fn batch_edit_tags(state: State<'_, AppState>, args: BatchTagsArgs) -> Result<BatchReport> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("batch_edit_tags", |session| {
         note_batch(&state, session, &args.sources);
         let out = session.builder.batch_edit_tags(
             &args.sources,
@@ -597,7 +597,7 @@ pub fn batch_set_draft(
     sources: Vec<String>,
     draft: bool,
 ) -> Result<BatchReport> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("batch_set_draft", |session| {
         note_batch(&state, session, &sources);
         let out = session.builder.batch_set_draft(&sources, draft)?;
         Ok(BatchReport {
@@ -611,7 +611,7 @@ pub fn batch_set_draft(
 /// 批量搬到另一个栏目，默认补旧地址。
 #[tauri::command]
 pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<BatchMoveReport> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("batch_move", |session| {
         note_batch(&state, session, &args.sources);
         // 目标目录会新增文件，一并登记，免得改完弹「检测到外部修改」
         let target = content::resolve_source(&session.builder.paths.content, &args.to_section)?;
@@ -630,7 +630,7 @@ pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<Bat
 /// 批量删除内容。不可逆，界面必须先二次确认。
 #[tauri::command]
 pub fn batch_delete(state: State<'_, AppState>, sources: Vec<String>) -> Result<BatchReport> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("batch_delete", |session| {
         note_batch(&state, session, &sources);
         let out = session.builder.batch_delete(&sources)?;
         Ok(BatchReport {
@@ -750,7 +750,7 @@ pub fn preview_replace(state: State<'_, AppState>, args: ReplaceArgs) -> Result<
 #[tauri::command]
 pub fn apply_replace(state: State<'_, AppState>, args: ReplaceArgs) -> Result<ReplaceReport> {
     let (scope, rule) = args.split();
-    state.with_session_mut(|session| {
+    state.with_writing_session("apply_replace", |session| {
         // 改哪几篇要等跑完才知道，所以整棵内容树先登记为自身写入，
         // 否则监听器会把这一批改动当成外部修改，弹一堆「磁盘上变了」
         let root = session.builder.paths.content.clone();
@@ -796,7 +796,7 @@ pub fn rename_section(
     state: State<'_, AppState>,
     args: RenameSectionArgs,
 ) -> Result<SectionRenamed> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("rename_section", |session| {
         let content_root = session.builder.paths.content.clone();
         // 整棵子树的变更都是自己造成的，别让「检测到外部修改」在改名后弹出来
         for section in [&args.from, &args.to] {
@@ -812,7 +812,7 @@ pub fn rename_section(
 /// 删除空栏目。里面还有文章时报错，不会连带删除。返回删除后的栏目清单。
 #[tauri::command]
 pub fn remove_section(state: State<'_, AppState>, path: String) -> Result<Vec<Section>> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("remove_section", |session| {
         let dir = content::resolve_source(&session.builder.paths.content, &path)?;
         state.note_self_tree(&dir);
         session.builder.remove_section(&path)?;
