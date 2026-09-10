@@ -139,7 +139,7 @@ fn editing_a_global_component_cascades_to_every_page() {
 }
 
 #[test]
-fn editing_one_article_rebuilds_only_that_page() {
+fn editing_one_article_rebuilds_that_page_and_its_section_index() {
     let dir = new_project();
     let mut builder = Builder::open(dir.path()).unwrap();
     builder.build(BuildMode::Full).unwrap();
@@ -150,11 +150,70 @@ fn editing_one_article_rebuilds_only_that_page() {
 
     builder.reload().unwrap();
     let plan = builder.plan(BuildMode::Incremental).unwrap();
-    assert_eq!(plan.pages, vec!["posts/hello-staticsmith.md".to_string()]);
+    // 改一篇文章连带重渲染它所在栏目的列表页：列表页的内容来自**别的**页面，
+    // 哈希没变不等于内容没变。栏目外的页面（首页、关于）仍然跳过。
+    let mut pages = plan.pages.clone();
+    pages.sort();
+    assert_eq!(
+        pages,
+        vec![
+            "posts/hello-staticsmith.md".to_string(),
+            "posts/index.md".to_string()
+        ]
+    );
 
     let report = builder.build(BuildMode::Incremental).unwrap();
-    assert_eq!(report.pages_rendered, 1);
+    assert_eq!(report.pages_rendered, 2);
     assert!(read(dir.path(), "posts/hello-staticsmith/index.html").contains("补充一段说明"));
+}
+
+#[test]
+fn adding_an_article_makes_it_appear_on_the_section_index() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+    assert!(!read(dir.path(), "posts/index.html").contains("新来的一篇"));
+
+    builder
+        .create_content(&NewContent {
+            title: "新来的一篇".into(),
+            section: "posts".into(),
+            draft: false,
+            ..Default::default()
+        })
+        .unwrap();
+
+    let plan = builder.plan(BuildMode::Incremental).unwrap();
+    assert!(
+        plan.pages.contains(&"posts/index.md".to_string()),
+        "新增文章必须带上栏目列表页，否则新文章在列表里看不见：{:?}",
+        plan.pages
+    );
+
+    builder.build(BuildMode::Incremental).unwrap();
+    assert!(read(dir.path(), "posts/index.html").contains("新来的一篇"));
+}
+
+#[test]
+fn deleting_an_article_removes_it_from_the_section_index() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+    assert!(read(dir.path(), "posts/index.html").contains("hello-staticsmith"));
+
+    std::fs::remove_file(dir.path().join("content/posts/hello-staticsmith.md")).unwrap();
+    builder.reload().unwrap();
+
+    // 被删的页面自己不在 plan.pages 里（它已经不存在了），列表页必须在。
+    let plan = builder.plan(BuildMode::Incremental).unwrap();
+    assert!(
+        plan.pages.contains(&"posts/index.md".to_string()),
+        "删掉文章后栏目列表页仍会列出它：{:?}",
+        plan.pages
+    );
+
+    builder.build(BuildMode::Incremental).unwrap();
+    assert!(!read(dir.path(), "posts/index.html").contains("hello-staticsmith"));
 }
 
 #[test]

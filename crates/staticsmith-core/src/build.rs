@@ -415,13 +415,35 @@ impl Builder {
         let pages = match mode {
             BuildMode::Full => existing.clone(),
             BuildMode::Incremental => {
-                let mut selected = Vec::new();
+                let mut chosen: BTreeSet<String> = BTreeSet::new();
+                // 有页面重渲染、新增或消失的栏目：它们的列表页内容跟着变了。
+                let mut touched_sections: BTreeSet<&str> = BTreeSet::new();
                 for page in &publishable {
                     if self.needs_rebuild(page, &affected)? {
-                        selected.push(page.source.clone());
+                        chosen.insert(page.source.clone());
+                        if !page.is_index {
+                            touched_sections.insert(page.section.as_str());
+                        }
                     }
                 }
-                selected
+                // 消失的页面（删掉的、改成草稿的）也会改变列表，但它已经不在 publishable 里，
+                // 只能从源路径回推栏目。
+                for source in &orphaned_pages {
+                    touched_sections.insert(section_of(source));
+                }
+                // 栏目列表页列的是**别的**页面（`section_items`），自己哈希没变不等于内容没变。
+                // 这里按栏目整体带上而不去比对标题/日期是否真的变了：列表页一个栏目只有一张，
+                // 多渲染一次的代价远小于漏掉一次——漏掉的表现是「新文章在列表里看不见」。
+                for page in &publishable {
+                    if page.is_index && touched_sections.contains(page.section.as_str()) {
+                        chosen.insert(page.source.clone());
+                    }
+                }
+                publishable
+                    .iter()
+                    .filter(|p| chosen.contains(&p.source))
+                    .map(|p| p.source.clone())
+                    .collect()
             }
         };
 
@@ -1134,6 +1156,16 @@ fn section_items<'a>(index_page: &Page, all_pages: &[&'a Page]) -> Vec<&'a Page>
             .then_with(|| a.title.cmp(&b.title))
     });
     items
+}
+
+/// 源路径（相对 `content/`，斜杠分隔）所属的栏目，根目录为空串。
+///
+/// 只用于已从磁盘消失的页面——还在的页面直接读 `Page::section`。
+fn section_of(source: &str) -> &str {
+    match source.rsplit_once('/') {
+        Some((dir, _)) => dir,
+        None => "",
+    }
 }
 
 /// 递归复制目录内容（覆盖同名文件），返回复制的文件数。
