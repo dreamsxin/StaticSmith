@@ -113,6 +113,7 @@ mod tests {
             username: "alice".into(),
             password_env: Some("MY_FTP_SECRET".into()),
             remote_path: "/public_html".into(),
+            overwrite: Default::default(),
             sftp: false,
         });
 

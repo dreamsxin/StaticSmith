@@ -194,6 +194,9 @@ pub struct FtpDeploy {
     pub password_env: Option<String>,
     #[serde(default = "default_remote_path")]
     pub remote_path: String,
+    /// 远端已存在同名文件时怎么办。默认与老版本行为一致。
+    #[serde(default)]
+    pub overwrite: FtpOverwrite,
     /// **暂不支持**，必须为 false，`validate()` 会拦下 true。
     ///
     /// 字段保留是为了让写过 `sftp = true` 的老配置仍能解析——直接删字段的话 serde 会
@@ -201,6 +204,28 @@ pub struct FtpDeploy {
     /// 那会把 `ssh2` / `libssh2-sys` 打进产物。
     #[serde(default)]
     pub sftp: bool,
+}
+
+/// 远端已存在同名文件时的处理规则，对应 FileZilla 的「文件已存在时」那一栏。
+///
+/// 为什么要让用户选而不是由我们判定：FTP 的比对材料只有大小和 `MDTM`，两者都可能
+/// 不可靠——服务器不支持 `MDTM` 时时间戳整个拿不到；服务器时钟快于本地时，远端时间
+/// 永远「更新」，于是**所有文件被永久跳过**，界面上只显示「跳过 N 个」，看不出发布
+/// 其实什么都没做。这类环境差异我们猜不出来，只有用户知道自己那台服务器什么样。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FtpOverwrite {
+    /// 大小不同**或**本地更新才传。默认，也是 2.0 以来的行为。
+    #[default]
+    SizeOrNewer,
+    /// 一律重传，不比对。最慢但最确定——服务器时钟或 `MDTM` 不可靠时用这个。
+    Always,
+    /// 只看时间：本地更新才传。
+    Newer,
+    /// 只看大小：大小不同才传。服务器时钟不可信但改动都会变长度时用。
+    Size,
+    /// 远端已存在就跳过，只补新文件。
+    Skip,
 }
 
 impl Default for Build {

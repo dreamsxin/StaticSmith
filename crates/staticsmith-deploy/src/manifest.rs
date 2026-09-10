@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use staticsmith_core::config::FtpOverwrite;
 
 use crate::{Error, Result};
 
@@ -71,20 +72,31 @@ pub fn scan(dist_dir: &Path) -> Result<Vec<LocalEntry>> {
 
 /// 比对本地与远端清单。
 ///
-/// 判定为「需要上传」的条件：远端缺失、大小不同，或本地修改时间更新。
-/// 两侧时间戳都存在时才比较时间，否则只看大小——FTP 服务器的时间精度差异很大。
-pub fn plan_sync(local: &[LocalEntry], remote: &[RemoteEntry], delete_extra: bool) -> SyncPlan {
+/// 远端缺这个文件时一律上传，与规则无关——「跳过」说的是「不覆盖已有的」，
+/// 不是「不发新文件」。已存在时按 `overwrite` 判定，规则含义见 [`FtpOverwrite`]。
+///
+/// 时间比较容忍 2 秒误差（FAT/FTP 的时间戳精度只有 2 秒），且两侧时间戳都拿得到
+/// 才比时间——服务器不支持 `MDTM` 时，「本地更新」这个问题根本无法回答，
+/// 此时 `size_or_newer` 与 `newer` 都只能判定为「不确定 → 不传」，
+/// 真要传得上去只有 `always`。这一条写进了 docs/deploy.md。
+pub fn plan_sync(
+    local: &[LocalEntry],
+    remote: &[RemoteEntry],
+    delete_extra: bool,
+    overwrite: FtpOverwrite,
+) -> SyncPlan {
     let mut plan = SyncPlan::default();
 
     for item in local {
-        match remote.iter().find(|r| r.path == item.path) {
-            None => plan.upload.push(item.path.clone()),
-            Some(r) if r.size != item.size => plan.upload.push(item.path.clone()),
-            Some(r) => match (item.modified_epoch, r.modified_epoch) {
-                // 容忍 2 秒误差：FAT/FTP 的时间戳精度只有 2 秒。
-                (Some(l), Some(rm)) if l > rm + 2 => plan.upload.push(item.path.clone()),
-                _ => plan.skipped += 1,
-            },
+        let existing = remote.iter().find(|r| r.path == item.path);
+        let upload = match existing {
+            None => true,
+            Some(r) => should_overwrite(item, r, overwrite),
+        };
+        if upload {
+            plan.upload.push(item.path.clone());
+        } else {
+            plan.skipped += 1;
         }
     }
 
@@ -99,6 +111,24 @@ pub fn plan_sync(local: &[LocalEntry], remote: &[RemoteEntry], delete_extra: boo
     plan.upload.sort();
     plan.delete.sort();
     plan
+}
+
+/// 远端已有同名文件时，这一份要不要重传。
+fn should_overwrite(local: &LocalEntry, remote: &RemoteEntry, overwrite: FtpOverwrite) -> bool {
+    let size_differs = local.size != remote.size;
+    // 两侧都有时间戳才谈得上「更新」；容忍 2 秒是为了 FAT/FTP 的精度。
+    let local_is_newer = match (local.modified_epoch, remote.modified_epoch) {
+        (Some(l), Some(r)) => l > r + 2,
+        _ => false,
+    };
+
+    match overwrite {
+        FtpOverwrite::Always => true,
+        FtpOverwrite::Skip => false,
+        FtpOverwrite::Size => size_differs,
+        FtpOverwrite::Newer => local_is_newer,
+        FtpOverwrite::SizeOrNewer => size_differs || local_is_newer,
+    }
 }
 
 /// 上传前需要在远端创建的目录，按层级由浅到深排序。
@@ -163,7 +193,7 @@ mod tests {
             remote("about/index.html", 40, Some(1000)), // 大小不同 → 上传
         ];
 
-        let plan = plan_sync(&local_files, &remote_files, false);
+        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::default());
         assert_eq!(plan.upload, vec!["about/index.html", "css/main.css"]);
         assert_eq!(plan.skipped, 1);
         assert!(plan.delete.is_empty());
@@ -175,6 +205,7 @@ mod tests {
             &[local("a.html", 10, Some(2_000))],
             &[remote("a.html", 10, Some(1_000))],
             false,
+            FtpOverwrite::default(),
         );
         assert_eq!(plan.upload, vec!["a.html"]);
     }
@@ -185,6 +216,7 @@ mod tests {
             &[local("a.html", 10, Some(1_002))],
             &[remote("a.html", 10, Some(1_000))],
             false,
+            FtpOverwrite::default(),
         );
         assert!(plan.upload.is_empty());
         assert_eq!(plan.skipped, 1);
@@ -196,8 +228,118 @@ mod tests {
             &[local("a.html", 10, None)],
             &[remote("a.html", 10, None)],
             false,
+            FtpOverwrite::default(),
         );
         assert!(plan.upload.is_empty());
+    }
+
+    /// 服务器时钟快于本地时，默认规则会把**所有**文件永久跳过。
+    ///
+    /// 这是 FTP 发布最难发现的失败：界面只显示「跳过 N 个」，看起来像「没有改动」，
+    /// 而实际上线上一直是旧的。判定材料只有大小与 MDTM，我们分不清「远端确实更新」
+    /// 和「服务器时钟快了一小时」，所以出路是让用户选规则，而不是猜。
+    #[test]
+    fn server_clock_ahead_silently_skips_unless_the_user_picks_another_rule() {
+        // 本地文件刚重新生成（t=1000），远端时间戳却是一小时后（服务器时钟快）。
+        let local_files = [local("a.html", 10, Some(1_000))];
+        let remote_files = [remote("a.html", 10, Some(4_600))];
+
+        // 默认规则：跳过——这就是那个陷阱，行为保持不变但现在有出路。
+        let default_plan = plan_sync(
+            &local_files,
+            &remote_files,
+            false,
+            FtpOverwrite::SizeOrNewer,
+        );
+        assert!(default_plan.upload.is_empty());
+
+        // 「总是上传」：不比对，一定传。
+        let always = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Always);
+        assert_eq!(always.upload, vec!["a.html"]);
+        assert_eq!(always.skipped, 0);
+    }
+
+    /// 同长度改动 + 服务器不给 MDTM：默认与 `size` 规则都会跳过，`always` 才传得上去。
+    #[test]
+    fn same_size_edit_without_remote_timestamp_needs_always() {
+        let local_files = [local("a.html", 10, Some(2_000))];
+        let remote_files = [remote("a.html", 10, None)];
+
+        for rule in [
+            FtpOverwrite::SizeOrNewer,
+            FtpOverwrite::Size,
+            FtpOverwrite::Newer,
+            FtpOverwrite::Skip,
+        ] {
+            let plan = plan_sync(&local_files, &remote_files, false, rule);
+            assert!(plan.upload.is_empty(), "{rule:?} 不该判定为要上传");
+            assert_eq!(plan.skipped, 1, "{rule:?}");
+        }
+
+        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Always);
+        assert_eq!(plan.upload, vec!["a.html"]);
+    }
+
+    /// 每条规则只看它该看的那一项。
+    #[test]
+    fn each_rule_looks_at_its_own_signal() {
+        let bigger = [local("a.html", 20, Some(1_000))];
+        let older_remote = [remote("a.html", 10, Some(2_000))];
+
+        // 只看大小：大小不同就传，远端时间更新也不影响。
+        assert_eq!(
+            plan_sync(&bigger, &older_remote, false, FtpOverwrite::Size).upload,
+            vec!["a.html"]
+        );
+        // 只看时间：远端更新 → 跳过，哪怕大小不同。
+        assert!(
+            plan_sync(&bigger, &older_remote, false, FtpOverwrite::Newer)
+                .upload
+                .is_empty()
+        );
+
+        let newer_local = [local("a.html", 10, Some(3_000))];
+        let remote_same_size = [remote("a.html", 10, Some(1_000))];
+        // 只看大小：大小一样就跳过，哪怕本地更新。
+        assert!(
+            plan_sync(&newer_local, &remote_same_size, false, FtpOverwrite::Size)
+                .upload
+                .is_empty()
+        );
+        assert_eq!(
+            plan_sync(&newer_local, &remote_same_size, false, FtpOverwrite::Newer).upload,
+            vec!["a.html"]
+        );
+    }
+
+    /// 任何规则都不影响「远端没有这个文件」——新文件一律要传，跳过规则也不例外。
+    #[test]
+    fn missing_remote_files_are_always_uploaded() {
+        let local_files = [local("new.html", 10, Some(1_000))];
+        for rule in [
+            FtpOverwrite::SizeOrNewer,
+            FtpOverwrite::Always,
+            FtpOverwrite::Newer,
+            FtpOverwrite::Size,
+            FtpOverwrite::Skip,
+        ] {
+            let plan = plan_sync(&local_files, &[], false, rule);
+            assert_eq!(plan.upload, vec!["new.html"], "{rule:?}");
+        }
+    }
+
+    /// `skip`：远端已存在就不动，只补新文件。
+    #[test]
+    fn skip_rule_leaves_existing_remote_files_alone() {
+        let local_files = [
+            local("a.html", 999, Some(9_999)),
+            local("new.html", 10, Some(1_000)),
+        ];
+        let remote_files = [remote("a.html", 10, Some(1_000))];
+
+        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Skip);
+        assert_eq!(plan.upload, vec!["new.html"]);
+        assert_eq!(plan.skipped, 1);
     }
 
     #[test]
@@ -205,11 +347,13 @@ mod tests {
         let local_files = vec![local("a.html", 1, None)];
         let remote_files = vec![remote("a.html", 1, None), remote("stale.html", 1, None)];
 
-        assert!(plan_sync(&local_files, &remote_files, false)
-            .delete
-            .is_empty());
+        assert!(
+            plan_sync(&local_files, &remote_files, false, FtpOverwrite::default())
+                .delete
+                .is_empty()
+        );
         assert_eq!(
-            plan_sync(&local_files, &remote_files, true).delete,
+            plan_sync(&local_files, &remote_files, true, FtpOverwrite::default()).delete,
             vec!["stale.html"]
         );
     }

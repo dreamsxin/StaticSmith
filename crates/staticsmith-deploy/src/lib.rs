@@ -195,7 +195,8 @@ pub fn from_config(
                             ftp_config.port,
                             &ftp_config.remote_path,
                         )
-                        .with_credentials(credentials),
+                        .with_credentials(credentials)
+                        .with_overwrite(ftp_config.overwrite),
                     ));
                 }
                 #[cfg(not(feature = "sftp"))]
@@ -206,7 +207,8 @@ pub fn from_config(
 
             Ok(Box::new(
                 ftp::FtpDeployer::new(&ftp_config.host, ftp_config.port, &ftp_config.remote_path)
-                    .with_credentials(credentials),
+                    .with_credentials(credentials)
+                    .with_overwrite(ftp_config.overwrite),
             ))
         }
 

@@ -6,6 +6,8 @@
 use std::path::Path;
 use std::time::Instant;
 
+use staticsmith_core::config::FtpOverwrite;
+
 use crate::manifest::{self, RemoteEntry};
 use crate::{ensure_output_ready, DeployReport, Progress, Result};
 
@@ -21,12 +23,16 @@ pub trait RemoteFs {
 
 /// 执行一次差异同步。
 ///
+/// `overwrite` 决定远端已存在同名文件时怎么办（见 `FtpOverwrite`）：判定材料只有大小
+/// 与 `MDTM`，哪一项可信取决于用户那台服务器，所以这是配置项而不是我们的推断。
+///
 /// 远端多余文件不会被删除——静态站点常混有手工上传的资源，
 /// 静默删除的代价远高于留下少量陈旧文件。
 pub fn sync(
     fs: &mut dyn RemoteFs,
     dist_dir: &Path,
     target: &str,
+    overwrite: FtpOverwrite,
     progress: &mut dyn FnMut(Progress),
 ) -> Result<DeployReport> {
     let started = Instant::now();
@@ -39,14 +45,17 @@ pub fn sync(
         total: local.len(),
     });
 
+    // 「总是上传」不必逐个 stat：省下 N 次往返，这正是选它的人想要的确定性。
     let mut remote = Vec::new();
-    for entry in &local {
-        if let Some(found) = fs.stat(&entry.path)? {
-            remote.push(found);
+    if overwrite != FtpOverwrite::Always {
+        for entry in &local {
+            if let Some(found) = fs.stat(&entry.path)? {
+                remote.push(found);
+            }
         }
     }
 
-    let plan = manifest::plan_sync(&local, &remote, false);
+    let plan = manifest::plan_sync(&local, &remote, false, overwrite);
 
     for dir in manifest::required_directories(&plan.upload) {
         fs.mkdir(&dir)?;
@@ -89,6 +98,7 @@ mod plain {
     use super::{sync, RemoteFs};
     use crate::manifest::RemoteEntry;
     use crate::{Credentials, DeployReport, Deployer, Error, Progress, Result};
+    use staticsmith_core::config::FtpOverwrite;
 
     /// 明文 FTP 发布通道。
     pub struct FtpDeployer {
@@ -96,6 +106,7 @@ mod plain {
         pub port: u16,
         pub remote_path: String,
         pub credentials: Credentials,
+        pub overwrite: FtpOverwrite,
     }
 
     impl FtpDeployer {
@@ -105,11 +116,17 @@ mod plain {
                 port,
                 remote_path: remote_path.into(),
                 credentials: Credentials::None,
+                overwrite: FtpOverwrite::default(),
             }
         }
 
         pub fn with_credentials(mut self, credentials: Credentials) -> Self {
             self.credentials = credentials;
+            self
+        }
+
+        pub fn with_overwrite(mut self, overwrite: FtpOverwrite) -> Self {
+            self.overwrite = overwrite;
             self
         }
 
@@ -187,7 +204,7 @@ mod plain {
                 stream: self.connect()?,
             };
             let target = format!("ftp://{}{}", self.host, self.remote_path);
-            let report = sync(&mut fs, dist_dir, &target, progress);
+            let report = sync(&mut fs, dist_dir, &target, self.overwrite, progress);
             let _ = fs.stream.quit();
             report
         }
@@ -214,6 +231,7 @@ mod secure {
     use super::{sync, RemoteFs};
     use crate::manifest::RemoteEntry;
     use crate::{Credentials, DeployReport, Deployer, Error, Progress, Result};
+    use staticsmith_core::config::FtpOverwrite;
 
     /// SFTP（SSH）发布通道。
     pub struct SftpDeployer {
@@ -221,6 +239,7 @@ mod secure {
         pub port: u16,
         pub remote_path: String,
         pub credentials: Credentials,
+        pub overwrite: FtpOverwrite,
     }
 
     impl SftpDeployer {
@@ -230,11 +249,17 @@ mod secure {
                 port,
                 remote_path: remote_path.into(),
                 credentials: Credentials::None,
+                overwrite: FtpOverwrite::default(),
             }
         }
 
         pub fn with_credentials(mut self, credentials: Credentials) -> Self {
             self.credentials = credentials;
+            self
+        }
+
+        pub fn with_overwrite(mut self, overwrite: FtpOverwrite) -> Self {
+            self.overwrite = overwrite;
             self
         }
 
@@ -317,7 +342,7 @@ mod secure {
                 base: PathBuf::from(&self.remote_path),
             };
             let target = format!("sftp://{}{}", self.host, self.remote_path);
-            sync(&mut fs, dist_dir, &target, progress)
+            sync(&mut fs, dist_dir, &target, self.overwrite, progress)
         }
 
         fn check(&self) -> Result<()> {
@@ -340,10 +365,12 @@ mod tests {
         files: BTreeMap<String, (u64, Option<i64>)>,
         dirs: Vec<String>,
         uploads: Vec<String>,
+        stats: Vec<String>,
     }
 
     impl RemoteFs for FakeRemote {
         fn stat(&mut self, path: &str) -> Result<Option<RemoteEntry>> {
+            self.stats.push(path.to_string());
             Ok(self.files.get(path).map(|(size, modified)| RemoteEntry {
                 path: path.to_string(),
                 size: *size,
@@ -373,15 +400,33 @@ mod tests {
         dir
     }
 
+    fn sync_default(
+        remote: &mut FakeRemote,
+        dist_dir: &Path,
+        target: &str,
+    ) -> Result<DeployReport> {
+        sync(
+            remote,
+            dist_dir,
+            target,
+            FtpOverwrite::default(),
+            &mut |_| {},
+        )
+    }
+
     #[test]
     fn first_sync_uploads_everything_and_creates_directories() {
         let dir = dist();
         let mut remote = FakeRemote::default();
         let mut events = Vec::new();
 
-        let report = sync(&mut remote, dir.path(), "ftp://example.com", &mut |p| {
-            events.push(p.message)
-        })
+        let report = sync(
+            &mut remote,
+            dir.path(),
+            "ftp://example.com",
+            FtpOverwrite::default(),
+            &mut |p| events.push(p.message),
+        )
         .unwrap();
 
         assert_eq!(report.uploaded.len(), 3);
@@ -394,10 +439,10 @@ mod tests {
     fn second_sync_skips_unchanged_files() {
         let dir = dist();
         let mut remote = FakeRemote::default();
-        sync(&mut remote, dir.path(), "t", &mut |_| {}).unwrap();
+        sync_default(&mut remote, dir.path(), "t").unwrap();
         remote.uploads.clear();
 
-        let report = sync(&mut remote, dir.path(), "t", &mut |_| {}).unwrap();
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
         assert!(report.uploaded.is_empty());
         assert_eq!(report.skipped, 3);
         assert!(remote.uploads.is_empty());
@@ -407,13 +452,36 @@ mod tests {
     fn changed_file_is_reuploaded() {
         let dir = dist();
         let mut remote = FakeRemote::default();
-        sync(&mut remote, dir.path(), "t", &mut |_| {}).unwrap();
+        sync_default(&mut remote, dir.path(), "t").unwrap();
 
         std::fs::write(dir.path().join("index.html"), "home page updated").unwrap();
-        let report = sync(&mut remote, dir.path(), "t", &mut |_| {}).unwrap();
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
 
         assert_eq!(report.uploaded, vec!["index.html"]);
         assert_eq!(report.skipped, 2);
+    }
+
+    /// 「总是上传」既要全传，也不该白跑 N 次 `stat`——省下的正是往返次数。
+    #[test]
+    fn always_rule_uploads_everything_without_asking_the_remote() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        sync_default(&mut remote, dir.path(), "t").unwrap();
+        remote.uploads.clear();
+        remote.stats.clear();
+
+        let report = sync(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::Always,
+            &mut |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(report.uploaded.len(), 3);
+        assert_eq!(report.skipped, 0);
+        assert!(remote.stats.is_empty(), "不比对就不该查远端状态");
     }
 
     #[test]
@@ -424,7 +492,7 @@ mod tests {
             .files
             .insert("legacy/uploads/a.pdf".into(), (10, None));
 
-        let report = sync(&mut remote, dir.path(), "t", &mut |_| {}).unwrap();
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
         assert!(report.deleted.is_empty());
         assert!(remote.files.contains_key("legacy/uploads/a.pdf"));
     }

@@ -1402,6 +1402,7 @@ mod tests {
             username: "alice".into(),
             password_env: None,
             remote_path: "/public_html".into(),
+            overwrite: Default::default(),
             sftp: false,
         });
         assert_eq!(

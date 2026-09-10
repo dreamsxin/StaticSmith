@@ -11,6 +11,8 @@ export type BuildMode = 'full' | 'incremental'
 export type TemplateKind = 'layout' | 'component' | 'page' | 'partial'
 export type DeployKind = 'none' | 'git' | 'ftp'
 export type AssetNaming = 'sha256' | 'md5' | 'original'
+/** FTP 远端已存在同名文件时的处理规则，对应 Rust 侧 `FtpOverwrite`。 */
+export type FtpOverwrite = 'size_or_newer' | 'always' | 'newer' | 'size' | 'skip'
 
 /** 导航菜单的一项，对应配置里的 `[[menu]]`。 */
 export interface MenuItem {
@@ -101,6 +103,7 @@ export interface SiteConfig {
       username: string
       password_env?: string | null
       remote_path: string
+      overwrite: FtpOverwrite
       sftp: boolean
     } | null
   }

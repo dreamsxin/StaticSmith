@@ -95,4 +95,7 @@ type = "none"
 # username = "user"
 # password_env = "FTP_PASSWORD"   # 仅保存环境变量名，密码存于系统凭据管理器
 # remote_path = "/public_html"
+# 远端已存在同名文件时：size_or_newer（默认）/ always / newer / size / skip
+# 服务器时钟不准或不支持 MDTM 时选 always，否则可能所有文件都被跳过
+# overwrite = "size_or_newer"
 # sftp = false

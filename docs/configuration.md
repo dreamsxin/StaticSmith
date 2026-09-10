@@ -69,6 +69,7 @@ port = 21
 username = "user"
 password_env = "FTP_PASSWORD"
 remote_path = "/public_html"
+overwrite = "size_or_newer"   # 远端已存在同名文件时：size_or_newer / always / newer / size / skip
 sftp = false                  # 暂不支持，必须为 false
 ```
 
@@ -198,8 +199,17 @@ categories = ["工程实践"]
 - `[deploy.git]`：`remote`、`branch`、`commit_message`（支持 Tera 语法，如
   `{{ now() }}`）、`auth_type`、`ssh_key_path`
 - `[deploy.ftp]`：`host`、`port`、`username`、`remote_path`、`password_env`、
-  `sftp`（**暂不支持，必须为 `false`**；写成 `true` 会在保存时被校验拒绝。
+  `overwrite`、`sftp`（**暂不支持，必须为 `false`**；写成 `true` 会在保存时被校验拒绝。
   FTP 是明文协议，需要加密通道请改用 Git 发布，详见 [发布](deploy.md)）
+- `overwrite`：远端已存在同名文件时怎么办，对应 FileZilla 的「文件已存在时」
+  - `size_or_newer`（默认）：大小不同或本地更新才传
+  - `always`：一律重传，不比对。**服务器时钟不准或不给时间戳时选这个**
+  - `newer`：只看时间
+  - `size`：只看大小
+  - `skip`：远端已有就不动，只补新文件
+
+  为什么是配置项而不由程序判断：FTP 能拿到的材料只有大小和 `MDTM`，两者都可能
+  不可靠，而哪一项可信只有你知道自己那台服务器。踩过的坑见 [发布](deploy.md)。
 
 ## 设置页保存会保留你写的注释
 

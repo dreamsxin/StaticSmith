@@ -10,6 +10,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 
 import type { ImportCandidate, SiteConfig } from '../api'
+import { ftpOverwriteOptions } from '../labels'
 import { actions, store } from '../store'
 
 /** 表单持有一份可变副本，保存时才写回磁盘。 */
@@ -368,6 +369,7 @@ function onDeployKindChange() {
       username: '',
       password_env: 'FTP_PASSWORD',
       remote_path: '/public_html',
+      overwrite: 'size_or_newer',
       sftp: false,
     }
   }
@@ -586,6 +588,21 @@ function onDeployKindChange() {
         <label>用户名<input v-model="form.deploy.ftp.username" type="text" /></label>
         <label>远端路径<input v-model="form.deploy.ftp.remote_path" type="text" /></label>
         <label>密码环境变量名<input v-model="form.deploy.ftp.password_env" type="text" /></label>
+        <!-- 远端已存在时怎么办：这一栏照 FileZilla 的「文件已存在时」。
+             判定材料只有大小与 MDTM，哪一项可信取决于用户那台服务器——
+             默认规则在「服务器时钟快于本地」时会把所有文件永久跳过，
+             界面只显示「跳过 N 个」，看起来像没有改动。这不是我们能猜的事。 -->
+        <label>
+          远端已存在同名文件时
+          <select v-model="form.deploy.ftp.overwrite">
+            <option v-for="item in ftpOverwriteOptions()" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+        </label>
+        <p class="build__muted">
+          {{ ftpOverwriteOptions().find((i) => i.value === form.deploy.ftp?.overwrite)?.hint }}
+        </p>
         <!-- SFTP 暂不支持，所以这里没有「使用 SFTP」开关。
              一个能勾、能存、只在点发布时才失败的开关比没有它更糟。 -->
         <p class="build__muted">

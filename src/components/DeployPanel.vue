@@ -7,6 +7,7 @@
  */
 import { computed, ref, watch } from 'vue'
 
+import { ftpOverwriteLabel } from '../labels'
 import { store, actions } from '../store'
 
 const secret = ref('')
@@ -71,6 +72,9 @@ async function removeSecret() {
         <li v-if="deploy.ftp">
           主机：{{ deploy.ftp.host }}:{{ deploy.ftp.port }} → {{ deploy.ftp.remote_path }}
         </li>
+        <!-- 规则的后果落在这一页（「跳过 N 个」是它决定的），所以这里也要看得见，
+             不能只在设置页选完就不再露面 -->
+        <li v-if="deploy.ftp">远端已存在时：{{ ftpOverwriteLabel(deploy.ftp.overwrite) }}</li>
       </ul>
 
       <h3>凭证</h3>
