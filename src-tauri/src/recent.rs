@@ -138,16 +138,29 @@ mod tests {
             .collect()
     }
 
+    /// 一个**确定不存在**的路径。
+    ///
+    /// 不能写死 `/a` 这种字面量：Windows 上它是「当前盘根目录」相对路径，
+    /// 在 CI runner（工作盘 `D:`，工作目录就是 `D:\a`）上真的存在，
+    /// `normalize` 里的 `canonicalize` 会成功并返回 `D:\a`，断言随之对不上。
+    /// 挂在临时目录下的子路径在任何平台都不存在。
+    fn missing_path(dir: &tempfile::TempDir, name: &str) -> PathBuf {
+        dir.path().join(name)
+    }
+
     #[test]
     fn touch_moves_existing_entries_to_the_front() {
+        // 用真实存在的目录：normalize 会 canonicalize，走成功分支才是实际运行时的样子
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
         let mut list = RecentProjects::default();
-        list.touch(Path::new("/a"), "A", "t1".into());
-        list.touch(Path::new("/b"), "B", "t2".into());
-        list.touch(Path::new("/a"), "A 改名", "t3".into());
+        list.touch(a.path(), "A", "t1".into());
+        list.touch(b.path(), "B", "t2".into());
+        list.touch(a.path(), "A 改名", "t3".into());
 
         assert_eq!(list.items.len(), 2, "同路径不应重复");
         assert_eq!(list.items[0].title, "A 改名", "标题以最后一次为准");
-        assert_eq!(entry_paths(&list)[0], "/a");
+        assert_eq!(list.items[0].path, normalize(a.path()));
     }
 
     #[test]
@@ -162,11 +175,14 @@ mod tests {
 
     #[test]
     fn remove_drops_the_entry() {
+        let a = tempfile::tempdir().unwrap();
+        let b = tempfile::tempdir().unwrap();
         let mut list = RecentProjects::default();
-        list.touch(Path::new("/a"), "A", "t".into());
-        list.touch(Path::new("/b"), "B", "t".into());
-        list.remove(Path::new("/a"));
-        assert_eq!(entry_paths(&list), vec!["/b"]);
+        list.touch(a.path(), "A", "t".into());
+        list.touch(b.path(), "B", "t".into());
+        list.remove(a.path());
+        assert_eq!(list.items.len(), 1);
+        assert_eq!(list.items[0].path, normalize(b.path()));
     }
 
     #[test]
@@ -181,7 +197,7 @@ mod tests {
 
         let mut list = RecentProjects::default();
         list.touch(dir.path(), "在的", "t".into());
-        list.touch(Path::new("/definitely/not/here"), "没了", "t".into());
+        list.touch(&missing_path(&dir, "gone"), "没了", "t".into());
 
         assert_eq!(list.prune_missing(), 1);
         assert_eq!(list.items.len(), 1);
@@ -201,8 +217,9 @@ mod tests {
 
     #[test]
     fn normalize_keeps_nonexistent_paths_as_given() {
-        let path = Path::new("/definitely/not/here");
-        assert_eq!(normalize(path), path.to_path_buf());
+        let dir = tempfile::tempdir().unwrap();
+        let path = missing_path(&dir, "no-such-child");
+        assert_eq!(normalize(&path), path);
     }
 
     #[test]
