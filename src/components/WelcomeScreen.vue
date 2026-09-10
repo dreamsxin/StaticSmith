@@ -22,12 +22,28 @@ const hint = ref('')
 const presets = ref<PresetOption[]>([])
 const preset = ref('')
 
-onMounted(async () => {
-  await actions.loadRecent()
-  presets.value = await listPresets()
-  // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
-  preset.value = presets.value[0]?.slug ?? ''
+onMounted(() => {
+  // 两件事互不依赖，各自失败各自处理。
+  // 以前是 `await loadRecent()` 再 `await listPresets()` 串起来的：前者出问题就
+  // 轮不到后者，而且 listPresets 没有 catch——它一 reject，整个 onMounted 静默
+  // 中断，版式选择框就凭空不见了，界面上还没有任何说明。
+  void actions.loadRecent()
+  void loadPresets()
 })
+
+async function loadPresets() {
+  try {
+    presets.value = await listPresets()
+    // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
+    preset.value = presets.value[0]?.slug ?? ''
+  } catch (err) {
+    // 说清楚「少了什么」而不是让选择框无声消失。最常见的原因是前端连的还是
+    // 旧的后端进程（`list_presets` 是后加的命令），重启一次就好。
+    const message = err instanceof Error ? err.message : String(err)
+    hint.value = `读取版式列表失败，新建站点将使用默认版式：${message}`
+  }
+}
+
 
 async function pickDirectory(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false })
