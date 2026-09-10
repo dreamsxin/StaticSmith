@@ -12,6 +12,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use staticsmith_core::batch::TagEdit;
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
+use staticsmith_core::history::Snapshots;
 use staticsmith_core::scaffold::Preset;
 use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
 use staticsmith_deploy::{DeployReport, Progress};
@@ -217,6 +218,12 @@ pub enum Command {
         action: ThemeAction,
     },
 
+    /// 内容快照：列出不可逆操作之前留下的版本，必要时退回去
+    History {
+        #[command(subcommand)]
+        action: HistoryAction,
+    },
+
     /// 启动 MCP 服务端，供 AI Agent 操作站点
     Mcp {
         /// 走 HTTP（POST /mcp 与 GET /sse）而不是 stdio
@@ -344,6 +351,37 @@ pub enum ThemeAction {
         #[arg(long)]
         overwrite: bool,
         /// 输出 JSON
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+}
+
+/// `history` 的两个动作。
+///
+/// 快照本来只有桌面端与 MCP 能看能退，命令行连留都不留。留了之后就得给出口——
+/// 只留不给退等于把安全网挂在别的界面上。
+#[derive(Debug, Subcommand)]
+pub enum HistoryAction {
+    /// 列出最近的内容快照
+    List {
+        /// 最多列几条
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
+    /// 回退到某份快照。与批量删除同一条纪律：真动手要 --yes
+    Restore {
+        /// 快照 id（`history list` 里的第一列）
+        id: String,
+        /// 真的回退。不给只说会做什么
+        #[arg(long)]
+        yes: bool,
         #[arg(long)]
         json: bool,
         #[command(flatten)]
@@ -496,6 +534,19 @@ pub fn run(cli: Cli) -> Result<()> {
                 project,
             } => cmd_theme_import(&project.project, &archive, dry_run, overwrite, json),
         },
+        Command::History { action } => match action {
+            HistoryAction::List {
+                limit,
+                json,
+                project,
+            } => cmd_history_list(&project.project, limit, json),
+            HistoryAction::Restore {
+                id,
+                yes,
+                json,
+                project,
+            } => cmd_history_restore(&project.project, &id, yes, json),
+        },
         Command::Mcp {
             sse,
             port,
@@ -627,6 +678,7 @@ fn cmd_import(
         return Ok(());
     }
 
+    snapshot_before(&builder, "import");
     let report = builder.import_content(dir, section).context("导入失败")?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -691,6 +743,7 @@ fn cmd_batch_tags(
         add: add.to_vec(),
         remove: remove.to_vec(),
     };
+    snapshot_before(&builder, "batch tags");
     let outcome = staticsmith_core::batch::edit_tags(&builder.paths, sources, &edit)
         .context("批量改标签失败")?;
     report_outcome(&outcome, json)
@@ -698,6 +751,7 @@ fn cmd_batch_tags(
 
 fn cmd_batch_draft(project: &PathBuf, sources: &[String], draft: bool, json: bool) -> Result<()> {
     let builder = open(project)?;
+    snapshot_before(&builder, "batch draft");
     let outcome = staticsmith_core::batch::set_draft(&builder.paths, sources, draft)
         .context("批量切草稿失败")?;
     if !json {
@@ -728,6 +782,7 @@ fn cmd_batch_move(
         return report_preview(&preview, json);
     }
 
+    snapshot_before(&builder, "batch move");
     let outcome =
         staticsmith_core::batch::move_to_section(&builder.paths, sources, to_section, keep_aliases)
             .context("批量搬动失败")?;
@@ -773,6 +828,7 @@ fn cmd_batch_delete(project: &PathBuf, sources: &[String], yes: bool, json: bool
         return Ok(());
     }
 
+    snapshot_before(&builder, "batch delete");
     let outcome =
         staticsmith_core::batch::delete(&builder.paths, sources).context("批量删除失败")?;
     report_outcome(&outcome, json)
@@ -816,6 +872,7 @@ fn cmd_replace(
     };
 
     let report = if yes {
+        snapshot_before(&builder, "replace");
         replace::apply(&builder.paths, &scope, rule).context("替换失败")?
     } else {
         replace::preview(&builder.paths, &scope, rule).context("干跑失败")?
@@ -928,6 +985,7 @@ fn cmd_theme_import(
         return Ok(());
     }
 
+    snapshot_before(&builder, "theme import");
     let report = builder
         .import_theme(archive, overwrite)
         .context("装主题失败")?;
@@ -1236,6 +1294,80 @@ fn open(project: &PathBuf) -> Result<Builder> {
         );
     }
     Builder::open(project).with_context(|| format!("打开项目失败：{}", project.display()))
+}
+
+/// 不可逆的写操作之前留一份内容快照。
+///
+/// 桌面端（`with_writing_session`）与 MCP（`snapshot_before`）早就这么做了，命令行
+/// 一直没有——而命令行恰恰是最容易一次改上百篇的地方：`batch delete --yes`、
+/// `replace --yes`、`import`、`theme import --overwrite` 落盘之后没有任何退路。
+///
+/// 失败只警告不阻断：没有安全网也比「git 出问题就不让写内容」好，
+/// 但必须说清这一次没留下，否则事后以为能退回去。
+///
+/// 干跑不调用这个函数：不写盘的操作留快照只会把历史冲成噪声。
+fn snapshot_before(builder: &Builder, what: &str) {
+    match Snapshots::open(&builder.paths).and_then(|s| s.snapshot(what)) {
+        Ok(Some(snapshot)) => {
+            println!(
+                "已留快照 {}（{what}），可用 staticsmith history 回退",
+                snapshot.id
+            );
+        }
+        // 内容与上次快照一致，不留空提交
+        Ok(None) => {}
+        Err(err) => {
+            eprintln!("警告：快照没留下，这次改动将无法回退：{err}");
+        }
+    }
+}
+
+/// 列出内容快照。
+fn cmd_history_list(project: &PathBuf, limit: usize, json: bool) -> Result<()> {
+    let builder = open(project)?;
+    let snapshots = Snapshots::open(&builder.paths)
+        .and_then(|s| s.list(limit))
+        .context("读取快照历史失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&snapshots)?);
+        return Ok(());
+    }
+    if snapshots.is_empty() {
+        println!("还没有快照。第一次做不可逆操作（批量删除、替换、导入、装主题）时会自动留下。");
+        return Ok(());
+    }
+    for snapshot in &snapshots {
+        println!("{}  {}  {}", snapshot.id, snapshot.at, snapshot.message);
+    }
+    Ok(())
+}
+
+/// 回退到某份快照。
+///
+/// 与批量删除同一条纪律：默认只说会做什么，真动手要 `--yes`。回退**前**的状态
+/// 也会先存一份，所以退错了还能再退回来。
+fn cmd_history_restore(project: &PathBuf, id: &str, yes: bool, json: bool) -> Result<()> {
+    let builder = open(project)?;
+    let snapshots = Snapshots::open(&builder.paths).context("打开快照历史失败")?;
+
+    if !yes {
+        println!("将把源文件（内容、模板、主题、静态资源与 staticsmith.toml）回退到 {id}。");
+        println!("产物 dist/ 不动，回退后需要重新生成一次。");
+        println!("确认无误后加 --yes 才会真的回退。");
+        return Ok(());
+    }
+
+    let restored = snapshots.restore(id).context("回退失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&restored)?);
+        return Ok(());
+    }
+    println!("已回退到 {}", restored.restored_to);
+    if let Some(previous) = &restored.previous {
+        println!("回退前的状态存成了 {}，退错了可以再退回来", previous.id);
+    }
+    println!("接下来：staticsmith build --full");
+    Ok(())
 }
 
 /// CLI 的凭证只来自环境变量，便于在 CI 中注入。实现在 `staticsmith-deploy`，
@@ -1633,5 +1765,54 @@ mod tests {
         // 具体规则在 staticsmith-deploy::credentials 里有完整测试，这里只确认接线正确。
         let err = credentials_from_env(&staticsmith_core::SiteConfig::default()).unwrap_err();
         assert!(err.to_string().contains("deploy.type"));
+    }
+
+    /// 命令行的不可逆写操作也要留快照。
+    ///
+    /// 桌面端（`with_writing_session`）与 MCP（`snapshot_before`）早就留了，命令行没有——
+    /// 而命令行恰恰是最容易一次改上百篇的地方，脚本跑完源文件就没了。
+    #[test]
+    fn destructive_commands_leave_a_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        scaffold::init_project(dir.path(), Some("测试站点"), Preset::Docs).unwrap();
+        let project = dir.path().to_path_buf();
+
+        cmd_batch_delete(
+            &project,
+            &["posts/hello-staticsmith.md".to_string()],
+            true,
+            true,
+        )
+        .unwrap();
+
+        let builder = open(&project).unwrap();
+        let snapshots = Snapshots::open(&builder.paths).unwrap().list(10).unwrap();
+        assert!(!snapshots.is_empty(), "批量删除之前应该留下一份快照");
+        assert!(
+            !dir.path()
+                .join("content/posts/hello-staticsmith.md")
+                .exists(),
+            "留快照不该妨碍删除本身"
+        );
+    }
+
+    /// 干跑不留快照：它不写盘，留下来只会把历史冲成噪声。
+    #[test]
+    fn dry_runs_leave_no_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        scaffold::init_project(dir.path(), Some("测试站点"), Preset::Docs).unwrap();
+        let project = dir.path().to_path_buf();
+
+        cmd_batch_delete(
+            &project,
+            &["posts/hello-staticsmith.md".to_string()],
+            false,
+            true,
+        )
+        .unwrap();
+
+        let builder = open(&project).unwrap();
+        let snapshots = Snapshots::open(&builder.paths).unwrap().list(10).unwrap();
+        assert!(snapshots.is_empty(), "{snapshots:?}");
     }
 }

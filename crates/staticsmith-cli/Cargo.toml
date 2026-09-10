@@ -13,7 +13,7 @@ name = "staticsmith"
 path = "src/main.rs"
 
 [dependencies]
-staticsmith-core = { workspace = true, features = ["serve"] }
+staticsmith-core = { workspace = true, features = ["serve", "history"] }
 staticsmith-deploy.workspace = true
 staticsmith-mcp.workspace = true
 

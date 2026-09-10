@@ -172,8 +172,31 @@ staticsmith theme import ../minimal.zip --overwrite   # 替换自己改过的模
   `--dry-run` 先看清单，带 `!` 的就是会被覆盖的那些
 - **不信任包里的路径**：`..`、绝对路径、盘符、以及 `templates/` 与 `theme/`
   之外的条目一律拒绝（zip slip），拒绝原因会打印出来
+- **有解压上限**：单个文件 8 MB、整包 64 MB、2000 个条目，超了在解压前就中止。
+  高压缩比的包（zip bomb）能用十几 KB 声明出几 GB 的解压体积，没有上限就是内存
+  或磁盘先撑不住。主题包装的是模板与样式，最大的东西通常是一张字体或背景图
 
 装完要 `staticsmith build --full`：换外观等于所有页面的模板都变了。
+
+## 内容快照
+
+不可逆的写操作**动手之前会自动留一份内容快照**——`batch tags/draft/move/delete --yes`、
+`replace --yes`、`import`、`theme import`。桌面端与 MCP 一直如此，命令行以前没有，
+而命令行恰恰是最容易一次改上百篇的地方：脚本跑完源文件就没了。
+
+```bash
+staticsmith history list                  # 最近 20 条，最新在前
+staticsmith history restore <id>          # 只说会做什么
+staticsmith history restore <id> --yes    # 真的回退
+```
+
+- 快照与桌面端、Agent 共用同一份历史（`.staticsmith/history.git`，独立于你自己的 git 仓库）
+- 只含**源**：内容、模板、主题、静态资源与 `staticsmith.toml`；`dist/` 不进快照，
+  所以回退之后要重新 `staticsmith build`
+- 干跑不留快照（不写盘），`build` / `deploy` 也不留（只写产物）
+- 回退**前**的状态会先存一份，退错了还能再退回来
+- 留快照失败只警告不中止：没有安全网也比「git 出问题就不让改内容」好，
+  但那一行警告说明这次改动无法回退
 
 ## 凭证：只读环境变量
 
