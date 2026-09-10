@@ -344,7 +344,7 @@ export const actions = {
    */
   async afterBatch(
     changed: number,
-    skipped: api.BatchSkipped[],
+    skipped: api.Skipped[],
     plan: BuildPlan,
     summary?: string,
   ) {

@@ -23,7 +23,20 @@ export interface MenuItem {
   blank: boolean
 }
 
+/** 一个分类维度，对应配置里的 `[taxonomy]` 或 `[[taxonomies]]` 的一项。 */
+export interface Taxonomy {
+  enabled: boolean
+  /** front matter 字段名，如 tags / categories */
+  name: string
+  /** URL 前缀，如 tags → /tags/ */
+  slug: string
+  title: string
+  list_template: string
+  term_template: string
+}
+
 export interface SiteConfig {
+
   site: {
     title: string
     description: string
@@ -60,30 +73,15 @@ export interface SiteConfig {
     max_size_mb: number
     url_prefix?: string | null
   }
-  taxonomy: {
-    enabled: boolean
-    /** front matter 字段名，如 tags / categories */
-    name: string
-    /** URL 前缀，如 tags → /tags/ */
-    slug: string
-    title: string
-    list_template: string
-    term_template: string
-  }
+  taxonomy: Taxonomy
   /**
    * 多分类维度。写了它就以它为准，`taxonomy` 退化为旧写法。
    *
    * 界面目前只编辑单数的 `taxonomy`，但保存时会把这个数组原样带回去，
    * 不会把手写的 `[[taxonomies]]` 抹掉。
    */
-  taxonomies: Array<{
-    enabled: boolean
-    name: string
-    slug: string
-    title: string
-    list_template: string
-    term_template: string
-  }>
+  taxonomies: Taxonomy[]
+
 
   /** 导航菜单。空数组表示模板用自己写死的链接。 */
   menu: MenuItem[]
@@ -547,7 +545,8 @@ export interface ImportCandidate {
 
 export interface ImportReport {
   imported: string[]
-  skipped: { source: string; reason: string }[]
+  skipped: Skipped[]
+
   /** 汇总的警告，形如 `源文件: 说明` */
   warnings: string[]
 }
@@ -563,11 +562,17 @@ export const importContent = (dir: string, section: string) =>
 // ---------------------------------------------------------------- 批量动作
 
 
-/** 跳过的一篇及原因。批量动作逐篇独立，跳过要说清为什么。 */
-export interface BatchSkipped {
+/**
+ * 跳过的一篇及原因。
+ *
+ * 批量动作、跨文件替换、导入三条路径逐篇独立，跳过都要说清为什么，
+ * Rust 侧也是三个同形状的 `Skipped`，所以这里共用一个声明。
+ */
+export interface Skipped {
   source: string
   reason: string
 }
+
 
 export interface BatchMoved {
   from: string
@@ -578,13 +583,13 @@ export interface BatchMoved {
 
 export interface BatchReport {
   changed: string[]
-  skipped: BatchSkipped[]
+  skipped: Skipped[]
   plan: BuildPlan
 }
 
 export interface BatchMoveReport {
   moved: BatchMoved[]
-  skipped: BatchSkipped[]
+  skipped: Skipped[]
   plan: BuildPlan
 }
 
@@ -658,7 +663,7 @@ export interface ReplaceResult {
   files: ReplaceFile[]
   /** 命中总处数 */
   hits: number
-  skipped: BatchSkipped[]
+  skipped: Skipped[]
 }
 
 export interface ReplaceReport extends ReplaceResult {
