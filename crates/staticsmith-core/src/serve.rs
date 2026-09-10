@@ -92,7 +92,12 @@ impl PreviewServer {
             while !stop_flag.load(Ordering::Relaxed) {
                 match server.recv_timeout(POLL_INTERVAL) {
                     Ok(Some(request)) => {
-                        if let Err(err) = handle(&root, &version_ref, request) {
+                        // 一个请求处理时 panic 不能把整个预览线程带走：那之后预览
+                        // 端口还在监听但什么都不回，界面上仍写着「运行中」。
+                        let handled = crate::util::keep_running("预览请求", || {
+                            handle(&root, &version_ref, request)
+                        });
+                        if let Some(Err(err)) = handled {
                             tracing::warn!("预览请求处理失败: {err}");
                         }
                     }

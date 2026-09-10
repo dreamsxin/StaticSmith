@@ -100,10 +100,11 @@ pub fn run() {
 /// `AppState::with_session*` 里的 `catch_unwind` 分工：钩子负责**留下现场**
 /// （谁在哪一行炸的），`catch_unwind` 负责**别把窗口带走**。
 ///
-/// 没被命令边界覆盖的线程——预览 HTTP、文件监听——里的 panic 只会让那一个线程结束，
-/// 进程继续跑。表现是「预览突然打不开了」这类静默失效，所以这条日志是唯一的线索。
-/// 内嵌 MCP 的工具调用自己兜住了（`staticsmith_mcp` 里的 `catch_tool_panic`），
-/// 一次 panic 变成一条 JSON-RPC 错误，端点不会因此停止服务。
+/// 后台线程（预览 HTTP、文件监听）的循环体各自套了
+/// `staticsmith_core::util::keep_running`：一次 panic 只让这一轮作废，线程接着跑。
+/// 内嵌 MCP 的工具调用同样自己兜住（`staticsmith_mcp` 里的 `catch_tool_panic`），
+/// 一次 panic 变成一条 JSON-RPC 错误。所以这条日志现在的作用是「留下现场」，
+/// 而不是「唯一的线索」。
 ///
 /// 这都不能替代「别 panic」。
 fn install_panic_hook() {

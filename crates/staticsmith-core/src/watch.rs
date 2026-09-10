@@ -77,13 +77,18 @@ impl ProjectWatcher {
                     Ok(Err(err)) => tracing::warn!("文件监听事件错误: {err}"),
                     Err(RecvTimeoutError::Timeout) => {
                         if !pending.is_empty() {
-                            on_change(std::mem::take(&mut pending));
+                            let set = std::mem::take(&mut pending);
+                            // 回调是调用方给的（桌面端在里面往前端发事件）。它炸了不能
+                            // 把监听线程带走：那之后外部改动再也不会提示，而界面上
+                            // 什么都不说。
+                            crate::util::keep_running("文件变更回调", || on_change(set));
                         }
                     }
                     // 发送端关闭：Watcher 已被 drop，退出线程。
                     Err(RecvTimeoutError::Disconnected) => {
                         if !pending.is_empty() {
-                            on_change(std::mem::take(&mut pending));
+                            let set = std::mem::take(&mut pending);
+                            crate::util::keep_running("文件变更回调", || on_change(set));
                         }
                         break;
                     }
@@ -132,5 +137,51 @@ mod tests {
             set.templates.iter().any(|p| p.ends_with("a.html"))
                 || set.content.iter().any(|p| p.ends_with("a.md"))
         );
+    }
+
+    /// 回调里 panic 不能把监听线程带走。
+    ///
+    /// 回调由调用方提供（桌面端在里面往前端发事件），一旦它炸了，旧写法会让整个
+    /// 监听线程结束：此后**外部改动再也不会提示**，而界面上什么都不说，
+    /// 用户只会觉得「这个功能好像没了」。这类静默失效比报错难查得多。
+    #[test]
+    fn a_panicking_callback_does_not_kill_the_watcher() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let templates = dir.path().join("templates");
+        let content = dir.path().join("content");
+        std::fs::create_dir_all(&templates).unwrap();
+        std::fs::create_dir_all(&content).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = Arc::clone(&calls);
+        let _watcher = ProjectWatcher::start(
+            &templates,
+            &content,
+            &dir.path().join("themes"),
+            Duration::from_millis(120),
+            move |set| {
+                // 第一批故意炸，之后的正常送出去。
+                if seen.fetch_add(1, Ordering::SeqCst) == 0 {
+                    panic!("回调第一次就炸了");
+                }
+                let _ = tx.send(set);
+            },
+        )
+        .unwrap();
+
+        std::fs::write(content.join("a.md"), "1").unwrap();
+        // 等第一批被消化（并炸掉）。
+        std::thread::sleep(Duration::from_millis(600));
+        std::fs::write(content.join("b.md"), "2").unwrap();
+
+        let set = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("第一批炸了之后，第二批变更仍然应该送到");
+        assert!(!set.is_empty());
+        assert!(calls.load(Ordering::SeqCst) >= 2);
     }
 }

@@ -116,8 +116,33 @@ pub fn sanitize_relative_dir(input: &str) -> String {
         .join("/")
 }
 
-/// 保守的 HTML 压缩：折叠标签间的空白，保留 `pre` / `code` / `script` / `style` / `textarea` 内部原样。
+/// 跑一段可能 panic 的代码，兜住之后只留日志，返回 `None` 表示这一轮炸了。
 ///
+/// 专给**后台线程的循环体**用。预览服务器与文件监听各跑在自己的线程上，
+/// 一次 panic 会让整个线程结束，而调用方看到的是「预览突然打不开了」
+/// 「外部改动再也不提示了」这类静默失效——没有报错、界面上还显示着运行中，
+/// 唯一线索是 panic 钩子写的那行日志，而多数人不会去翻。
+///
+/// 与 IPC 边界那侧的兜底分工不同：那边要把消息回给前端，这里只需要「别把线程带走」，
+/// 因此不返回 panic 消息，直接落日志。
+pub fn keep_running<T>(what: &str, f: impl FnOnce() -> T) -> Option<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => Some(value),
+        Err(payload) => {
+            let message = if let Some(s) = payload.downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = payload.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<非字符串 payload>".to_string()
+            };
+            tracing::error!("{what} 内部 panic，这一轮跳过，线程继续：{message}");
+            None
+        }
+    }
+}
+
+/// 保守的 HTML 压缩：折叠标签间的空白，保留 `pre` / `code` / `script` / `style` / `textarea` 内部原样。///
 /// 不做属性重写或标签省略，避免破坏用户在主题里手写的 JS/CSS。
 pub fn minify_html(html: &str) -> String {
     const KEEP: [&str; 5] = ["pre", "code", "script", "style", "textarea"];
@@ -173,6 +198,20 @@ mod tests {
             to_slash(Path::new("posts").join("a.md").as_path()),
             "posts/a.md"
         );
+    }
+
+    /// `keep_running` 把 panic 变成 `None`，让后台线程能接着跑下一轮。
+    ///
+    /// 测试输出里出现「thread panicked」是预期的：这里就是在故意炸一次。
+    #[test]
+    fn keep_running_swallows_a_panic_and_returns_none() {
+        assert_eq!(keep_running("正常那次", || 1 + 1), Some(2));
+        assert_eq!(
+            keep_running::<()>("炸的那次", || panic!("循环体炸了")),
+            None
+        );
+        // 炸过之后还能继续用，这才是「线程没被带走」的意思。
+        assert_eq!(keep_running("炸完之后", || "ok"), Some("ok"));
     }
 
     #[test]
