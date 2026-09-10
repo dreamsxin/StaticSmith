@@ -174,7 +174,20 @@ export interface BuildReport {
   assets_copied: number
   removed_files: string[]
   duration_ms: number
+  /** 分阶段耗时（毫秒），各项之和略小于 duration_ms */
+  phases: BuildPhases
   warnings: string[]
+}
+
+/** 构建各阶段耗时（毫秒），用来回答「时间花在哪」。 */
+export interface BuildPhases {
+  plan_ms: number
+  render_ms: number
+  write_ms: number
+  site_files_ms: number
+  taxonomy_ms: number
+  assets_ms: number
+  index_ms: number
 }
 
 export interface DeployReport {

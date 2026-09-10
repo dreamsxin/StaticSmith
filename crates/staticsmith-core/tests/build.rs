@@ -138,6 +138,31 @@ fn editing_a_global_component_cascades_to_every_page() {
     assert!(read(dir.path(), "posts/hello-staticsmith/index.html").contains("回到首页"));
 }
 
+/// 每次构建都要能回答「时间花在哪」。
+///
+/// 只钉「各阶段之和不超过总耗时」这一条：具体数字随机器变化，钉住会变成假失败。
+/// 允许 1 ms 误差——每项都按毫秒截断，截断误差会累起来。
+#[test]
+fn a_build_reports_where_the_time_went() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    let p = report.phases;
+    let sum = p.plan_ms
+        + p.render_ms
+        + p.write_ms
+        + p.site_files_ms
+        + p.taxonomy_ms
+        + p.assets_ms
+        + p.index_ms;
+    assert!(
+        sum <= report.duration_ms + 1,
+        "各阶段之和 {sum} ms 不该超过总耗时 {} ms",
+        report.duration_ms
+    );
+}
+
 #[test]
 fn editing_one_article_rebuilds_that_page_and_its_section_index() {
     let dir = new_project();

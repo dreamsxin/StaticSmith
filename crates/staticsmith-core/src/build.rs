@@ -88,8 +88,36 @@ pub struct BuildReport {
     pub assets_copied: usize,
     pub removed_files: Vec<String>,
     pub duration_ms: u64,
+    /// 分阶段耗时，用来回答「这次构建的时间花在哪」。
+    pub phases: BuildPhases,
     /// 非致命问题，例如缺少静态资源目录。
     pub warnings: Vec<String>,
+}
+
+/// 各阶段耗时（毫秒）。
+///
+/// 为什么每次构建都算：没有归因的话，「增量空跑要 260 ms」这种问题只能靠起一个基准去猜
+/// （基准测出了总数，答不出构成）。分阶段数字让每次构建自带解释，也让
+/// 「标签页要不要也做增量」这类判断有据可依。
+///
+/// 几个毫秒级的零碎（清理陈旧产物、记录构建历史）不单独计时，所以各项之和会略小于
+/// `duration_ms`——差值就是这些零碎加上统计本身的开销。
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct BuildPhases {
+    /// 算构建计划、聚合分类、准备渲染上下文。
+    pub plan_ms: u64,
+    /// 并行渲染内容页（Rayon）。
+    pub render_ms: u64,
+    /// 页面 HTML 写盘。
+    pub write_ms: u64,
+    /// sitemap.xml 与 feed.xml：依赖全站列表，每次都刷新。
+    pub site_files_ms: u64,
+    /// 标签页与词条页：依赖全站 tags，每次整体重算。
+    pub taxonomy_ms: u64,
+    /// 静态资源复制。
+    pub assets_ms: u64,
+    /// SQLite 索引写入（页面哈希与模板依赖）。
+    pub index_ms: u64,
 }
 
 /// 静态生成引擎。持有配置、模板集合与本地索引。
@@ -482,6 +510,7 @@ impl Builder {
     /// 执行构建。渲染阶段使用 Rayon 多核并行。
     pub fn build(&mut self, mode: BuildMode) -> Result<BuildReport> {
         let started = Instant::now();
+        let mut phases = BuildPhases::default();
         let plan = self.plan(mode)?;
         let mut warnings = Vec::new();
 
@@ -499,8 +528,10 @@ impl Builder {
             config: &self.config,
             term_urls: term_urls(&collected),
         };
+        phases.plan_ms = started.elapsed().as_millis() as u64;
 
         // 并行渲染：每个页面产出一个或多个（分页）HTML 文件。
+        let render_started = Instant::now();
         let rendered: Vec<Result<RenderedPage>> = selected
             .par_iter()
             .map(|page| renderer.render_page(page, &site_ctx, &all_pages))
@@ -510,7 +541,9 @@ impl Builder {
         for item in rendered {
             outputs.push(item?);
         }
+        phases.render_ms = render_started.elapsed().as_millis() as u64;
 
+        let write_started = Instant::now();
         let mut files_written = 0;
         for output in &outputs {
             for file in &output.files {
@@ -518,12 +551,15 @@ impl Builder {
                 files_written += 1;
             }
         }
+        phases.write_ms = write_started.elapsed().as_millis() as u64;
 
         // 站点级 XML 产物。成本很低且依赖全站列表，因此增量构建也一起刷新。
+        let site_files_started = Instant::now();
         match self.write_site_files(&all_pages) {
             Ok(count) => files_written += count,
             Err(e) => warnings.push(format!("站点级文件生成失败: {e}")),
         }
+        phases.site_files_ms = site_files_started.elapsed().as_millis() as u64;
         if self.config.site.base_url.trim().is_empty()
             && (self.config.build.generate_sitemap || self.config.build.generate_feed)
         {
@@ -534,6 +570,7 @@ impl Builder {
         }
 
         // 标签页同理：数量少、依赖全站 tags，每次构建整体重算。
+        let taxonomy_started = Instant::now();
         match self.write_taxonomy(&renderer, &site_ctx, &collected) {
             Ok((count, notes)) => {
                 files_written += count;
@@ -541,6 +578,7 @@ impl Builder {
             }
             Err(e) => warnings.push(format!("标签页生成失败: {e}")),
         }
+        phases.taxonomy_ms = taxonomy_started.elapsed().as_millis() as u64;
 
         // 清理已删除内容的产物。
         let mut removed_files = Vec::new();
@@ -557,6 +595,7 @@ impl Builder {
             }
         }
 
+        let assets_started = Instant::now();
         let assets_copied = match self.copy_assets() {
             Ok(n) => n,
             Err(e) => {
@@ -564,8 +603,10 @@ impl Builder {
                 0
             }
         };
+        phases.assets_ms = assets_started.elapsed().as_millis() as u64;
 
         // 索引更新：写入新哈希并清除脏标记。
+        let index_started = Instant::now();
         let template_hash = self.combined_template_hash();
         for page in &outputs {
             self.index.upsert_page(&PageRecord {
@@ -586,6 +627,7 @@ impl Builder {
             .map(|i| (i.name.clone(), i.dependencies.clone()))
             .collect();
         self.index.replace_templates(&hashes, &deps)?;
+        phases.index_ms = index_started.elapsed().as_millis() as u64;
 
         let duration_ms = started.elapsed().as_millis() as u64;
         self.index
@@ -598,6 +640,7 @@ impl Builder {
             assets_copied,
             removed_files,
             duration_ms,
+            phases,
             warnings,
         })
     }

@@ -613,6 +613,19 @@ pub fn cmd_build(project: &PathBuf, mode: BuildMode) -> Result<BuildReport> {
         "生成完成：{} 个页面、{} 个文件、{} 个静态资源，耗时 {} ms",
         report.pages_rendered, report.files_written, report.assets_copied, report.duration_ms
     );
+    // 分阶段耗时：没有它的话「为什么改一篇也要几百毫秒」只能靠猜。
+    // 各项之和略小于总耗时，差值是几个毫秒级的零碎（清理陈旧产物、记录构建历史）。
+    let p = &report.phases;
+    println!(
+        "  计划 {} ms / 渲染 {} ms / 写盘 {} ms / 站点文件 {} ms / 标签页 {} ms / 资源 {} ms / 索引 {} ms",
+        p.plan_ms,
+        p.render_ms,
+        p.write_ms,
+        p.site_files_ms,
+        p.taxonomy_ms,
+        p.assets_ms,
+        p.index_ms
+    );
     if !report.removed_files.is_empty() {
         println!("已清理 {} 个陈旧产物", report.removed_files.len());
     }

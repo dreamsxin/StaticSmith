@@ -9,6 +9,28 @@ import type { OutputFile, OutputKind } from '../api'
 const plan = computed(() => store.plan)
 const report = computed(() => store.lastBuild)
 
+/**
+ * 分阶段耗时的一行文字，只列非零项。
+ *
+ * 全列的话一屏都是 `0 ms`，真正的大头反而看不出来——增量空跑的九成时间在标签页上，
+ * 这种事只有把非零项摆出来才看得见。
+ */
+const phaseBreakdown = computed(() => {
+  const phases = report.value?.phases
+  if (!phases) return ''
+  const parts = [
+    ['计划', phases.plan_ms],
+    ['渲染', phases.render_ms],
+    ['写盘', phases.write_ms],
+    ['站点文件', phases.site_files_ms],
+    ['标签页', phases.taxonomy_ms],
+    ['静态资源', phases.assets_ms],
+    ['索引', phases.index_ms],
+  ] as const
+  const shown = parts.filter(([, ms]) => ms > 0).map(([label, ms]) => `${label} ${ms} ms`)
+  return shown.length ? `时间去处：${shown.join(' / ')}` : '时间去处：都在 1 ms 以内'
+})
+
 /** 预览面板只在「内容」标签页里，点产物后请求外框切回去，否则点了看不到。 */
 const emit = defineEmits<{ preview: [] }>()
 
@@ -127,6 +149,9 @@ async function showOutput(url: string) {
           <li>复制静态资源：{{ report.assets_copied }}</li>
           <li>耗时：{{ report.duration_ms }} ms</li>
         </ul>
+        <!-- 分阶段耗时：回答「为什么这次这么久」。只列非零项，否则一屏全是 0 ms，
+             真正的大头反而看不出来。各项之和略小于总耗时（零碎不单独计时）。 -->
+        <p class="build__muted">{{ phaseBreakdown }}</p>
         <p v-if="report.removed_files.length" class="build__muted">
           已删除：{{ report.removed_files.join('、') }}
         </p>
