@@ -432,7 +432,18 @@ pub fn markdown_to_html(markdown: &str) -> String {
 /// 这一点与 `media` 模块的 `canonicalize` 双边校验不同——内容文件常常还不存在，
 /// 规范化无从下手。
 pub fn resolve_source(content_root: &Path, source: &str) -> Result<PathBuf> {
-    let path = content_root.join(source.replace('\\', "/"));
+    let normalized = source.replace('\\', "/");
+    // Windows 的设备名（nul/con/com1…）不是文件：写入「成功」而内容进虚空，
+    // 而且不报错。三个平台一律拦，否则在 Linux 上建出来的那一篇到 Windows 就打不开。
+    if let Some(bad) = normalized
+        .split('/')
+        .find(|segment| util::is_reserved_name(segment))
+    {
+        return Err(Error::Other(format!(
+            "{bad} 是系统保留名（Windows 上它是设备而不是文件，写进去的内容会消失），请改个名字"
+        )));
+    }
+    let path = content_root.join(&normalized);
     if !is_within(content_root, &path) {
         return Err(Error::Other(format!(
             "内容路径越出内容目录：{source}（只能写在 content/ 里面）"
@@ -441,8 +452,7 @@ pub fn resolve_source(content_root: &Path, source: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// 给一篇内容补一条旧地址别名，返回是否真的改了文件。
-///
+/// 给一篇内容补一条旧地址别名，返回是否真的改了文件。///
 /// 搬动文章（`batch`）与栏目改名（`sections`）都要做这件事，曾经**两处各写了一份
 /// 逐字相同的实现**——别名规则改一处漏一处，代价是外部链接 404。
 ///
@@ -605,6 +615,24 @@ mod tests {
                 resolve_source(root, bad).is_err(),
                 "{bad} 应当被拒绝，但通过了"
             );
+        }
+    }
+
+    /// Windows 的设备名要拦下来。
+    ///
+    /// `nul.md`、`CON.md` 这类名字在 Windows 上不是文件而是设备：写入「成功」但内容
+    /// 直接进虚空，读回来是空的——没有任何报错。保留名对**任何扩展名**都生效，
+    /// 所以判断只看第一个点之前那一段。三个平台一律拦：站点是要能跨机器打开的，
+    /// 在 Linux 上建出 `nul.md`，拿到 Windows 就成了打不开的一篇。
+    #[test]
+    fn resolve_source_rejects_windows_device_names() {
+        let root = Path::new("/site/content");
+        for bad in ["nul.md", "CON.md", "posts/com1.md", "posts/LPT9.markdown"] {
+            assert!(resolve_source(root, bad).is_err(), "{bad} 应当被拒绝");
+        }
+        // 别过度拦：这些只是**包含**保留名的普通名字
+        for good in ["posts/console.md", "posts/nulla.md", "posts/com10.md"] {
+            assert!(resolve_source(root, good).is_ok(), "{good} 是正常文件名");
         }
     }
 

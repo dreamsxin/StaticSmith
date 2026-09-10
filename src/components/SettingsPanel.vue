@@ -404,6 +404,14 @@ function onDeployKindChange() {
         <p class="settings__hint">{{ current.hint }}</p>
       </header>
 
+      <!-- 配置提醒放在段标题下方、所有分段共用：它说的是整份配置的事
+           （比如源目录在项目根之外、不进快照），不属于某一段。
+           不阻断保存——这些配置是合法的，只是有代价。 -->
+      <p v-for="warning in store.project?.config_warnings ?? []" :key="warning" class="warn">
+        {{ warning }}
+      </p>
+
+
     <div v-if="section === 'site'" class="settings__panel">
       <label>标题<input v-model="form.site.title" type="text" /></label>
       <label>描述<input v-model="form.site.description" type="text" /></label>

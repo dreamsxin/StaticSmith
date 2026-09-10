@@ -154,6 +154,8 @@ export interface ProjectSummary {
   components: TemplateInfo[]
   templates: TemplateInfo[]
   recent_builds: BuildRecord[]
+  /** 合法但有代价的配置提醒（如源目录在项目根之外，不进快照）。空数组表示没有 */
+  config_warnings: string[]
 }
 
 export interface BuildPlan {

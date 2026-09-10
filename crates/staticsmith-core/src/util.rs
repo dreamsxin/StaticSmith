@@ -116,6 +116,35 @@ pub fn sanitize_relative_dir(input: &str) -> String {
         .join("/")
 }
 
+/// 这一段文件名是否是 Windows 的保留设备名。
+///
+/// `nul`、`con`、`com1` 这类名字在 Windows 上不是文件而是设备：写入「成功」但内容
+/// 进虚空，读回来是空的，而且没有任何报错。保留名对**任何扩展名**都生效
+/// （`nul.md` 一样是 NUL），所以只看第一个点之前那一段；尾随的空格与点也要剥掉，
+/// 因为 Windows 打开文件时会自己剥。
+///
+/// 三个平台一律判定为保留：站点要能跨机器打开，在 Linux 上建出 `nul.md`，
+/// 拿到 Windows 就成了打不开的一篇——把差异留到那一刻才暴露最糟。
+pub fn is_reserved_name(segment: &str) -> bool {
+    const RESERVED: [&str; 4] = ["con", "prn", "aux", "nul"];
+    let stem = segment
+        .split('.')
+        .next()
+        .unwrap_or(segment)
+        .trim_end_matches([' ', '.'])
+        .to_ascii_lowercase();
+    if RESERVED.contains(&stem.as_str()) {
+        return true;
+    }
+    // COM1..=COM9 与 LPT1..=LPT9 是设备，COM0 / COM10 不是——别过度拦。
+    let numbered = |prefix: &str| {
+        stem.strip_prefix(prefix)
+            .map(|rest| rest.len() == 1 && matches!(rest.as_bytes()[0], b'1'..=b'9'))
+            .unwrap_or(false)
+    };
+    numbered("com") || numbered("lpt")
+}
+
 /// 跑一段可能 panic 的代码，兜住之后只留日志，返回 `None` 表示这一轮炸了。
 ///
 /// 专给**后台线程的循环体**用。预览服务器与文件监听各跑在自己的线程上，
@@ -142,7 +171,8 @@ pub fn keep_running<T>(what: &str, f: impl FnOnce() -> T) -> Option<T> {
     }
 }
 
-/// 保守的 HTML 压缩：折叠标签间的空白，保留 `pre` / `code` / `script` / `style` / `textarea` 内部原样。///
+/// 保守的 HTML 压缩：折叠标签间的空白，保留 `pre` / `code` / `script` / `style` / `textarea` 内部原样。
+///
 /// 不做属性重写或标签省略，避免破坏用户在主题里手写的 JS/CSS。
 pub fn minify_html(html: &str) -> String {
     const KEEP: [&str; 5] = ["pre", "code", "script", "style", "textarea"];

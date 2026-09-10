@@ -1133,6 +1133,11 @@ fn cmd_check(project: &PathBuf) -> Result<()> {
     if scheduled > 0 {
         println!("定时发布 {scheduled} 篇：日期未到，本次构建不会输出");
     }
+    // 合法但有代价的配置（源目录在项目根之外）不阻断，但 check 这一步必须说出来：
+    // 只写进日志等于没提醒。
+    for warning in builder.config.warnings(&builder.paths.root) {
+        println!("注意：{warning}");
+    }
     println!("检查通过");
     Ok(())
 }

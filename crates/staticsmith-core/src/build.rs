@@ -110,6 +110,11 @@ impl Builder {
         if !issues.is_empty() {
             return Err(Error::InvalidProject(issues.join("; ")));
         }
+        // 合法但有代价的配置只提醒不阻断（见 `SiteConfig::warnings`）。日志是兜底，
+        // 界面与 CLI 各自还会把它显示出来——只写日志等于没提醒。
+        for warning in config.warnings(root) {
+            tracing::warn!("{warning}");
+        }
         let paths = ProjectPaths::new(root, &config.build, &config.assets);
         let templates = TemplateSet::load(&paths.templates)?;
         let index = Index::open(&paths.index_db)?;

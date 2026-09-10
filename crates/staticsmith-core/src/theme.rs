@@ -269,6 +269,10 @@ fn target_of(paths: &ProjectPaths, entry: &str) -> std::result::Result<PathBuf, 
     {
         return Err("路径越界".to_string());
     }
+    // Windows 的设备名：写入「成功」而内容进虚空，装完主题看着没报错但文件是空的。
+    if let Some(bad) = segments.iter().find(|s| util::is_reserved_name(s)) {
+        return Err(format!("{bad} 是系统保留名，装进来会写不成文件"));
+    }
     Ok(segments.iter().fold(base.clone(), |acc, s| acc.join(s)))
 }
 
@@ -594,6 +598,17 @@ mod tests {
         let site = fixture();
         let err = scan(&site.paths, &zip_path).unwrap_err().to_string();
         assert!(err.contains("条目"), "{err}");
+    }
+
+    /// 条目名是 Windows 保留设备名时也要拒绝：写入「成功」而内容进虚空，
+    /// 装完看着没报错，文件却是空的。
+    #[test]
+    fn reserved_device_names_are_rejected_too() {
+        let site = fixture();
+        assert!(target_of(&site.paths, "templates/nul.html").is_err());
+        assert!(target_of(&site.paths, "theme/static/com1.css").is_err());
+        // 别过度拦：只是包含保留名的普通文件
+        assert!(target_of(&site.paths, "templates/console.html").is_ok());
     }
 
     #[test]

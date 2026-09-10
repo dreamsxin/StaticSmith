@@ -53,6 +53,11 @@ pub struct ProjectSummary {
     pub components: Vec<TemplateInfo>,
     pub templates: Vec<TemplateInfo>,
     pub recent_builds: Vec<BuildRecord>,
+    /// 合法但有代价的配置（见 `SiteConfig::warnings`）。空数组表示没什么要说的。
+    ///
+    /// 放进摘要而不是只写日志：这类提醒的典型后果是「快照静默不覆盖某个目录」，
+    /// 只有当事人看到才有意义，而没人会去翻日志。
+    pub config_warnings: Vec<String>,
 }
 
 /// 页面列表项（不含正文，避免一次性传输整站内容）。
@@ -215,6 +220,7 @@ pub fn project_summary(state: State<'_, AppState>) -> Result<ProjectSummary> {
                 .collect(),
             templates: builder.templates().infos().cloned().collect(),
             recent_builds: builder.index().recent_builds(10)?,
+            config_warnings: builder.config.warnings(&session.root),
         })
     })
 }

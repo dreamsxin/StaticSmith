@@ -521,6 +521,10 @@ impl SiteConfig {
     }
 
     /// 校验必填项，返回人类可读的问题列表（空列表表示配置合法）。
+    ///
+    /// 这里只放**阻断性**问题：`Builder::open` 拿它当门禁，报出来就打不开项目。
+    /// 「能跑但你大概想知道」的那些放 [`SiteConfig::warnings`]——把它们混进来会让
+    /// 老项目在升级后突然打不开，而它们本来一直在正常工作。
     pub fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
         if self.site.title.trim().is_empty() {
@@ -585,6 +589,64 @@ impl SiteConfig {
         }
         issues
     }
+
+    /// 「能跑，但你大概想知道」的提醒。空列表表示没什么要说的。
+    ///
+    /// 与 [`SiteConfig::validate`] 分成两层，是因为后果不同：`validate` 是门禁
+    /// （报出来就打不开项目），这里说的都是**合法但有代价**的配置。混在一起会让
+    /// 一直正常工作的老项目升级后突然打不开，那个代价比「没提醒」大得多。
+    ///
+    /// 目前只有一条：源目录（内容、模板、主题、静态资源）落在项目根之外。合法，
+    /// 但有两个不显眼的后果——内容快照按项目根算跟踪范围，走出去的目录**不进快照**
+    /// （安全网静默变小）；`resolve_source` 那套「必须在根之内」的校验也失去参照。
+    ///
+    /// `output_dir` 走出去**不提醒**：产物目录指向站外是常规用法
+    /// （等价于 `hugo -d /var/www`），它本来就可以随时重新生成。
+    pub fn warnings(&self, project_root: impl AsRef<Path>) -> Vec<String> {
+        let root = normalize_lexically(&tidy(project_root.as_ref()));
+        let mut warnings = Vec::new();
+        for (key, dir) in [
+            ("build.content_dir", &self.build.content_dir),
+            ("build.template_dir", &self.build.template_dir),
+            ("build.theme_dir", &self.build.theme_dir),
+            ("build.static_dir", &self.build.static_dir),
+        ] {
+            let resolved = if dir.is_absolute() {
+                normalize_lexically(&tidy(dir))
+            } else {
+                normalize_lexically(&root.join(dir))
+            };
+            if !resolved.starts_with(&root) {
+                warnings.push(format!(
+                    "{key} 指向项目根之外（{}）：这个目录不进内容快照，出问题时没有\
+                     可回退的版本；路径校验也无法再以项目根为界。产物目录\
+                     （build.output_dir）指到外面是常规用法，源目录建议留在项目里。",
+                    resolved.display()
+                ));
+            }
+        }
+        warnings
+    }
+}
+
+/// 把 `..` 按字面折掉，不碰磁盘。
+///
+/// 刻意不用 `canonicalize`：提醒要在**目录还不存在**时也能给出来（用户刚把
+/// `content_dir` 改到别处、还没建目录），而那时 `canonicalize` 会直接失败。
+/// 词法归一对「有没有走出项目根」这个问题足够；符号链接是另一回事，
+/// 由各个 `resolve_*` 自己防。
+fn normalize_lexically(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// 项目路径集合：把配置中的相对路径统一解析为绝对路径。
@@ -798,6 +860,47 @@ enabled = true
         assert_eq!(cfg.build.page_size, 10);
         assert_eq!(cfg.build.output_dir, PathBuf::from("./dist"));
         assert_eq!(cfg.deploy.r#type, DeployKind::None);
+    }
+
+    /// 源目录走出项目根：提醒，但不阻断。
+    ///
+    /// 阻断的话，一直正常工作的老项目升级后会突然打不开——那个代价比「没提醒」大。
+    /// 提醒里必须说清后果：这个目录不进内容快照。
+    #[test]
+    fn source_dirs_outside_the_project_are_a_warning_not_an_error() {
+        let raw = "[site]\ntitle = \"站\"\n\n[build]\ncontent_dir = \"../别处/content\"\n";
+        let cfg: SiteConfig = toml::from_str(raw).unwrap();
+
+        assert!(cfg.validate().is_empty(), "不该阻断：{:?}", cfg.validate());
+
+        let root = Path::new("/tmp").join("站");
+        let warnings = cfg.warnings(&root);
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("build.content_dir"), "{}", warnings[0]);
+        assert!(warnings[0].contains("快照"), "{}", warnings[0]);
+    }
+
+    /// 产物目录指到站外是常规用法（等价于 `hugo -d /var/www`），不该提醒。
+    #[test]
+    fn output_dir_outside_the_project_is_not_worth_a_warning() {
+        let raw = "[site]\ntitle = \"站\"\n\n[build]\noutput_dir = \"../发布出去\"\n";
+        let cfg: SiteConfig = toml::from_str(raw).unwrap();
+        assert!(
+            cfg.warnings(Path::new("/tmp/站")).is_empty(),
+            "{:?}",
+            cfg.warnings(Path::new("/tmp/站"))
+        );
+    }
+
+    /// 默认配置（相对路径）一句提醒都不该有。
+    #[test]
+    fn a_default_project_has_nothing_to_warn_about() {
+        let cfg = SiteConfig::default();
+        assert!(
+            cfg.warnings(Path::new("/tmp/站")).is_empty(),
+            "{:?}",
+            cfg.warnings(Path::new("/tmp/站"))
+        );
     }
 
     #[test]

@@ -363,6 +363,12 @@ fn resolve_dir(paths: &ProjectPaths, relative: &str) -> Result<PathBuf> {
     if escapes {
         return Err(Error::Other(format!("{relative} 不是合法的栏目名")));
     }
+    // Windows 的设备名建不成目录（也不该建），三个平台一起拦，理由同 `resolve_source`。
+    if let Some(bad) = segments.iter().find(|s| crate::util::is_reserved_name(s)) {
+        return Err(Error::Other(format!(
+            "{bad} 是系统保留名（Windows 上它是设备而不是目录），请改个栏目名"
+        )));
+    }
     Ok(segments
         .iter()
         .fold(paths.content.clone(), |acc, s| acc.join(s)))
