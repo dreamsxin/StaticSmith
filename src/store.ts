@@ -897,26 +897,35 @@ export const actions = {
 
 
 
-  /** 凭证是否已存在系统凭据管理器里。查询失败按「没有」处理。 */
-  async hasSecret(account: string): Promise<boolean> {
+  /**
+   * 凭证是否已存在系统凭据管理器里。
+   *
+   * 三态：`true` 有、`false` 没有、`null` **查不出来**（凭据管理器打不开、被策略挡住）。
+   * 以前查询失败按「没有」处理，界面就会在凭证其实存在时说「未存储」——
+   * 用户照着提示重新输一遍，问题还在，而真正的原因一个字都没显示。
+   */
+  async hasSecret(account: string): Promise<boolean | null> {
     try {
       return await api.hasSecret(account)
-    } catch {
-      return false
+    } catch (err) {
+      notify('error', `查询凭据状态失败：${err instanceof Error ? err.message : String(err)}`)
+      return null
     }
   },
 
   /**
    * 当前站点的凭据条目名，由 Rust 侧按发布配置算出。
    *
-   * 前端不自己拼：命名规则只有 `account_for_config` 一处定义。查询失败返回空串，
-   * 界面据此显示「（未配置）」而不是一个猜出来的名字。
+   * 前端不自己拼：命名规则只有 `account_for_config` 一处定义。查询失败返回 `null`
+   * 而不是空串——空串在界面上是「未配置发布方式」，与「问不出来」是两回事，
+   * 后者若显示成前者，用户面对的是一个不能操作又没有原因的死局。
    */
-  async deployAccount(): Promise<string> {
+  async deployAccount(): Promise<string | null> {
     try {
       return await api.deployAccount()
-    } catch {
-      return ''
+    } catch (err) {
+      notify('error', `读取凭据条目名失败：${err instanceof Error ? err.message : String(err)}`)
+      return null
     }
   },
 

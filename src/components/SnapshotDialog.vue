@@ -206,9 +206,8 @@ async function confirm() {
           </template>
         </p>
 
-        <button type="button" class="dialog__cancel" :disabled="store.busy" @click="emit('close')">
-          关闭
-        </button>
+        <!-- 关闭不受忙态影响：后台在生成时也得关得掉这层浮层（见 ui.md「忙态」） -->
+        <button type="button" class="dialog__cancel" @click="emit('close')">关闭</button>
       </template>
 
       <template v-else>
@@ -227,9 +226,7 @@ async function confirm() {
         <button ref="confirmButton" type="button" :disabled="store.busy" @click="confirm">
           确认回退
         </button>
-        <button type="button" class="dialog__cancel" :disabled="store.busy" @click="picked = null">
-          换一份
-        </button>
+        <button type="button" class="dialog__cancel" @click="picked = null">换一份</button>
       </template>
     </div>
   </div>

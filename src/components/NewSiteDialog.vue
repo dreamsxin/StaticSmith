@@ -12,7 +12,6 @@
 import { nextTick, ref, watch } from 'vue'
 
 import NewSiteForm from './NewSiteForm.vue'
-import { store } from '../store'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -64,9 +63,8 @@ function submit(title: string, preset: string) {
 
       <NewSiteForm ref="form" submit-label="选择空目录并创建…" @submit="submit" />
 
-      <button type="button" class="dialog__cancel" :disabled="store.busy" @click="emit('close')">
-        取消
-      </button>
+      <!-- 取消不受忙态影响：后台在忙时也得关得掉这层浮层 -->
+      <button type="button" class="dialog__cancel" @click="emit('close')">取消</button>
     </div>
   </div>
 </template>

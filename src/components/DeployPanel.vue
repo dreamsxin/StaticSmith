@@ -21,8 +21,12 @@ const deploy = computed(() => store.project?.config.deploy)
  * 命名规则（`git:<remote>` / `ftp:<用户>@<主机>`）只在 `account_for_config` 一处定义：
  * 两边各写一份的话，改了规则之后会出现「保存写进 A、查询读的是 B」，
  * 用户看到的是「明明保存过，界面说没有」——这类不一致最难被发现。
+ *
+ * `null` 表示问不出来（命令报错），与「配置里没选发布方式」得到的空串是两回事：
+ * 前者要说明出了错，后者要指路去设置页。
  */
-const account = ref('')
+const account = ref<string | null>('')
+const accountFailed = computed(() => account.value === null)
 
 /**
  * 发布配置变了就重新问一次条目名，并跟着查一次凭证在不在。
@@ -70,14 +74,25 @@ async function removeSecret() {
       </ul>
 
       <h3>凭证</h3>
-      <p class="build__muted">
+      <p v-if="accountFailed" class="warn">
+        问不出凭据条目名（上一条错误通知里有原因），所以下面的保存与删除都用不了。
+        这不代表凭证没存过——请重试或检查系统凭据管理器是否可用。
+      </p>
+      <p v-else class="build__muted">
         凭据条目：<code>{{ account || '（未配置）' }}</code>
       </p>
       <p v-if="account">
-        <span v-if="stored" class="badge badge--ok">已存储</span>
+        <span v-if="stored === null" class="badge badge--draft">状态未知</span>
+        <span v-else-if="stored" class="badge badge--ok">已存储</span>
         <span v-else class="badge badge--draft">未存储</span>
         <span class="build__muted">
-          {{ stored ? '发布时直接从系统凭据管理器读取，可重新输入覆盖。' : '发布前需要先保存 Token / 密码。' }}
+          {{
+            stored === null
+              ? '查不到凭据管理器里的状态，仍可尝试保存或直接发布。'
+              : stored
+                ? '发布时直接从系统凭据管理器读取，可重新输入覆盖。'
+                : '发布前需要先保存 Token / 密码。'
+          }}
         </span>
       </p>
       <label>
