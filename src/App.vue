@@ -8,7 +8,8 @@
  */
 import { onMounted, onBeforeUnmount, computed } from 'vue'
 
-import { focusSearch, saveCurrent } from './commands'
+import { createSiteWith, focusSearch, saveCurrent } from './commands'
+
 import AppMenu from './components/AppMenu.vue'
 import BuildPanel from './components/BuildPanel.vue'
 import CalendarPanel from './components/CalendarPanel.vue'
@@ -17,7 +18,9 @@ import ContentEditor from './components/ContentEditor.vue'
 import ContextMenu from './components/ContextMenu.vue'
 import DeployPanel from './components/DeployPanel.vue'
 import LayoutManager from './components/LayoutManager.vue'
+import NewSiteDialog from './components/NewSiteDialog.vue'
 import PageList from './components/PageList.vue'
+
 import PreviewPane from './components/PreviewPane.vue'
 import SeoPanel from './components/SeoPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
@@ -328,6 +331,12 @@ onBeforeUnmount(() => {
   </div>
 
   <CommandPalette :open="ui.paletteOpen" @close="ui.paletteOpen = false" />
+  <NewSiteDialog
+    :open="ui.newSiteOpen"
+    @close="ui.newSiteOpen = false"
+    @submit="createSiteWith"
+  />
+
   <ContextMenu />
   <ToastStack />
 </template>

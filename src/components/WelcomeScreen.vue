@@ -9,30 +9,15 @@
 import { onMounted, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 
+import NewSiteForm from './NewSiteForm.vue'
 import { isProject } from '../api'
 import { actions, store } from '../store'
 
-const title = ref('我的静态站')
 const hint = ref('')
 
-/**
- * 当前选中的版式。
- *
- * 列表本身在 `store.presets`——菜单栏的「新建站点」也要用它，而那时这个组件可能
- * 根本没挂载。两处各取一次的话，迟早出现「一边有版式选择、一边没有」的分裂。
- */
-const preset = ref('')
-
-onMounted(async () => {
-  // 两件事互不依赖，各自失败各自处理，不要串起来 await：
-  // 其中一个出问题不该让另一个也不执行。
+onMounted(() => {
   void actions.loadRecent()
-  await actions.loadPresets()
-  // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
-  preset.value = store.presets[0]?.slug ?? ''
 })
-
-
 
 async function pickDirectory(): Promise<string | null> {
   const selected = await open({ directory: true, multiple: false })
@@ -50,12 +35,14 @@ async function openExisting() {
   await actions.openProject(path)
 }
 
-async function createNew() {
+/** 表单填完才走到这一步：先选目录，再写入。字段由 `NewSiteForm` 收集。 */
+async function createNew(title: string, preset: string) {
   const path = await pickDirectory()
   if (!path) return
   hint.value = ''
-  await actions.initProject(path, title.value, preset.value || undefined)
+  await actions.initProject(path, title, preset || undefined)
 }
+
 
 /** 只显示日期，起始页不需要精确到秒。 */
 function shortDate(value: string): string {
@@ -87,27 +74,10 @@ function shortDate(value: string): string {
               在空目录里写入 <code>templates/</code>、<code>themes/default/</code>、
               <code>content/</code> 与 <code>staticsmith.toml</code>，已存在的文件不会被覆盖。
             </p>
-            <label class="card__field">
-              站点名称
-              <input v-model="title" type="text" placeholder="我的静态站" />
-            </label>
-
-            <!-- 选一套版式。用单选而不是下拉：只有两三项，且每项都需要一句说明，
-                 收进下拉之后要点开才看得到「长什么样」。 -->
-            <fieldset v-if="store.presets.length > 1" class="welcome__presets">
-              <legend>版式</legend>
-              <label v-for="item in store.presets" :key="item.slug" class="welcome__preset">
-
-                <input v-model="preset" type="radio" name="preset" :value="item.slug" />
-                <span class="welcome__preset-title">{{ item.title }}</span>
-                <span class="welcome__preset-desc">{{ item.description }}</span>
-              </label>
-            </fieldset>
-
-            <button type="button" :disabled="store.busy || !title.trim()" @click="createNew">
-              选择空目录…
-            </button>
+            <!-- 字段与菜单弹出的对话框共用一个组件：加字段只改一处 -->
+            <NewSiteForm submit-label="选择空目录…" @submit="createNew" />
           </article>
+
         </section>
 
         <section class="welcome__col">

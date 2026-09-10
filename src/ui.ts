@@ -96,6 +96,9 @@ export const ui = reactive({
   /** 当前视图。标签页与菜单的「视图」组都改这一个值。 */
   tab: 'content' as Tab,
   paletteOpen: false,
+  /** 「新建站点」对话框。菜单只放一条入口，字段在弹出的表单里填。 */
+  newSiteOpen: false,
+
   /** 当前界面模式（布局预设），见 [`modes`]。 */
   mode: 'standard' as Mode,
   /** 内容页左侧列表栏是否显示（视图菜单可勾掉，类比 Word 的导航窗格）。 */
