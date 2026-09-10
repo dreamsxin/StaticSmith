@@ -468,7 +468,7 @@ pub fn call(builder: &mut Builder, permissions: Permissions, name: &str, args: &
 
     // 改之前先留一份可回退的版本。干跑预览只在人真的逐条读了时才有用，
     // Agent 连着调十个工具的时候没人在读。
-    if def.access == Access::Write && touches_sources(name) {
+    if def.access == Access::Write && touches_sources(name, args) {
         snapshot_before(builder, name);
     }
 
@@ -478,16 +478,29 @@ pub fn call(builder: &mut Builder, permissions: Permissions, name: &str, args: &
     }
 }
 
-/// 这个工具会不会改动**源文件**。
+/// 这次调用会不会改动**源文件**。
 ///
 /// 默认为「会」，只排除已知不碰源的那些——方向刻意选成这样：将来新增写工具时
 /// 忘了登记，最坏是多存一次没变化的快照（`snapshot` 会返回 `None`）；
 /// 反过来若默认「不会」，忘了登记就等于那个工具没有安全网。
 ///
-/// `restore_snapshot` 自己会把回滚前的状态存下来并把 id 报给调用方，
-/// 在这里再存一次只会把那个 id 吞掉。
-fn touches_sources(name: &str) -> bool {
-    !matches!(name, "build_site" | "deploy_site" | "restore_snapshot")
+/// 三个排除项：
+///
+/// - `build_site` / `deploy_site` 只写 `dist/`，不在跟踪范围里
+/// - `restore_snapshot` 自己会把回滚前的状态存下来并把 id 报给调用方，
+///   在这里再存一次只会把那个 id 吞掉
+///
+/// 还要看参数：`replace_text` 默认 `dry_run = true`，那种调用只算不写。
+/// 工具描述本身鼓励 Agent「先干跑看清楚、再落盘」，不看参数的话每次批量替换
+/// 都要付两次快照钱，其中第一次纯属浪费——而且会在历史里留下一笔没有对应改动的快照。
+fn touches_sources(name: &str, args: &Value) -> bool {
+    if matches!(name, "build_site" | "deploy_site" | "restore_snapshot") {
+        return false;
+    }
+    if name == "replace_text" {
+        return !args.get("dry_run").and_then(Value::as_bool).unwrap_or(true);
+    }
+    true
 }
 
 /// 快照失败不阻断操作。
@@ -495,8 +508,7 @@ fn touches_sources(name: &str) -> bool {
 /// 没有安全网也比「因为 git 出问题就不让写内容」好。但要留下日志：
 /// 事后发现某次改动没有可回退的版本时，原因得查得到。
 fn snapshot_before(builder: &Builder, tool: &str) {
-    let root = builder.paths.root.clone();
-    match Snapshots::open(&root).and_then(|s| s.snapshot(tool)) {
+    match Snapshots::open(&builder.paths).and_then(|s| s.snapshot(tool)) {
         Ok(Some(snapshot)) => {
             tracing::info!("{tool} 之前已留快照 {}", snapshot.id);
         }
@@ -1083,7 +1095,7 @@ fn list_snapshots(builder: &Builder, args: &Value) -> Result<String, String> {
         .and_then(Value::as_u64)
         .unwrap_or(20)
         .clamp(1, 200) as usize;
-    let snapshots = Snapshots::open(&builder.paths.root)
+    let snapshots = Snapshots::open(&builder.paths)
         .and_then(|s| s.list(limit))
         .map_err(err)?;
     let next = if snapshots.is_empty() {
@@ -1094,13 +1106,18 @@ fn list_snapshots(builder: &Builder, args: &Value) -> Result<String, String> {
     pretty(&json!({ "snapshots": snapshots, "next": next }))
 }
 
-/// 回退到某个快照，随后重新加载内存状态。
+/// 回退到某个快照，随后重开项目。
+///
+/// **重开而不是 `reload`**：`staticsmith.toml` 也在跟踪范围里，回退可能把它换成
+/// 旧版；而 `Builder::reload` 只重读模板与内容，`config` 与 `paths` 一概不动。
+/// 只 reload 的话，磁盘上的配置回到了旧版、内存里还是新版，接下来的 `build_site`
+/// 会拿着错的 `base_url`、错的输出目录跑——回退成功了，但站点是坏的。
 fn restore_snapshot(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let id = require_str(args, "id")?.to_string();
-    let snapshots = Snapshots::open(&builder.paths.root).map_err(err)?;
+    let root = builder.paths.root.clone();
+    let snapshots = Snapshots::open(&builder.paths).map_err(err)?;
     let restored = snapshots.restore(&id).map_err(err)?;
-    // 磁盘变了：页面列表、模板依赖图都得重读，否则后续工具看到的还是旧内容
-    builder.reload().map_err(err)?;
+    *builder = Builder::open(&root).map_err(err)?;
 
     pretty(&json!({
         "restored_to": restored.restored_to,
@@ -1179,7 +1196,9 @@ mod tests {
     #[test]
     fn write_tools_leave_a_snapshot_before_touching_anything() {
         let (dir, mut builder) = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        // 先克隆一份路径：`Snapshots` 要活到 `call` 之后，而 `call` 借的是 &mut builder
+        let paths = builder.paths.clone();
+        let snapshots = Snapshots::open(&paths).unwrap();
         assert!(snapshots.list(10).unwrap().is_empty(), "起点没有快照");
 
         let source = "posts/hello-staticsmith.md";
@@ -1214,19 +1233,65 @@ mod tests {
     /// 只生成产物的工具不必留快照：`dist/` 不进跟踪，存了也是空的。
     #[test]
     fn building_does_not_add_snapshots() {
-        let (dir, mut builder) = project();
+        let (_dir, mut builder) = project();
+        let paths = builder.paths.clone();
         let result = call(&mut builder, writer(), "build_site", &json!({}));
         assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
 
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths).unwrap();
         assert!(snapshots.list(10).unwrap().is_empty());
+    }
+
+    /// 干跑只算不写，不该留快照——否则历史里会多一笔没有对应改动的记录，
+    /// 而且工具描述鼓励「先干跑再落盘」，每次批量替换都要白付一次快照的钱。
+    #[test]
+    fn a_dry_run_does_not_add_snapshots() {
+        let (_dir, mut builder) = project();
+        let paths = builder.paths.clone();
+
+        let preview = call(
+            &mut builder,
+            writer(),
+            "replace_text",
+            &json!({ "find": "StaticSmith", "replace": "换个名字" }),
+        );
+        assert_eq!(
+            preview["isError"], false,
+            "{}",
+            preview["content"][0]["text"]
+        );
+        assert!(
+            Snapshots::open(&paths)
+                .unwrap()
+                .list(10)
+                .unwrap()
+                .is_empty(),
+            "干跑不该留快照"
+        );
+
+        // 真落盘时才留
+        let applied = call(
+            &mut builder,
+            writer(),
+            "replace_text",
+            &json!({ "find": "StaticSmith", "replace": "换个名字", "dry_run": false }),
+        );
+        assert_eq!(
+            applied["isError"], false,
+            "{}",
+            applied["content"][0]["text"]
+        );
+        let list = Snapshots::open(&paths).unwrap().list(10).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].message, "replace_text");
     }
 
     /// 回退之后内存状态必须跟着重载，否则后续工具读到的还是旧内容。
     #[test]
     fn restoring_reloads_the_in_memory_state() {
-        let (dir, mut builder) = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let (_dir, mut builder) = project();
+        let paths = builder.paths.clone();
+        let snapshots = Snapshots::open(&paths).unwrap();
 
         let created = call(
             &mut builder,

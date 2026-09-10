@@ -19,7 +19,7 @@
 //!
 //! # 只跟踪源，不跟踪产物
 //!
-//! [`TRACKED`] 之外的一切都不进快照。`dist/` 是可重新生成的，
+//! [`tracked_paths`] 之外的一切都不进快照。`dist/` 是可重新生成的，
 //! 把每次构建的产物都存一份只会让仓库无谓地涨。
 
 use std::path::{Path, PathBuf};
@@ -30,19 +30,9 @@ use git2::{
 };
 use serde::Serialize;
 
+use crate::config::ProjectPaths;
 use crate::error::{Error, Result};
-
-/// 进快照的路径（相对项目根）。
-///
-/// 只有源：配置、内容、模板、主题、静态资源。刻意**不含** `dist/`（可重新生成）
-/// 与 `.staticsmith/`（我们自己的状态，含这个仓库本身）。
-pub const TRACKED: &[&str] = &[
-    "staticsmith.toml",
-    "content",
-    "templates",
-    "themes",
-    "static",
-];
+use crate::util;
 
 /// 提交者身份。
 ///
@@ -79,6 +69,8 @@ pub struct Restored {
 /// 项目的快照仓库。
 pub struct Snapshots {
     repo: Repository,
+    /// 进快照的路径（相对项目根，`/` 分隔）。见 [`tracked_paths`]。
+    tracked: Vec<String>,
 }
 
 impl Snapshots {
@@ -91,7 +83,8 @@ impl Snapshots {
     /// 用户已经有自己的仓库时 init 会直接失败（`cannot overwrite gitlink file`），
     /// 没有仓库时又会让项目根凭空看起来像个 git 仓库。
     /// `set_workdir(root, false)` 的 `false` 就是「不要写 gitlink」。
-    pub fn open(root: &Path) -> Result<Self> {
+    pub fn open(paths: &ProjectPaths) -> Result<Self> {
+        let root = paths.root.as_path();
         let internal = root.join(".staticsmith");
         std::fs::create_dir_all(&internal).map_err(|e| Error::io(&internal, e))?;
         write_self_ignore(&internal)?;
@@ -106,7 +99,10 @@ impl Snapshots {
         };
         repo.set_workdir(root, false)?;
         configure(&repo)?;
-        Ok(Self { repo })
+        Ok(Self {
+            repo,
+            tracked: tracked_paths(paths),
+        })
     }
 
     /// 仓库目录位置。
@@ -121,8 +117,14 @@ impl Snapshots {
         let mut index = self.repo.index()?;
         // add_all 收新增与修改，update_all 收删除。只有两个都做，
         // 「删掉一篇」才会被记进快照，回滚时那篇才回得来。
-        index.add_all(TRACKED.iter(), IndexAddOption::DEFAULT, None)?;
-        index.update_all(TRACKED.iter(), None)?;
+        //
+        // FORCE 是必须的：默认选项会**遵守 ignore 规则**，而影子仓库的工作树就是项目根，
+        // libgit2 于是会读用户自己的 `.gitignore`。选 git 发布的用户几乎一定有一个，
+        // 里面只要有一条命中 content/ 或 static/ 下的东西，那些文件就既不进快照、
+        // 回滚时也不会被还原——「回到那一刻」变成一半新一半旧。
+        // 我们的排除靠 pathspec（[`tracked_paths`]），不需要也不能依赖 ignore 规则。
+        index.add_all(self.tracked.iter(), IndexAddOption::FORCE, None)?;
+        index.update_all(self.tracked.iter(), None)?;
         index.write()?;
         let tree_id = index.write_tree()?;
 
@@ -181,7 +183,7 @@ impl Snapshots {
         // force：快照之后新建的文件要被删掉，否则「回到那一刻」只回了一半。
         // 限定 pathspec，所以 dist/ 与 .staticsmith/ 不受影响。
         checkout.force();
-        for path in TRACKED {
+        for path in &self.tracked {
             checkout.path(path);
         }
         self.repo
@@ -212,6 +214,39 @@ fn git_dir(root: &Path) -> PathBuf {
     root.join(".staticsmith").join("history.git")
 }
 
+/// 进快照的路径（相对项目根，`/` 分隔）。
+///
+/// 从 [`ProjectPaths`] 算而不是写死目录名：`content` / `templates` / `themes` /
+/// `static` 全都能在 `staticsmith.toml` 里改。写死的后果不是「少跟踪一点」而是
+/// **安全网静默为空**——改过目录的站点每次 `snapshot` 都匹配不到任何文件、
+/// 于是返回「内容没变」，`restore` 也什么都不恢复却报成功。
+/// 报告成功而实际没回退，比直接报错严重得多。
+///
+/// 只有源进来。`dist/` 不在这个列表里（可重新生成），`.staticsmith/`
+/// 也不在（我们自己的状态，含这个仓库本身）。
+///
+/// 主题按**配置里那一套**跟踪（默认 `themes/default`），不是整个 `themes/`：
+/// 没在用的主题不属于这个站点的源。
+fn tracked_paths(paths: &ProjectPaths) -> Vec<String> {
+    let mut out = vec![crate::CONFIG_FILE_NAME.to_string()];
+    for dir in [
+        &paths.content,
+        &paths.templates,
+        &paths.theme,
+        &paths.static_dir,
+    ] {
+        match dir.strip_prefix(&paths.root) {
+            Ok(relative) if !relative.as_os_str().is_empty() => out.push(util::to_slash(relative)),
+            // 工作树就是项目根，根之外的目录没法跟踪。留一条日志，
+            // 免得「为什么这个目录回退不了」查不到原因。
+            _ => tracing::warn!("{} 在项目根之外，不进内容快照", dir.display()),
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
 /// 影子仓库自己的配置，覆盖用户的全局 git 配置。
 ///
 /// `core.autocrlf` 是必须关掉的：Windows 上它在全局配置里常常是 `true`，
@@ -221,7 +256,25 @@ fn git_dir(root: &Path) -> PathBuf {
 fn configure(repo: &Repository) -> Result<()> {
     let mut config = repo.config()?;
     config.set_bool("core.autocrlf", false)?;
-    Ok(())
+    write_no_text_attributes(repo.path())
+}
+
+/// 关掉一切行尾 / 过滤器转换，且要压过项目里的 `.gitattributes`。
+///
+/// 只设 `core.autocrlf = false` 不够：工作树里的 `.gitattributes` 优先级更高，
+/// 项目根一个 `* text=auto eol=crlf` 就能让签出把 LF 全换成 CRLF——正是上面
+/// 要避免的那件事。属性的优先级顺序是 `$GIT_DIR/info/attributes` >
+/// 工作树的 `.gitattributes` > `core.attributesFile`，所以写在 info 里才压得住。
+///
+/// `-text` 表示「当二进制处理」：不转行尾，也不跑 clean/smudge 过滤器（含 LFS）。
+/// 快照要的是字节级一致，任何「聪明」的转换都是破坏。
+fn write_no_text_attributes(git_dir: &Path) -> Result<()> {
+    let info = git_dir.join("info");
+    std::fs::create_dir_all(&info).map_err(|e| Error::io(&info, e))?;
+    let path = info.join("attributes");
+    let body = "# 快照要字节级还原：不转行尾，也不跑任何过滤器\n* -text\n";
+    // 每次都写：内容固定，且要保证用户手动删掉之后下次打开能自动补回来
+    std::fs::write(&path, body).map_err(|e| Error::io(&path, e))
 }
 
 /// 让 `.staticsmith/` 对外层仓库整体隐身。
@@ -265,6 +318,15 @@ mod tests {
         dir
     }
 
+    /// 默认目录布局。跟踪范围现在从这里算，不再写死目录名。
+    fn paths(dir: &tempfile::TempDir) -> ProjectPaths {
+        ProjectPaths::new(
+            dir.path(),
+            &crate::config::Build::default(),
+            &crate::config::Assets::default(),
+        )
+    }
+
     fn read(root: &Path, relative: &str) -> String {
         std::fs::read_to_string(root.join(relative)).unwrap()
     }
@@ -272,7 +334,7 @@ mod tests {
     #[test]
     fn snapshot_then_restore_brings_the_old_text_back() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
 
         let first = snapshots.snapshot("replace_text 之前").unwrap().unwrap();
         std::fs::write(dir.path().join("content/posts/a.md"), "被改坏了\n").unwrap();
@@ -290,7 +352,7 @@ mod tests {
     #[test]
     fn the_state_thrown_away_by_a_restore_is_still_reachable() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         let good = snapshots.snapshot("起点").unwrap().unwrap();
 
         std::fs::write(dir.path().join("content/posts/a.md"), "写了一半的新版\n").unwrap();
@@ -307,7 +369,7 @@ mod tests {
     #[test]
     fn restore_brings_back_deleted_files() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         let first = snapshots.snapshot("delete_content 之前").unwrap().unwrap();
 
         std::fs::remove_file(dir.path().join("content/posts/a.md")).unwrap();
@@ -321,7 +383,7 @@ mod tests {
     #[test]
     fn restore_removes_files_created_after_the_snapshot() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         let first = snapshots.snapshot("起点").unwrap().unwrap();
 
         std::fs::write(dir.path().join("content/posts/b.md"), "多出来的\n").unwrap();
@@ -334,7 +396,7 @@ mod tests {
     #[test]
     fn nothing_changed_means_no_snapshot() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         assert!(snapshots.snapshot("第一次").unwrap().is_some());
         assert!(
             snapshots.snapshot("没改任何东西").unwrap().is_none(),
@@ -346,7 +408,7 @@ mod tests {
     #[test]
     fn the_shadow_repo_stays_out_of_the_project_root() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         snapshots.snapshot("第一次").unwrap();
 
         assert!(
@@ -365,7 +427,7 @@ mod tests {
         let dir = project();
         let theirs = Repository::init(dir.path()).unwrap();
 
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         snapshots.snapshot("我们的快照").unwrap();
 
         // 我们提交了，但用户的仓库里一次提交都没有
@@ -376,7 +438,7 @@ mod tests {
     #[test]
     fn produce_and_restore_are_recorded_newest_first() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         snapshots.snapshot("第一步").unwrap();
         std::fs::write(dir.path().join("content/posts/a.md"), "改了\n").unwrap();
         snapshots.snapshot("第二步").unwrap();
@@ -400,7 +462,7 @@ mod tests {
     #[test]
     fn line_endings_survive_a_round_trip() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         std::fs::write(dir.path().join("content/posts/lf.md"), "一\n二\n三\n").unwrap();
         let first = snapshots.snapshot("起点").unwrap().unwrap();
 
@@ -412,10 +474,92 @@ mod tests {
         assert_eq!(String::from_utf8(raw).unwrap(), "一\n二\n三\n");
     }
 
+    /// 用户自己的 `.gitignore` 不能在安全网上挖洞。
+    ///
+    /// 影子仓库的工作树就是项目根，所以 libgit2 会读到项目里的 `.gitignore`。
+    /// 选 git 发布的用户几乎一定有一个，里面只要有一条命中 content/ 或 static/
+    /// 下的东西，那些文件就既不进快照、回滚时也不会被还原——「回到那一刻」
+    /// 变成一半新一半旧。我们的排除靠 pathspec，不需要也不能依赖 ignore 规则。
+    #[test]
+    fn the_users_gitignore_does_not_shrink_the_snapshot() {
+        let dir = project();
+        std::fs::write(dir.path().join(".gitignore"), "content/posts/secret.md\n").unwrap();
+        std::fs::write(dir.path().join("content/posts/secret.md"), "原文\n").unwrap();
+
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+        let first = snapshots.snapshot("起点").unwrap().unwrap();
+
+        std::fs::write(dir.path().join("content/posts/secret.md"), "被改坏了\n").unwrap();
+        snapshots.restore(&first.id).unwrap();
+
+        assert_eq!(
+            read(dir.path(), "content/posts/secret.md"),
+            "原文\n",
+            "被用户 gitignore 的内容同样要能回退"
+        );
+    }
+
+    /// 项目里的 `.gitattributes` 不能改写行尾。
+    ///
+    /// 它的优先级高于 `core.autocrlf`，所以只设 autocrlf 挡不住：仓库根一个
+    /// `* text=auto eol=crlf` 就能让签出把 LF 全换成 CRLF。挡它要靠
+    /// `history.git/info/attributes`——那是优先级最高的一层。
+    #[test]
+    fn a_gitattributes_file_cannot_rewrite_line_endings() {
+        let dir = project();
+        std::fs::write(dir.path().join(".gitattributes"), "* text=auto eol=crlf\n").unwrap();
+        std::fs::write(dir.path().join("content/posts/lf.md"), "一\n二\n").unwrap();
+
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+        let first = snapshots.snapshot("起点").unwrap().unwrap();
+        std::fs::write(dir.path().join("content/posts/lf.md"), "改坏了").unwrap();
+        snapshots.restore(&first.id).unwrap();
+
+        let raw = std::fs::read(dir.path().join("content/posts/lf.md")).unwrap();
+        assert!(
+            !raw.windows(2).any(|w| w == b"\r\n"),
+            "不能被换成 CRLF: {raw:?}"
+        );
+    }
+
+    /// 改过 `content_dir` 的站点也要有安全网。
+    ///
+    /// 跟踪范围以前写死成 `content` / `templates` / …，而这些目录都能在
+    /// `staticsmith.toml` 里改。写死的后果不是「少跟踪一点」，而是**安全网静默为空**：
+    /// pathspec 匹配不到任何文件 → 每次都当成「内容没变」→ 不留快照；
+    /// `restore` 也什么都不恢复，却仍然报成功。
+    #[test]
+    fn a_renamed_content_dir_is_still_tracked() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("docs")).unwrap();
+        std::fs::write(
+            dir.path().join("staticsmith.toml"),
+            "[site]\ntitle = \"t\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("docs/a.md"), "原文\n").unwrap();
+
+        let build = crate::config::Build {
+            content_dir: PathBuf::from("./docs"),
+            ..Default::default()
+        };
+        let custom = ProjectPaths::new(dir.path(), &build, &crate::config::Assets::default());
+
+        let snapshots = Snapshots::open(&custom).unwrap();
+        let first = snapshots
+            .snapshot("起点")
+            .unwrap()
+            .expect("改过目录也要留下快照");
+
+        std::fs::write(dir.path().join("docs/a.md"), "被改坏了\n").unwrap();
+        snapshots.restore(&first.id).unwrap();
+        assert_eq!(read(dir.path(), "docs/a.md"), "原文\n");
+    }
+
     #[test]
     fn listing_an_empty_history_is_not_an_error() {
         let dir = project();
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         assert!(snapshots.list(10).unwrap().is_empty());
     }
 
@@ -426,7 +570,7 @@ mod tests {
         std::fs::create_dir_all(dir.path().join("dist")).unwrap();
         std::fs::write(dir.path().join("dist/index.html"), "<html>").unwrap();
 
-        let snapshots = Snapshots::open(dir.path()).unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
         let first = snapshots.snapshot("第一次").unwrap().unwrap();
 
         // 只改产物不构成新快照

@@ -96,11 +96,17 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 工作树是项目根，但仓库目录在 `.staticsmith` 里，项目根不会出现 `.git`。
 用户的 `git log`、暂存区、`git status` 都不受影响。
 
-跟踪的只有源：`staticsmith.toml`、`content/`、`templates/`、`themes/`、`static/`。
-`dist/` 不进快照（可重新生成），`build_site` 与 `deploy_site` 因此不留快照。
+跟踪的只有源，且按 `staticsmith.toml` 里**配置的实际目录**算（不是写死的目录名）：
+配置文件本身、内容目录、模板目录、当前主题目录、静态资源目录。
+产物目录不进快照（可重新生成），所以 `build_site` 与 `deploy_site` 不留快照；
+`replace_text` 的干跑（`dry_run: true`）只算不写，也不留。
+
+用户自己的 `.gitignore` 与 `.gitattributes` 都不会影响快照：排除靠上面那份路径清单，
+而不是 ignore 规则；行尾与过滤器一律关掉，回退是字节级还原。
 
 需要说清楚的边界：**这层保护目前只覆盖 MCP 这条路径**。桌面端与命令行的批量操作
 仍然只有干跑预览，没有快照——那是另一笔账。
+
 
 
 ## 传输与端点

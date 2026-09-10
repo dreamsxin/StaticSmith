@@ -9,7 +9,8 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-staticsmith-core.workspace = true
+staticsmith-core = { workspace = true, features = ["history"] }
+
 staticsmith-deploy.workspace = true
 
 serde.workspace = true

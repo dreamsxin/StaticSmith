@@ -182,24 +182,44 @@ impl AppState {
         let session = guard.as_ref().ok_or(AppError::NoProject)?;
         match catch_panics(|| f(session)) {
             Ok(result) => result,
-            Err(message) => Err(panic_error("读取", &message)),
+            // 读路径没动过磁盘，这句话是真的
+            Err(message) => Err(panic_error(&message, "磁盘上的内容没有受影响")),
         }
     }
 
     /// 以可写方式访问当前项目（构建、reload 需要 `&mut Builder`）。
     ///
-    /// panic 在这里被兜住并**立刻从磁盘重载**：写入路径上的 panic 可能把 `Builder`
+    /// panic 在这里被兜住并**立刻重开项目**：写入路径上的 panic 可能把 `Builder`
     /// 停在改了一半的状态上，拿着半套内存状态继续生成产物比报错更糟。
     pub fn with_session_mut<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
         let mut guard = self.session.lock().expect("状态锁被污染");
         let session = guard.as_mut().ok_or(AppError::NoProject)?;
-        match catch_panics(|| f(session)) {
-            Ok(result) => result,
-            Err(message) => {
-                if let Err(err) = session.builder.reload() {
-                    tracing::error!("panic 后从磁盘重载项目状态也失败了，请重新打开项目: {err}");
-                }
-                Err(panic_error("写入", &message))
+        let message = match catch_panics(|| f(session)) {
+            Ok(result) => return result,
+            Err(message) => message,
+        };
+
+        // 重开也要兜住 panic。第一次 panic 很可能来自模板或内容的解析，
+        // 而重开正是把同一份磁盘内容再解析一遍——同一个 panic 会再来一次。
+        // 那一次若穿过这里的 `MutexGuard`，Mutex 会被标记 poisoned，
+        // 此后每个操作都会再炸，也就是这段代码本来要防的那件事。
+        let root = session.root.clone();
+        let reopened = catch_panics(|| Builder::open(&root));
+        match reopened {
+            Ok(Ok(builder)) => {
+                session.builder = builder;
+                Err(panic_error(&message, "项目状态已从磁盘重新载入"))
+            }
+            // 重开失败：留着半套状态比没有状态更危险，直接关掉，让用户重开项目
+            Ok(Err(err)) => {
+                tracing::error!("panic 后重开项目失败: {err}");
+                *guard = None;
+                Err(panic_error(&message, "项目已关闭，请重新打开"))
+            }
+            Err(second) => {
+                tracing::error!("panic 后重开项目时又 panic 了: {second}");
+                *guard = None;
+                Err(panic_error(&message, "项目已关闭，请重新打开"))
             }
         }
     }
@@ -216,7 +236,7 @@ impl AppState {
 ///    在锁作用域**内部**兜住，guard 正常析构，锁保持干净。
 ///
 /// `AssertUnwindSafe` 是必需的：`&mut Session` 不是 `UnwindSafe`。这个断言由
-/// 调用方兑现——`with_session_mut` 捕获后会重载状态，不带着半套状态继续用。
+/// 调用方兑现——`with_session_mut` 捕获后会重开项目，不带着半套状态继续用。
 fn catch_panics<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
         if let Some(s) = payload.downcast_ref::<&str>() {
@@ -229,10 +249,15 @@ fn catch_panics<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
     })
 }
 
-fn panic_error(what: &str, message: &str) -> AppError {
-    tracing::error!("{what}项目时发生 panic：{message}");
+/// panic 兜成的错误信息。
+///
+/// `aftermath` 必须由调用方给：读路径确实没动磁盘，而写路径可能已经写了一半
+/// （`rename_section` 是「先搬整棵目录、再逐篇补 aliases」，批量改标签逐篇落盘）。
+/// 对写失败说「磁盘上的内容没有受影响」会让人不去检查、不去回退。
+fn panic_error(message: &str, aftermath: &str) -> AppError {
+    tracing::error!("命令内部 panic：{message}（{aftermath}）");
     AppError::Message(format!(
-        "内部错误：{message}。这是程序缺陷，请附日志反馈；磁盘上的内容没有受影响"
+        "内部错误：{message}。这是程序缺陷，请附日志反馈；{aftermath}"
     ))
 }
 
