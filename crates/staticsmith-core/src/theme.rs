@@ -273,7 +273,13 @@ fn target_of(paths: &ProjectPaths, entry: &str) -> std::result::Result<PathBuf, 
     if let Some(bad) = segments.iter().find(|s| util::is_reserved_name(s)) {
         return Err(format!("{bad} 是系统保留名，装进来会写不成文件"));
     }
-    Ok(segments.iter().fold(base.clone(), |acc, s| acc.join(s)))
+    let target = segments.iter().fold(base.clone(), |acc, s| acc.join(s));
+    // 目标目录里可能已经有一条指向别处的符号链接（比如 `templates/layouts` 被人做成
+    // 了链接）。`fs::write` 会跟着链接写过去，字面校验看不出来。
+    if !util::is_within_resolved(base, &target) {
+        return Err("路径经由符号链接走出了目标目录".to_string());
+    }
+    Ok(target)
 }
 
 fn open(archive: &Path) -> Result<zip::ZipArchive<std::fs::File>> {
@@ -609,6 +615,27 @@ mod tests {
         assert!(target_of(&site.paths, "theme/static/com1.css").is_err());
         // 别过度拦：只是包含保留名的普通文件
         assert!(target_of(&site.paths, "templates/console.html").is_ok());
+    }
+
+    /// 目标目录里已有的符号链接不能变成出口。
+    ///
+    /// `fs::write` 会跟着链接写过去，而条目名本身完全合法——这一条只有解析之后
+    /// 才看得出来。环境不允许建链接时跳过（Windows 需要开发者模式）。
+    #[test]
+    fn a_symlinked_target_dir_is_rejected() {
+        let site = fixture();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(&site.paths.templates).unwrap();
+        if !util::try_symlink_dir(outside.path(), &site.paths.templates.join("layouts")) {
+            eprintln!("跳过：当前环境不允许建符号链接");
+            return;
+        }
+
+        assert!(
+            target_of(&site.paths, "templates/layouts/base.html").is_err(),
+            "经由符号链接写到模板目录之外，应当被拒绝"
+        );
+        assert!(target_of(&site.paths, "templates/pages/post.html").is_ok());
     }
 
     #[test]

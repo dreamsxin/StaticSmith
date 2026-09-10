@@ -145,6 +145,58 @@ pub fn is_reserved_name(segment: &str) -> bool {
     numbered("com") || numbered("lpt")
 }
 
+/// `candidate` 解析掉符号链接之后，是否仍落在 `root` 之内。
+///
+/// 词法判断（`strip_prefix` + 查 `..`）挡不住符号链接：`content/外链` 指向 `/etc` 时，
+/// `content/外链/passwd` 在**字面上**完全合法。而待写入的文件通常还不存在，
+/// 直接 `canonicalize` 会失败，所以按业界通行的办法来：从 `candidate` 往上找到
+/// **第一个已存在的祖先**、规范化它，再把剩下那截按字面接回去比对。
+/// 安全解压器与静态文件服务器都是这个思路。
+///
+/// `root` 本身还不存在时返回 `true`：没有目录就没有链接可绕，判断交给词法那一层
+/// （测试里常用 `/site/content` 这种虚构根，不能因此一律拒绝）。
+pub fn is_within_resolved(root: &Path, candidate: &Path) -> bool {
+    let Ok(root) = root.canonicalize() else {
+        return true;
+    };
+
+    let mut probe = candidate.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    loop {
+        if let Ok(resolved) = probe.canonicalize() {
+            let full = tail
+                .iter()
+                .rev()
+                .fold(resolved, |acc, segment| acc.join(segment));
+            return full.starts_with(&root);
+        }
+        match probe.file_name() {
+            Some(name) => tail.push(name.to_os_string()),
+            // 已经走到根（`/` 或 `C:\`）都没有一个存在的祖先：无从判断，拒绝
+            None => return false,
+        }
+        if !probe.pop() {
+            return false;
+        }
+    }
+}
+
+/// 建一个指向 `target` 的目录符号链接；权限不够时返回 `false`。
+///
+/// 测试专用。Windows 上建链接要管理员权限或开发者模式，CI 的 Windows runner 上
+/// 不一定有。用「建不出来就跳过」而不是 `#[cfg(unix)]`：只要环境允许，
+/// 相关测试在三个平台上都真的跑。
+#[cfg(test)]
+pub(crate) fn try_symlink_dir(target: &Path, link: &Path) -> bool {
+    #[cfg(unix)]
+    let result = std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    let result = std::os::windows::fs::symlink_dir(target, link);
+    #[cfg(not(any(unix, windows)))]
+    let result: std::io::Result<()> = Err(std::io::Error::other("这个平台不支持"));
+    result.is_ok()
+}
+
 /// 跑一段可能 panic 的代码，兜住之后只留日志，返回 `None` 表示这一轮炸了。
 ///
 /// 专给**后台线程的循环体**用。预览服务器与文件监听各跑在自己的线程上，
@@ -230,8 +282,41 @@ mod tests {
         );
     }
 
-    /// `keep_running` 把 panic 变成 `None`，让后台线程能接着跑下一轮。
+    /// 解析之后仍在根内 / 已经出界 / 根还不存在，三种情形分开钉。
     ///
+    /// 「出界」这一支用一个**真的在别处**的目录来测，不依赖符号链接——本机可能没有
+    /// 建链接的权限（Windows 需要开发者模式）。经由符号链接出界走的是同一支判断，
+    /// 端到端那条在 `content` 与 `theme` 里，环境允许时才跑。
+    #[test]
+    fn resolved_containment_covers_the_three_cases() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("posts")).unwrap();
+
+        // 在根内，且尾巴上的目录还不存在也照样算在内
+        assert!(is_within_resolved(
+            root.path(),
+            &root.path().join("posts/新的.md")
+        ));
+        assert!(is_within_resolved(
+            root.path(),
+            &root.path().join("posts/还没有/x.md")
+        ));
+
+        // 解析之后落在别处
+        assert!(!is_within_resolved(
+            root.path(),
+            &outside.path().join("x.md")
+        ));
+
+        // 根本身还不存在：没有链接可绕，交给词法那一层判断
+        assert!(is_within_resolved(
+            Path::new("/这个目录不存在/content"),
+            Path::new("/这个目录不存在/content/posts/a.md")
+        ));
+    }
+
+    /// `keep_running` 把 panic 变成 `None`，让后台线程能接着跑下一轮。    ///
     /// 测试输出里出现「thread panicked」是预期的：这里就是在故意炸一次。
     #[test]
     fn keep_running_swallows_a_panic_and_returns_none() {

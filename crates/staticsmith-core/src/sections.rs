@@ -369,9 +369,16 @@ fn resolve_dir(paths: &ProjectPaths, relative: &str) -> Result<PathBuf> {
             "{bad} 是系统保留名（Windows 上它是设备而不是目录），请改个栏目名"
         )));
     }
-    Ok(segments
+    let dir = segments
         .iter()
-        .fold(paths.content.clone(), |acc, s| acc.join(s)))
+        .fold(paths.content.clone(), |acc, s| acc.join(s));
+    // 内容目录里若已有一条指向别处的符号链接，字面校验看不出来。
+    if !crate::util::is_within_resolved(&paths.content, &dir) {
+        return Err(Error::Other(format!(
+            "{relative} 经由符号链接走出了内容目录"
+        )));
+    }
+    Ok(dir)
 }
 
 fn is_markdown(path: &Path) -> bool {

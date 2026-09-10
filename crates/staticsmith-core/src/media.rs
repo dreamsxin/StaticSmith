@@ -257,11 +257,12 @@ fn join_slash(dir: &str, rest: &str) -> String {
         .join("/")
 }
 
-/// `path` 是否位于 `root` 之内。两边都尽量 canonicalize，避免符号链接绕过。
+/// `path` 是否位于 `root` 之内，解析符号链接之后。
+///
+/// 判断本身在 `util::is_within_resolved`：内容、栏目、主题包三处也用同一份，
+/// 各写一份的话规则改一处漏三处，而这是安全判断。
 fn under(path: &Path, root: &Path) -> bool {
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    path.starts_with(root)
+    crate::util::is_within_resolved(root, path)
 }
 
 #[cfg(test)]

@@ -428,9 +428,9 @@ pub fn markdown_to_html(markdown: &str) -> String {
 /// 而 core 内部的批量动作与跨文件替换反倒调了。
 /// 让不安全的那个版本**不存在**，才是这类漏洞不再复发的唯一办法。
 ///
-/// 判断是词法的（不解析符号链接）：内容目录里若有指向外部的符号链接，仍能穿出去。
-/// 这一点与 `media` 模块的 `canonicalize` 双边校验不同——内容文件常常还不存在，
-/// 规范化无从下手。
+/// 判断分两步：先在字符串上挡掉 `..`、绝对路径与盘符（待写入的文件常常还不存在，
+/// `canonicalize` 无从下手），再用 `util::is_within_resolved` 解析一次符号链接——
+/// `content/外链` 指向别处时，`外链/x.md` 在字面上完全合法，只有文件系统知道真相。
 pub fn resolve_source(content_root: &Path, source: &str) -> Result<PathBuf> {
     let normalized = source.replace('\\', "/");
     // Windows 的设备名（nul/con/com1…）不是文件：写入「成功」而内容进虚空，
@@ -447,6 +447,13 @@ pub fn resolve_source(content_root: &Path, source: &str) -> Result<PathBuf> {
     if !is_within(content_root, &path) {
         return Err(Error::Other(format!(
             "内容路径越出内容目录：{source}（只能写在 content/ 里面）"
+        )));
+    }
+    // 词法判断之后再解析一次符号链接：`content/外链` 指向别处时，`外链/x.md`
+    // 在字面上完全合法，只有文件系统知道它落在哪儿。
+    if !util::is_within_resolved(content_root, &path) {
+        return Err(Error::Other(format!(
+            "内容路径经由符号链接走出了内容目录：{source}"
         )));
     }
     Ok(path)
@@ -634,6 +641,30 @@ mod tests {
         for good in ["posts/console.md", "posts/nulla.md", "posts/com10.md"] {
             assert!(resolve_source(root, good).is_ok(), "{good} 是正常文件名");
         }
+    }
+
+    /// 内容目录里的符号链接不能成为出口。
+    ///
+    /// 词法判断（`strip_prefix` + 查 `..`）对 `外链/x.md` 这种路径无话可说：字面上
+    /// 它完全在 `content/` 里面，而 `content/外链` 指向哪儿只有文件系统知道。
+    #[test]
+    fn symlinks_are_not_an_exit_from_the_content_dir() {
+        let site = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let content = site.path().join("content");
+        std::fs::create_dir_all(content.join("posts")).unwrap();
+        if !util::try_symlink_dir(outside.path(), &content.join("外链")) {
+            eprintln!("跳过：当前环境不允许建符号链接");
+            return;
+        }
+
+        assert!(
+            resolve_source(&content, "外链/x.md").is_err(),
+            "经由符号链接写到内容目录之外，应当被拒绝"
+        );
+        // 正常路径不受影响，包括还不存在的那些
+        assert!(resolve_source(&content, "posts/新的.md").is_ok());
+        assert!(resolve_source(&content, "posts/还没有这个目录/x.md").is_ok());
     }
 
     /// 显式路径优先，且**不做 slug 化**——手打的路径就是他要的路径。
