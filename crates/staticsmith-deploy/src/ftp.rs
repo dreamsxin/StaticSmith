@@ -4,12 +4,25 @@
 //! [`sync`] 负责比对与推进进度，因此可以用内存假实现完整测试同步逻辑。
 
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use staticsmith_core::config::FtpOverwrite;
 
 use crate::manifest::{self, RemoteEntry};
-use crate::{ensure_output_ready, DeployReport, Progress, Result};
+use crate::{ensure_output_ready, DeployReport, Error, Progress, Result};
+
+/// 单个文件的上传尝试次数。
+///
+/// 上传是逐文件的，一次连接重置以前直接冒泡成失败——而那一刻线上已经是
+/// 「一半新一半旧」。3 次足以吃掉一次瞬时抖动，服务器真的拒绝时也不会把
+/// 等待拖长几倍。
+const UPLOAD_ATTEMPTS: usize = 3;
+
+/// 两次尝试之间等多久。
+///
+/// 线性而不是指数退避：这里挡的是「网线抖了一下」，不是被限流。
+/// 指数等待只会让注定失败的那次发布更慢。
+const RETRY_PAUSE: Duration = Duration::from_millis(300);
 
 /// 远端文件系统原语。
 pub trait RemoteFs {
@@ -72,7 +85,10 @@ pub fn sync(
             current: i + 1,
             total,
         });
-        fs.upload(&entry.absolute, path)?;
+        // 上传严格顺序进行，所以「已成功几个」就是 i：走到这里说明前面每一个都成了。
+        if let Err(err) = upload_with_retry(fs, &entry.absolute, path, i + 1, total, progress) {
+            return Err(interrupted(path, i, total, &err));
+        }
     }
 
     Ok(DeployReport {
@@ -84,6 +100,50 @@ pub fn sync(
         commit: None,
         warnings: Vec::new(),
     })
+}
+
+/// 上传一个文件，失败时重试几次。
+///
+/// 每次重试都往进度里报一句：一次发布可能卡在某个大文件上重试好几秒，
+/// 界面上不说明的话看起来就是「卡住了」。
+fn upload_with_retry(
+    fs: &mut dyn RemoteFs,
+    local: &Path,
+    remote: &str,
+    current: usize,
+    total: usize,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<()> {
+    let mut attempt = 1;
+    loop {
+        match fs.upload(local, remote) {
+            Ok(()) => return Ok(()),
+            Err(err) if attempt >= UPLOAD_ATTEMPTS => return Err(err),
+            Err(err) => {
+                tracing::warn!("上传 {remote} 第 {attempt} 次失败，准备重试: {err}");
+                attempt += 1;
+                progress(Progress {
+                    message: format!("上传 {remote} 失败，第 {attempt} 次尝试"),
+                    current,
+                    total,
+                });
+                std::thread::sleep(RETRY_PAUSE);
+            }
+        }
+    }
+}
+
+/// 重试用尽之后的错误：必须说清「传到哪儿了」。
+///
+/// 逐文件覆盖没有原子性，中断时线上一定是「一半新一半旧」。只报「上传 X 失败」
+/// 的话，用户既不知道已经推上去多少，也不知道重来一次安不安全——
+/// 而答案是安全的：差异同步会跳过已经传上去的那些。
+fn interrupted(path: &str, done: usize, total: usize, err: &Error) -> Error {
+    Error::Other(format!(
+        "发布中断：上传 {path} 失败（这一批 {total} 个里已成功 {done} 个）。\
+         逐文件覆盖不是原子的，线上此刻是「一半新一半旧」；\
+         处理好原因后再发一次即可，已经传上去的那些会被跳过。原因：{err}"
+    ))
 }
 
 #[cfg(feature = "ftp")]
@@ -358,6 +418,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::*;
+    use crate::Error;
 
     /// 内存假远端，用于验证同步算法。
     #[derive(Default)]
@@ -366,6 +427,10 @@ mod tests {
         dirs: Vec<String>,
         uploads: Vec<String>,
         stats: Vec<String>,
+        /// 这个路径的前 N 次上传要失败，模拟网络抖动。`usize::MAX` 表示一直失败。
+        flaky: BTreeMap<String, usize>,
+        /// 每个路径实际被尝试上传了几次。
+        attempts: BTreeMap<String, usize>,
     }
 
     impl RemoteFs for FakeRemote {
@@ -384,6 +449,13 @@ mod tests {
         }
 
         fn upload(&mut self, local: &Path, remote: &str) -> Result<()> {
+            *self.attempts.entry(remote.to_string()).or_default() += 1;
+            if let Some(left) = self.flaky.get_mut(remote) {
+                if *left > 0 {
+                    *left = left.saturating_sub(1);
+                    return Err(Error::Ftp(format!("连接被重置: {remote}")));
+                }
+            }
             let size = std::fs::metadata(local).unwrap().len();
             self.files.insert(remote.to_string(), (size, None));
             self.uploads.push(remote.to_string());
@@ -482,6 +554,50 @@ mod tests {
         assert_eq!(report.uploaded.len(), 3);
         assert_eq!(report.skipped, 0);
         assert!(remote.stats.is_empty(), "不比对就不该查远端状态");
+    }
+
+    /// 网络抖一下不该让整次发布作废。
+    ///
+    /// FTP 上传是逐文件的，一次连接重置以前会直接冒泡成失败——而线上此刻已经是
+    /// 「一半新一半旧」。同一个文件重传几次的代价远小于让用户自己判断该不该重来。
+    #[test]
+    fn a_flaky_upload_is_retried() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        // 前两次失败，第三次成功。
+        remote.flaky.insert("index.html".to_string(), 2);
+
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
+
+        assert_eq!(report.uploaded.len(), 3, "抖动的那个也要传上去");
+        assert_eq!(remote.attempts.get("index.html"), Some(&3));
+        assert_eq!(
+            remote.attempts.get("posts/index.html"),
+            Some(&1),
+            "别的文件不该被牵连着重传"
+        );
+    }
+
+    /// 重试用尽之后，错误要说清「传到哪儿了」。
+    ///
+    /// 逐文件覆盖没有原子性，失败时线上一定处于「一半新一半旧」。只说
+    /// 「上传 X 失败」的话，用户不知道已经传了多少、也不知道重来一次是否安全。
+    #[test]
+    fn a_hopeless_upload_reports_how_far_it_got() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        remote
+            .flaky
+            .insert("posts/index.html".to_string(), usize::MAX);
+
+        let err = sync_default(&mut remote, dir.path(), "t").unwrap_err();
+        let message = err.to_string();
+
+        assert!(message.contains("posts/index.html"), "{message}");
+        assert!(message.contains("已成功"), "{message}");
+        assert!(message.contains("再发一次"), "{message}");
+        // 三个文件里 index.html 排在前面，它应该已经传上去了。
+        assert!(remote.uploads.contains(&"index.html".to_string()));
     }
 
     #[test]
