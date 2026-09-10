@@ -17,6 +17,7 @@ npm run tauri build             # 打包安装程序
 
 cargo test --workspace          # 全部 Rust 测试
 cargo test -p staticsmith-core  # 只测生成引擎
+cargo bench -p staticsmith-core # 构建性能基准（数字与解读见 architecture.md「性能」）
 cargo fmt --all                 # 格式化
 cargo clippy --workspace --all-targets
 

@@ -42,6 +42,8 @@ base64 = "0.22"
 # 主题包是 zip：只开 deflate，不引 aes / bzip2 / zstd——多一个压缩后端就多一份攻击面
 zip = { version = "2.2", default-features = false, features = ["deflate"] }
 tempfile = "3.12"
+# 构建性能一直只有「设计目标」没有实测数字，`benches/build.rs` 把它变成可复现的测量。
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
 
 [profile.release]
 opt-level = 3

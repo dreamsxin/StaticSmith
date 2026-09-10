@@ -493,7 +493,7 @@ impl Builder {
 
         let all_pages: Vec<&Page> = self.published_pages();
         let collected = self.collect_taxonomies(&all_pages);
-        let site_ctx = self.site_context(&collected);
+        let site_ctx = self.site_context(&collected, &all_pages);
         let renderer = Renderer {
             templates: &self.templates,
             config: &self.config,
@@ -534,7 +534,7 @@ impl Builder {
         }
 
         // 标签页同理：数量少、依赖全站 tags，每次构建整体重算。
-        match self.write_taxonomy(&renderer, &site_ctx, &collected, &all_pages) {
+        match self.write_taxonomy(&renderer, &site_ctx, &collected) {
             Ok((count, notes)) => {
                 files_written += count;
                 warnings.extend(notes);
@@ -622,7 +622,8 @@ impl Builder {
             config: &self.config,
             term_urls: term_urls(&collected),
         };
-        let rendered = renderer.render_page(page, &self.site_context(&collected), &all_pages)?;
+        let rendered =
+            renderer.render_page(page, &self.site_context(&collected, &all_pages), &all_pages)?;
         let html = rendered
             .files
             .into_iter()
@@ -657,10 +658,21 @@ impl Builder {
     fn site_context(
         &self,
         collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
+        all_pages: &[&Page],
     ) -> Context {
         let mut ctx = Context::new();
         ctx.insert("site", &self.config.site);
         ctx.insert("build", &self.config.build);
+        // 整站页面列表**在这里注入一次**，由每页克隆去用。
+        //
+        // 以前是每渲染一页 `ctx.insert("pages", all_pages)` 一次，而 `insert` 会立刻
+        // `serde_json` 序列化——`Page` 带渲染后的完整 HTML，于是 n 篇文章要做 n 次
+        // 「把整站正文序列化一遍」，总量 O(n²)。基准（`benches/build.rs`）量出来：
+        // 100 篇 141 ms、400 篇 1.15 s——4 倍篇数 8 倍耗时，正是这个形状。
+        //
+        // 注入一次之后每页仍要克隆一份上下文（Tera 只接受一个 `Context`，
+        // 而每页要放自己的 `page`），但克隆一棵已经建好的 `Value` 比重新序列化便宜得多。
+        ctx.insert("pages", all_pages);
         // 模板据此渲染分类入口：taxonomies 是生效的全部维度，
         // taxonomy 保留为其中第一个，兼容只有标签的旧模板。
         let taxonomies = self.config.effective_taxonomies();
@@ -771,7 +783,6 @@ impl Builder {
         renderer: &Renderer<'_>,
         site_ctx: &Context,
         collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
-        all_pages: &[&Page],
     ) -> Result<(usize, Vec<String>)> {
         let mut notes = Vec::new();
         let mut written = 0;
@@ -798,13 +809,13 @@ impl Builder {
             let terms = taxonomy::terms_of(entries);
 
             // 总览页：/tags/
-            let list_html = renderer.render_taxonomy_list(site_ctx, &terms, config, all_pages)?;
+            let list_html = renderer.render_taxonomy_list(site_ctx, &terms, config)?;
             self.write_output(&format!("{prefix}/index.html"), &list_html)?;
             written += 1;
 
             // 单词条页：/tags/<slug>/，条目多时按 build.page_size 分页
             for entry in entries {
-                for file in renderer.render_term(site_ctx, entry, &terms, config, all_pages)? {
+                for file in renderer.render_term(site_ctx, entry, &terms, config)? {
                     self.write_output(&file.path, &file.html)?;
                     written += 1;
                 }
@@ -882,7 +893,6 @@ impl Renderer<'_> {
         site_ctx: &Context,
         terms: &[taxonomy::Term],
         config: &TaxonomyConfig,
-        all_pages: &[&Page],
     ) -> Result<String> {
         let mut ctx = site_ctx.clone();
         // 合成一个 page 对象，让标签页也能复用 base.html 里对 page.title 的引用。
@@ -897,8 +907,7 @@ impl Renderer<'_> {
                 "keywords": Vec::<String>::new(),
             }),
         );
-        // 布局与侧边栏依赖全站列表，标签页也必须提供，否则渲染直接失败。
-        ctx.insert("pages", all_pages);
+        // 全站 `pages` 由 `site_ctx` 带来（那里注入一次，见 `site_context`）
         ctx.insert("terms", terms);
         // 多维度时，模板里的 taxonomy 指当前这一个
         ctx.insert("taxonomy", config);
@@ -912,7 +921,6 @@ impl Renderer<'_> {
         entry: &taxonomy::TermPages<'_>,
         terms: &[taxonomy::Term],
         config: &TaxonomyConfig,
-        all_pages: &[&Page],
     ) -> Result<Vec<RenderedFile>> {
         let prefix = config.normalized_slug();
         let per_page = self.config.build.page_size.max(1);
@@ -944,7 +952,6 @@ impl Renderer<'_> {
             );
             ctx.insert("term", &entry.term);
             ctx.insert("terms", terms);
-            ctx.insert("pages", all_pages);
             ctx.insert("items", &slice);
             ctx.insert("pagination", &pagination);
             ctx.insert("taxonomy", config);
@@ -980,7 +987,6 @@ impl Renderer<'_> {
 
                 let mut ctx = site_ctx.clone();
                 ctx.insert("page", page);
-                ctx.insert("pages", all_pages);
                 ctx.insert("items", &slice);
                 ctx.insert("pagination", &pagination);
                 ctx.insert("tag_links", &tag_links);
@@ -995,7 +1001,6 @@ impl Renderer<'_> {
         } else {
             let mut ctx = site_ctx.clone();
             ctx.insert("page", page);
-            ctx.insert("pages", all_pages);
             ctx.insert("tag_links", &tag_links);
             ctx.insert("term_links", &term_links);
             let html = self.finish(self.templates.tera.render(&page.template, &ctx)?);
