@@ -19,6 +19,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import * as api from '../api'
+import { trapTab } from '../focus'
 import { actions, isDirty, isTemplateDirty, store } from '../store'
 import { snapshotLabel } from '../text'
 
@@ -32,6 +33,8 @@ const active = ref(0)
 
 const list = ref<HTMLElement | null>(null)
 const confirmButton = ref<HTMLButtonElement | null>(null)
+/** 浮层根元素，用来把 Tab 圈在里面。 */
+const box = ref<HTMLElement | null>(null)
 
 let restoreFocus: HTMLElement | null = null
 
@@ -149,13 +152,16 @@ async function confirm() {
 </script>
 
 <template>
-  <div v-if="props.open" class="palette" @pointerdown.self="emit('close')">
+  <!-- 点空白关闭用 click 而不是 pointerdown：按下即关会在从遮罩起手拖选文字时误关 -->
+  <div v-if="props.open" class="palette" @click.self="emit('close')">
     <div
+      ref="box"
       class="palette__box dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="snapshots-title"
       @keydown.esc.prevent="emit('close')"
+      @keydown.tab="trapTab(box, $event)"
     >
       <h2 id="snapshots-title" class="dialog__title">回退内容</h2>
       <p class="dialog__desc">

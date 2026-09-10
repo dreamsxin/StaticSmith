@@ -12,6 +12,7 @@
 import { nextTick, ref, watch } from 'vue'
 
 import NewSiteForm from './NewSiteForm.vue'
+import { trapTab } from '../focus'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{
@@ -20,6 +21,8 @@ const emit = defineEmits<{
 }>()
 
 const form = ref<InstanceType<typeof NewSiteForm> | null>(null)
+/** 浮层根元素，用来把 Tab 圈在里面。 */
+const box = ref<HTMLElement | null>(null)
 
 /** 打开前记住焦点在哪，关闭后还回去——理由同 `CommandPalette`。 */
 let restoreFocus: HTMLElement | null = null
@@ -46,13 +49,16 @@ function submit(title: string, preset: string) {
 </script>
 
 <template>
-  <div v-if="props.open" class="palette" @pointerdown.self="emit('close')">
+  <!-- 点空白关闭用 click 而不是 pointerdown：按下即关会在从遮罩起手拖选文字时误关 -->
+  <div v-if="props.open" class="palette" @click.self="emit('close')">
     <div
+      ref="box"
       class="palette__box dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="new-site-title"
       @keydown.esc.prevent="emit('close')"
+      @keydown.tab="trapTab(box, $event)"
     >
       <h2 id="new-site-title" class="dialog__title">新建站点</h2>
       <p class="dialog__desc">

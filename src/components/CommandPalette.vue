@@ -181,7 +181,8 @@ const activeId = computed(() => {
 </script>
 
 <template>
-  <div v-if="props.open" class="palette" @pointerdown.self="emit('close')">
+  <!-- 点空白关闭用 click 而不是 pointerdown：按下即关会在从遮罩起手拖选文字时误关 -->
+  <div v-if="props.open" class="palette" @click.self="emit('close')">
     <div class="palette__box" role="dialog" aria-modal="true" aria-label="命令面板">
       <input
         ref="input"
