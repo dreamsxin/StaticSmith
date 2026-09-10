@@ -21,7 +21,9 @@ import type {
   MediaReport,
   OutputFile,
   PageSummary,
+  PresetOption,
   ProjectSummary,
+
   RecentEntry,
   Section,
   SeoReport,
@@ -41,6 +43,15 @@ interface State {
   project: ProjectSummary | null
   /** 最近打开的站点，起始页用 */
   recent: RecentEntry[]
+  /**
+   * 可选的站点版式。
+   *
+   * 放在 store 而不是某个组件里：起始页的新建卡片和菜单栏的「新建站点」都要用它，
+   * 而菜单栏在项目已打开时也要能用——那时起始页根本没挂载。各自取一次的话，
+   * 两个入口迟早出现「一边有版式选择、一边没有」的分裂，那正是这次要修的毛病。
+   */
+  presets: PresetOption[]
+
   /** 当前编辑的内容源路径 */
   currentSource: string | null
   currentRaw: string
@@ -102,6 +113,8 @@ const AUTO_BUILD_KEY = 'staticsmith.autoBuild'
 const state = reactive<State>({
   project: null,
   recent: [],
+  presets: [],
+
   currentSource: null,
   currentRaw: '',
   savedRaw: '',
@@ -229,6 +242,21 @@ export const actions = {
     const items = await run(() => api.recentProjects())
     if (items) state.recent = items
   },
+
+  /**
+   * 读取可选版式。启动时取一次即可——版式是编译进程序的，运行期不会变。
+   *
+   * 失败不弹通知：新建站点仍然能用（后端会退回默认版式），为一个「少了个可选项」
+   * 打断用户不值得。菜单与起始页会各自退化成不带版式的单个入口。
+   */
+  async loadPresets() {
+    try {
+      state.presets = await api.listPresets()
+    } catch (err) {
+      console.warn('读取版式列表失败，新建站点将使用默认版式', err)
+    }
+  },
+
 
   async forgetRecent(path: string) {
     const items = await run(() => api.forgetProject(path))

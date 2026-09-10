@@ -9,40 +9,29 @@
 import { onMounted, ref } from 'vue'
 import { open } from '@tauri-apps/plugin-dialog'
 
-import { isProject, listPresets, type PresetOption } from '../api'
+import { isProject } from '../api'
 import { actions, store } from '../store'
 
 const title = ref('我的静态站')
 const hint = ref('')
 
 /**
- * 可选的模板预设。名字与说明来自 Rust 侧的 `Preset`，界面不抄一份——
- * 加一套预设只该改 core，不该同时改两处文案。
+ * 当前选中的版式。
+ *
+ * 列表本身在 `store.presets`——菜单栏的「新建站点」也要用它，而那时这个组件可能
+ * 根本没挂载。两处各取一次的话，迟早出现「一边有版式选择、一边没有」的分裂。
  */
-const presets = ref<PresetOption[]>([])
 const preset = ref('')
 
-onMounted(() => {
-  // 两件事互不依赖，各自失败各自处理。
-  // 以前是 `await loadRecent()` 再 `await listPresets()` 串起来的：前者出问题就
-  // 轮不到后者，而且 listPresets 没有 catch——它一 reject，整个 onMounted 静默
-  // 中断，版式选择框就凭空不见了，界面上还没有任何说明。
+onMounted(async () => {
+  // 两件事互不依赖，各自失败各自处理，不要串起来 await：
+  // 其中一个出问题不该让另一个也不执行。
   void actions.loadRecent()
-  void loadPresets()
+  await actions.loadPresets()
+  // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
+  preset.value = store.presets[0]?.slug ?? ''
 })
 
-async function loadPresets() {
-  try {
-    presets.value = await listPresets()
-    // 第一项即默认值，与 Rust 侧 `Preset::ALL[0]` 一致。
-    preset.value = presets.value[0]?.slug ?? ''
-  } catch (err) {
-    // 说清楚「少了什么」而不是让选择框无声消失。最常见的原因是前端连的还是
-    // 旧的后端进程（`list_presets` 是后加的命令），重启一次就好。
-    const message = err instanceof Error ? err.message : String(err)
-    hint.value = `读取版式列表失败，新建站点将使用默认版式：${message}`
-  }
-}
 
 
 async function pickDirectory(): Promise<string | null> {
@@ -105,9 +94,10 @@ function shortDate(value: string): string {
 
             <!-- 选一套版式。用单选而不是下拉：只有两三项，且每项都需要一句说明，
                  收进下拉之后要点开才看得到「长什么样」。 -->
-            <fieldset v-if="presets.length > 1" class="welcome__presets">
+            <fieldset v-if="store.presets.length > 1" class="welcome__presets">
               <legend>版式</legend>
-              <label v-for="item in presets" :key="item.slug" class="welcome__preset">
+              <label v-for="item in store.presets" :key="item.slug" class="welcome__preset">
+
                 <input v-model="preset" type="radio" name="preset" :value="item.slug" />
                 <span class="welcome__preset-title">{{ item.title }}</span>
                 <span class="welcome__preset-desc">{{ item.description }}</span>

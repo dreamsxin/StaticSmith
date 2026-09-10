@@ -107,13 +107,36 @@ async function openSite() {
  *
  * 起始页有标题输入框，菜单里没有——所以用目录名当站点标题，之后在「设置 → 站点信息」
  * 改。为一个字段弹一层对话框不值得，而目录名通常就是站点名。
+ *
+ * 版式不能同样对付过去：它推导不出来，而且事后换代价很大（一套版式是十来个模板文件，
+ * 换等于重新脚手架）。菜单是扁平的、没有子菜单，所以每套版式各占一个条目，
+ * 由 [`menus`] 按 `store.presets` 生成。
  */
-async function createSite() {
+async function createSite(preset?: string) {
   const path = await pickDirectory()
   if (!path) return
   const name = path.split(/[\\/]/).filter(Boolean).pop() ?? '我的静态站'
-  await actions.initProject(path, name)
+  await actions.initProject(path, name, preset)
 }
+
+/**
+ * 「新建站点」的菜单条目：每套版式一条。
+ *
+ * 版式列表没读到（后端是旧进程之类）时退回单个不带版式的条目——菜单宁可少个可选项，
+ * 也不能因为读不到列表就没法新建站点。
+ */
+function newSiteEntries(): MenuEntry[] {
+  if (store.presets.length === 0) {
+    return [{ id: 'site.new', label: '新建站点…', run: () => createSite() }]
+  }
+  return store.presets.map((item) => ({
+    id: `site.new:${item.slug}`,
+    label: `新建站点：${item.title}…`,
+    hint: item.description,
+    run: () => createSite(item.slug),
+  }))
+}
+
 
 /** 编辑器是否可用：没打开文章时，选区类命令一律置灰。 */
 function noEditor(): boolean {
@@ -202,8 +225,9 @@ export function menus(): Menu[] {
     {
       label: '站点',
       items: [
-        { id: 'site.new', label: '新建站点…', run: createSite },
+        ...newSiteEntries(),
         { id: 'site.open', label: '打开站点…', run: openSite },
+
         ...(recent.length > 0 ? [{ separator: true } as MenuEntry] : []),
         ...recent.map((item) => ({
           id: `site.recent:${item.path}`,

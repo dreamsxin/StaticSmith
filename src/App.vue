@@ -178,10 +178,14 @@ onMounted(() => {
   // 布局先恢复再算响应式：标准模式要按当前窗口宽度决定窗格，
   // 另两种模式自己接管显隐，restoreLayout 里已经写明
   restoreLayout()
+  // 版式列表在这里取而不是在起始页取：菜单栏的「新建站点」在项目已打开时也要能用，
+  // 那时起始页没挂载。版式是编译进程序的，取一次就够。
+  void actions.loadPresets()
   window.addEventListener('keydown', onKeydown)
   window.addEventListener('resize', onResize)
   onResize()
 })
+
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
