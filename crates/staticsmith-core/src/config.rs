@@ -518,6 +518,23 @@ impl SiteConfig {
         if slugs.windows(2).any(|w| w[0] == w[1]) {
             issues.push("taxonomies 里出现了重复的 slug，产物会互相覆盖".to_string());
         }
+        // 两个维度读同一个 front matter 字段也要拦：模板上下文里的 `terms_by_field`
+        // 按字段名分组，撞了的话后写入的那一份会把前一份顶掉，而词条地址是按 slug
+        // 生成的——模板拿到的会是**另一个维度**的地址，页面能打开但指向错的地方。
+        // 这种配置本身没有意义（同一批词条出两套浏览路径），拦住比悄悄取一份好。
+        let mut fields: Vec<String> = self
+            .effective_taxonomies()
+            .iter()
+            .map(|t| t.field())
+            .collect();
+        fields.sort();
+        if fields.windows(2).any(|w| w[0] == w[1]) {
+            issues.push(
+                "taxonomies 里有两个维度读同一个 front matter 字段（name 相同），\
+                 模板只能拿到其中一份，请改 name 或删掉多余的维度"
+                    .to_string(),
+            );
+        }
         for (index, item) in self.menu.iter().enumerate() {
             issues.extend(item.validate(index));
         }
@@ -763,6 +780,32 @@ enabled = true
         let cfg: SiteConfig =
             toml::from_str("[site]\ntitle = \"t\"\n\n[deploy]\ntype = \"ftp\"\n").unwrap();
         assert_eq!(cfg.validate().len(), 1);
+    }
+
+    /// 两个维度读同一个 front matter 字段要在保存时拦下。
+    ///
+    /// 模板上下文的 `terms_by_field` 按字段名分组，撞了就只剩一份；而词条地址按
+    /// slug 生成，模板于是会拿到**另一个维度**的地址——页面打得开，但指向错的地方。
+    /// 这种「悄悄取一份」的行为比报错难查得多。
+    #[test]
+    fn validate_rejects_two_taxonomies_reading_the_same_field() {
+        let raw = "[site]\ntitle = \"t\"\n\n\
+                   [[taxonomies]]\nname = \"tags\"\nslug = \"tags\"\n\n\
+                   [[taxonomies]]\nname = \"tags\"\nslug = \"topics\"\n";
+        let cfg: SiteConfig = toml::from_str(raw).unwrap();
+
+        let issues = cfg.validate();
+        assert!(
+            issues.iter().any(|i| i.contains("front matter 字段")),
+            "应当指出两个维度读了同一个字段：{issues:?}"
+        );
+
+        // slug 不同、字段也不同时是合法配置，不能一起拦掉
+        let ok = "[site]\ntitle = \"t\"\n\n\
+                  [[taxonomies]]\nname = \"tags\"\nslug = \"tags\"\n\n\
+                  [[taxonomies]]\nname = \"categories\"\nslug = \"categories\"\n";
+        let cfg: SiteConfig = toml::from_str(ok).unwrap();
+        assert!(cfg.validate().is_empty(), "{:?}", cfg.validate());
     }
 
     /// `sftp = true` 要在保存时就被拦下，而不是等点了「发布」才失败。
