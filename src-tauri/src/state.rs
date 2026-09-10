@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use staticsmith_core::history::Snapshots;
@@ -28,6 +28,25 @@ const SELF_WRITE_TTL: Duration = Duration::from_secs(2);
 /// 所以给的窗口比单文件宽一些。
 const SELF_TREE_TTL: Duration = Duration::from_secs(6);
 
+/// 取锁，锁被污染时**继续用**里面的值。
+///
+/// 「污染」的含义是「上一次持锁的线程 panic 了」，不是「里面的数据坏了」。
+/// 跟着 panic（`lock().expect(...)`）的代价极不对称：项目还开着、窗口还在，
+/// 但此后每一个命令都会在取锁那一行炸，用户只能重启并丢掉未保存的东西。
+///
+/// 这里装的两类东西都能承受「可能不是最新」：自身写入表是一串带 TTL 的路径，
+/// 最坏是多亮一次「检测到外部修改」；`Option<Session>` 的一致性由 `run_writing`
+/// 负责（写路径 panic 后立刻重开项目），不靠锁的毒性标记来保证。
+///
+/// `catch_panics` 仍然是第一道防线——它让锁**不被弄脏**；这个函数管的是
+/// 它兜不住的那些地方：文件监听线程、以及持锁期间调用的其他代码。
+fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("锁曾在 panic 中被污染，继续使用其中的值");
+        poisoned.into_inner()
+    })
+}
+
 /// 应用自己刚写过的文件。
 ///
 /// `save_content` / `save_template` 写的正是被监听的目录，监听器分不清是谁改的，
@@ -49,7 +68,7 @@ impl SelfWrites {
     }
 
     fn note(&self, path: &Path) {
-        let mut guard = self.files.lock().expect("自身写入表锁被污染");
+        let mut guard = lock_or_recover(&self.files);
         let now = Instant::now();
         guard.retain(|(_, at)| now.duration_since(*at) < SELF_WRITE_TTL);
         guard.push((Self::key(path), now));
@@ -57,7 +76,7 @@ impl SelfWrites {
 
     /// 登记一整棵子树。与单文件登记不同，命中不消费——一次移动会产生很多事件。
     fn note_tree(&self, dir: &Path) {
-        let mut guard = self.trees.lock().expect("自身写入表锁被污染");
+        let mut guard = lock_or_recover(&self.trees);
         let now = Instant::now();
         guard.retain(|(_, at)| now.duration_since(*at) < SELF_TREE_TTL);
         guard.push((Self::key(dir), now));
@@ -65,7 +84,7 @@ impl SelfWrites {
 
     /// 命中即消费掉：同一路径的下一次变更仍应被当作外部改动。
     fn take(&self, path: &Path) -> bool {
-        let mut guard = self.files.lock().expect("自身写入表锁被污染");
+        let mut guard = lock_or_recover(&self.files);
         let key = Self::key(path);
         let now = Instant::now();
         match guard
@@ -82,7 +101,7 @@ impl SelfWrites {
 
     /// 路径是否落在某个仍在有效期内的目录登记之下。
     fn under_noted_tree(&self, path: &Path) -> bool {
-        let guard = self.trees.lock().expect("自身写入表锁被污染");
+        let guard = lock_or_recover(&self.trees);
         let key = Self::key(path);
         let now = Instant::now();
         guard.iter().any(|(prefix, at)| {
@@ -163,7 +182,7 @@ impl AppState {
             },
         )?;
 
-        *self.session.lock().expect("状态锁被污染") = Some(Session {
+        *lock_or_recover(&self.session) = Some(Session {
             root: root.to_path_buf(),
             builder,
             preview: None,
@@ -174,12 +193,12 @@ impl AppState {
     }
 
     pub fn close(&self) {
-        *self.session.lock().expect("状态锁被污染") = None;
+        *lock_or_recover(&self.session) = None;
     }
 
     /// 以只读方式访问当前项目。
     pub fn with_session<T>(&self, f: impl FnOnce(&Session) -> Result<T>) -> Result<T> {
-        let guard = self.session.lock().expect("状态锁被污染");
+        let guard = lock_or_recover(&self.session);
         let session = guard.as_ref().ok_or(AppError::NoProject)?;
         match catch_panics(|| f(session)) {
             Ok(result) => result,
@@ -205,9 +224,13 @@ impl AppState {
         operation: &str,
         f: impl FnOnce(&mut Session) -> Result<T>,
     ) -> Result<T> {
-        let mut guard = self.session.lock().expect("状态锁被污染");
+        let mut guard = lock_or_recover(&self.session);
         if let Some(session) = guard.as_ref() {
-            snapshot_before(&session.builder.paths, operation);
+            // 这一句在锁作用域内、又不在 `f` 里，所以 `run_writing` 的兜底盖不到它。
+            // libgit2 里的意外 panic 会穿过 guard 把锁弄脏，虽然之后取锁能恢复
+            // （`lock_or_recover`），但保持锁干净仍然是第一道防线。
+            let paths = session.builder.paths.clone();
+            let _ = catch_panics(|| snapshot_before(&paths, operation));
         }
         run_writing(&mut guard, f)
     }
@@ -216,7 +239,7 @@ impl AppState {
     ///
     /// 会写源文件的命令请改用 [`AppState::with_writing_session`]——这个方法不留快照。
     pub fn with_session_mut<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
-        let mut guard = self.session.lock().expect("状态锁被污染");
+        let mut guard = lock_or_recover(&self.session);
         run_writing(&mut guard, f)
     }
 }
@@ -355,6 +378,55 @@ mod tests {
         }
         assert!(!lock.is_poisoned(), "锁不能被污染");
         assert_eq!(*lock.lock().unwrap(), 2, "panic 之前的改动仍然可见");
+    }
+
+    /// 锁真的被污染之后，窗口也不能就此变成废的。
+    ///
+    /// 上面那条测的是「别把锁弄脏」，这条测的是「脏了也得能用」。两者都需要：
+    /// `catch_panics` 只覆盖 `f` 本身，而持锁期间还有别的代码在跑
+    /// （`with_writing_session` 里的 `snapshot_before` 就在锁作用域内），
+    /// 何况文件监听线程完全不在兜底范围内。一旦污染，旧写法的每次
+    /// `lock().expect(...)` 都会再 panic：项目还开着，但任何操作都炸，只能重启。
+    #[test]
+    fn a_poisoned_state_lock_does_not_kill_the_window() {
+        let state = AppState::default();
+
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = state.session.lock().unwrap();
+            panic!("模拟持锁期间的 panic");
+        }));
+        assert!(poisoned.is_err());
+        assert!(state.session.is_poisoned(), "这条测试的前提就是锁已被污染");
+
+        // 没有项目时应当得到 NoProject，而不是跟着 panic。
+        let err = state.with_session(|_| Ok(())).unwrap_err();
+        assert!(matches!(err, AppError::NoProject), "{err:?}");
+        assert!(matches!(
+            state.with_session_mut(|_| Ok(())).unwrap_err(),
+            AppError::NoProject
+        ));
+        state.close();
+    }
+
+    /// 自身写入表被污染后，界面不能从此把自己的保存都当成外部改动。
+    ///
+    /// 这张表由 IPC 线程与**文件监听线程**共用，而监听线程不在 `catch_panics`
+    /// 覆盖范围内（`lib.rs` 已自陈）。污染之后旧写法会让每次保存都在这里炸，
+    /// 而表里装的只是一串带 TTL 的路径——用一份可能过期的登记远好于让保存全废。
+    #[test]
+    fn a_poisoned_self_write_table_still_cancels_out_own_writes() {
+        let writes = SelfWrites::default();
+
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = writes.files.lock().unwrap();
+            panic!("模拟监听线程持锁期间的 panic");
+        }));
+        assert!(poisoned.is_err());
+        assert!(writes.files.is_poisoned());
+
+        writes.note(Path::new("content/posts/a.md"));
+        let mut set = change_set(&["content/posts/a.md"]);
+        assert!(writes.filter(&mut set), "自身写入应当被对消掉");
     }
 
     /// 动手之前那份快照真的能把内容找回来。

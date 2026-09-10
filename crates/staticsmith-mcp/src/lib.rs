@@ -145,11 +145,40 @@ impl McpServer {
                     .cloned()
                     .unwrap_or_else(|| json!({}));
 
-                let mut builder = self
-                    .builder
-                    .lock()
-                    .map_err(|_| (error_code::INTERNAL_ERROR, "内部状态锁异常".to_string()))?;
-                Ok(tools::call(&mut builder, self.permissions, name, &args))
+                // 锁被污染说明上一次持锁时有人 panic 了，不代表 Builder 不可用——
+                // 它是一份从磁盘重读就能恢复的东西。旧写法在这里永久返回
+                // 「内部状态锁异常」：端点还开着、界面还写着运行中，而 Agent 的每个
+                // 请求都失败，看不出原因。
+                let mut builder = match self.builder.lock() {
+                    Ok(guard) => guard,
+                    Err(poisoned) => {
+                        tracing::warn!("状态锁曾在 panic 中被污染，重载项目后继续");
+                        let mut guard = poisoned.into_inner();
+                        if let Err(err) = guard.reload() {
+                            tracing::error!("污染恢复时重载项目失败: {err}");
+                        }
+                        guard
+                    }
+                };
+
+                // 工具里的 panic 变成一条 JSON-RPC 错误。穿出去的话，HTTP 那侧会掀掉
+                // tiny_http 的工作线程、stdio 那侧会掀掉主循环，端点静默停止服务。
+                match catch_tool_panic(|| tools::call(&mut builder, self.permissions, name, &args))
+                {
+                    Ok(result) => Ok(result),
+                    Err(message) => {
+                        tracing::error!("工具 {name} 内部 panic：{message}");
+                        // panic 可能把 Builder 停在改了一半的状态上，拿着半套内存状态
+                        // 继续生成产物比报错更糟。
+                        if let Err(err) = builder.reload() {
+                            tracing::error!("panic 后重载项目失败: {err}");
+                        }
+                        Err((
+                            error_code::INTERNAL_ERROR,
+                            format!("工具 {name} 内部错误：{message}。这是程序缺陷，请附日志反馈；项目状态已从磁盘重新载入"),
+                        ))
+                    }
+                }
             }
 
             other => Err((
@@ -158,6 +187,27 @@ impl McpServer {
             )),
         }
     }
+}
+
+/// 兜住工具执行里的 panic，`Err` 带回 panic 消息。
+///
+/// 为什么必须有：HTTP 那侧每个请求跑在 tiny_http 的工作线程上，stdio 那侧就是主循环。
+/// 任何一处 panic 穿出去，端点就静默停止服务——界面上还写着「运行中」，
+/// Agent 那边只看到连接断了。翻译成一条 JSON-RPC 内部错误，Agent 能读到原因，
+/// 端点继续活着。
+///
+/// 与桌面端 `state::catch_panics` 同一套思路，各自实现是因为两边错误类型不同，
+/// 而这段逻辑只有五行——为它拉一个公共 crate 不值得。
+fn catch_tool_panic<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
+        if let Some(s) = payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<非字符串 payload>".to_string()
+        }
+    })
 }
 
 #[cfg(test)]
@@ -188,6 +238,39 @@ mod tests {
 
     fn text_of(result: &Value) -> String {
         result["content"][0]["text"].as_str().unwrap().to_string()
+    }
+
+    /// 锁被污染之后端点不能就此变成废的。
+    ///
+    /// 「污染」意味着上一次持锁时有人 panic 了。旧写法把它翻译成
+    /// 「内部状态锁异常」并**永久**这样回下去：Agent 从此每个请求都失败，
+    /// 而端点还开着、界面上还显示「运行中」，看不出发生了什么。
+    /// 里面装的是 `Builder`，一份从磁盘重读就能恢复的东西。
+    #[test]
+    fn a_poisoned_builder_lock_does_not_kill_the_endpoint() {
+        let (_dir, server) = server(Permissions::read_only());
+
+        let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = server.builder.lock().unwrap();
+            panic!("模拟持锁期间的 panic");
+        }));
+        assert!(poisoned.is_err());
+        assert!(server.builder.is_poisoned(), "这条测试的前提是锁已被污染");
+
+        let result = call(&server, "site_info", json!({}));
+        assert!(text_of(&result).contains("MCP 测试站"));
+    }
+
+    /// panic 要变成一条 JSON-RPC 错误，而不是掀掉工作线程。
+    ///
+    /// HTTP 那侧每个请求跑在 tiny_http 的工作线程上，stdio 那侧就是主循环：
+    /// 任何一处 panic 穿出去，端点就静默停止服务。这里测的是兜底本身，
+    /// 接线只有 `dispatch` 里那一行。
+    #[test]
+    fn a_panicking_call_becomes_an_error_not_a_dead_thread() {
+        assert_eq!(catch_tool_panic(|| 7), Ok(7));
+        let caught = catch_tool_panic(|| panic!("工具内部炸了"));
+        assert_eq!(caught, Err("工具内部炸了".to_string()));
     }
 
     #[test]

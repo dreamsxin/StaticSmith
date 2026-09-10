@@ -30,6 +30,20 @@ const SSE_KEEPALIVE: Duration = Duration::from_secs(15);
 
 type Sessions = Arc<Mutex<HashMap<String, Sender<Vec<u8>>>>>;
 
+/// 取会话表的锁，被污染时继续用里面的值。
+///
+/// 「污染」意味着上一次持锁的线程 panic 了，不代表这张表坏了——它只是
+/// 「会话 id → SSE 发送端」的映射。跟着 panic 的代价是整个端点从此每个请求都炸，
+/// 而端点还在监听、界面还写着「运行中」，看不出发生了什么。
+fn lock_sessions(
+    sessions: &Sessions,
+) -> std::sync::MutexGuard<'_, HashMap<String, Sender<Vec<u8>>>> {
+    sessions.lock().unwrap_or_else(|poisoned| {
+        tracing::warn!("会话表锁曾在 panic 中被污染，继续使用其中的值");
+        poisoned.into_inner()
+    })
+}
+
 /// stdio 传输：一行一条 JSON-RPC 消息，读到 EOF 结束。
 ///
 /// 客户端（Claude Desktop、Cursor 等）会把本进程作为子进程拉起，
@@ -219,9 +233,7 @@ fn handle_legacy_message(
         query_param(url, "sessionId").ok_or((400, "缺少 sessionId 查询参数".to_string()))?;
     let body = read_body(request)?;
 
-    let sender = sessions
-        .lock()
-        .expect("会话表锁被污染")
+    let sender = lock_sessions(sessions)
         .get(&session_id)
         .cloned()
         .ok_or((404, format!("会话不存在或已断开: {session_id}")))?;
@@ -245,10 +257,7 @@ fn handle_sse(request: Request, sessions: &Sessions) {
     let (tx, rx) = channel::<Vec<u8>>();
 
     // 先放进会话表再回 endpoint 事件，避免客户端太快 POST 时查不到会话。
-    sessions
-        .lock()
-        .expect("会话表锁被污染")
-        .insert(session_id.clone(), tx.clone());
+    lock_sessions(sessions).insert(session_id.clone(), tx.clone());
 
     let mut writer = request.into_writer();
     // 不带 Content-Length，正文由连接关闭界定，这是 SSE 的常规做法。
@@ -275,7 +284,7 @@ fn handle_sse(request: Request, sessions: &Sessions) {
         alive = writer.write_all(&payload).is_ok() && writer.flush().is_ok();
     }
 
-    sessions.lock().expect("会话表锁被污染").remove(&session_id);
+    lock_sessions(sessions).remove(&session_id);
     tracing::debug!("SSE 会话结束: {session_id}");
 }
 
