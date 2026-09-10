@@ -34,6 +34,19 @@ const TEMPLATES_PREFIX: &str = "templates/";
 /// 包里写死目录名就会装到错的地方。
 const THEME_PREFIX: &str = "theme/";
 
+/// 单个条目解压后的上限。
+///
+/// 主题包装的是模板与样式，最大的东西通常是一张字体或背景图。给到 8 MB 已经很宽，
+/// 而没有上限就意味着十几 KB 的包能声明出几 GB 的解压体积（zip bomb），
+/// `read_to_end` 会照着展开——内存或磁盘先撑不住。
+const MAX_ENTRY_BYTES: u64 = 8 * 1024 * 1024;
+
+/// 整包解压后的上限。
+const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+
+/// 条目数上限。几万个空文件不占体积，但同样能把写盘和界面拖死。
+const MAX_ENTRIES: usize = 2000;
+
 /// 主题包的说明。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Manifest {
@@ -132,6 +145,7 @@ pub fn export(paths: &ProjectPaths, archive: &Path, manifest: &Manifest) -> Resu
 /// 读出主题包会做什么，不写任何文件。
 pub fn scan(paths: &ProjectPaths, archive: &Path) -> Result<Preview> {
     let mut zip = open(archive)?;
+    check_limits(&mut zip, archive)?;
     let manifest = read_manifest(&mut zip, archive)?;
 
     let mut files = Vec::new();
@@ -174,6 +188,7 @@ pub fn scan(paths: &ProjectPaths, archive: &Path) -> Result<Preview> {
 /// 不在写入范围内——换外观不该动内容，也不该顺手改站点配置。
 pub fn import(paths: &ProjectPaths, archive: &Path, overwrite: bool) -> Result<Imported> {
     let mut zip = open(archive)?;
+    check_limits(&mut zip, archive)?;
     let manifest = read_manifest(&mut zip, archive)?;
 
     let mut written = Vec::new();
@@ -204,9 +219,16 @@ pub fn import(paths: &ProjectPaths, archive: &Path, overwrite: bool) -> Result<I
             std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
         }
         let mut buffer = Vec::new();
+        // 用 `take` 兜住：上面按声明的大小拦过一遍，但声明可以撒谎，
+        // 真正读的时候还得有个硬顶。
         entry
+            .by_ref()
+            .take(MAX_ENTRY_BYTES + 1)
             .read_to_end(&mut buffer)
             .map_err(|e| Error::io(archive, e))?;
+        if buffer.len() as u64 > MAX_ENTRY_BYTES {
+            return Err(oversized_entry(archive, &name));
+        }
         std::fs::write(&target, buffer).map_err(|e| Error::io(&target, e))?;
         written.push(relative);
     }
@@ -311,6 +333,49 @@ fn add_tree<W: Write + Seek>(
 
 fn zip_error(archive: &Path, source: zip::result::ZipError) -> Error {
     Error::Other(format!("主题包读写失败（{}）: {source}", archive.display()))
+}
+
+fn oversized_entry(archive: &Path, entry: &str) -> Error {
+    Error::Other(format!(
+        "主题包里的 {entry} 解压后过大（超过 {} MB），已中止（{}）",
+        MAX_ENTRY_BYTES / 1024 / 1024,
+        archive.display()
+    ))
+}
+
+/// 解压前先看一眼规模，超限就一个字节都不写。
+///
+/// 三道上限（单条目、整包、条目数）都按 zip 自己声明的解压后大小算——这是**免费**的，
+/// 不用真解压。声明可以撒谎，所以写盘那一步还用 `take` 兜了一道硬顶。
+///
+/// 为什么要在 `scan` 里也查：装主题的流程是「先扫后装」，扫描阶段就会被界面调用，
+/// 只在 `import` 拦的话，一个恶意包在预览时就能把内存吃光。
+fn check_limits<R: Read + Seek>(zip: &mut zip::ZipArchive<R>, archive: &Path) -> Result<()> {
+    if zip.len() > MAX_ENTRIES {
+        return Err(Error::Other(format!(
+            "主题包里的条目太多（{} 个，上限 {MAX_ENTRIES}），已中止（{}）",
+            zip.len(),
+            archive.display()
+        )));
+    }
+
+    let mut total: u64 = 0;
+    for index in 0..zip.len() {
+        let entry = zip.by_index(index).map_err(|e| zip_error(archive, e))?;
+        if entry.size() > MAX_ENTRY_BYTES {
+            let name = entry.name().to_string();
+            return Err(oversized_entry(archive, &name));
+        }
+        total = total.saturating_add(entry.size());
+        if total > MAX_TOTAL_BYTES {
+            return Err(Error::Other(format!(
+                "主题包解压后过大（超过 {} MB），已中止（{}）",
+                MAX_TOTAL_BYTES / 1024 / 1024,
+                archive.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -462,6 +527,73 @@ mod tests {
         assert_eq!(done.rejected.len(), 4);
         assert!(!site.paths.root.join("staticsmith.toml").exists());
         assert!(!site.paths.content.join("posts/hijacked.md").exists());
+    }
+
+    /// 高压缩比的包（zip bomb）要在解压前就被拦下。
+    ///
+    /// 十几 KB 的包能声明出几 GB 的解压后体积，`read_to_end` 会照着展开——
+    /// 内存或磁盘先撑不住。主题包装的是模板与样式，本来就不该有巨大文件。
+    #[test]
+    fn an_oversized_entry_is_rejected_before_unpacking() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("bomb.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options: zip::write::FileOptions<'_, ()> = zip::write::SimpleFileOptions::default();
+            writer.start_file(MANIFEST_NAME, options).unwrap();
+            writer.write_all("name = \"炸弹\"\n".as_bytes()).unwrap();
+            writer
+                .start_file("templates/layouts/base.html", options)
+                .unwrap();
+            // 全零高度可压缩：包本身只有几 KB
+            writer
+                .write_all(&vec![0u8; MAX_ENTRY_BYTES as usize + 1])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+        assert!(
+            std::fs::metadata(&zip_path).unwrap().len() < 100 * 1024,
+            "这个包本身应该很小，否则测的就不是压缩比了"
+        );
+
+        let site = fixture();
+        let err = scan(&site.paths, &zip_path).unwrap_err().to_string();
+        assert!(err.contains("过大"), "{err}");
+
+        let err = import(&site.paths, &zip_path, true)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("过大"), "{err}");
+        assert!(
+            !site.paths.templates.join("layouts/base.html").exists(),
+            "拦下之后不该留下半个文件"
+        );
+    }
+
+    /// 条目数上限：几万个空文件同样能把界面和磁盘拖死。
+    #[test]
+    fn too_many_entries_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let zip_path = dir.path().join("many.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut writer = zip::ZipWriter::new(file);
+            let options: zip::write::FileOptions<'_, ()> = zip::write::SimpleFileOptions::default();
+            writer.start_file(MANIFEST_NAME, options).unwrap();
+            writer.write_all("name = \"很多\"\n".as_bytes()).unwrap();
+            for i in 0..=MAX_ENTRIES {
+                writer
+                    .start_file(format!("templates/pages/p{i}.html"), options)
+                    .unwrap();
+                writer.write_all(b"x").unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let site = fixture();
+        let err = scan(&site.paths, &zip_path).unwrap_err().to_string();
+        assert!(err.contains("条目"), "{err}");
     }
 
     #[test]

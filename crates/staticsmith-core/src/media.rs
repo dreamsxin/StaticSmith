@@ -234,7 +234,10 @@ fn extract_urls(text: &str, prefix: &str) -> BTreeSet<String> {
         if url.len() > prefix.len() {
             urls.insert(url.to_string());
         }
-        rest = &candidate[end.max(1)..];
+        // 至少前进一个**字符**。前缀本身以分隔符开头时 `end == 0`（配置里粘进了
+        // NBSP 或全角空格就会这样），按 1 字节前进会切在多字节字符中间直接 panic。
+        let step = candidate.chars().next().map_or(1, char::len_utf8);
+        rest = &candidate[end.max(step)..];
     }
     urls
 }
@@ -343,6 +346,28 @@ mod tests {
             "模板与主题里的引用也算：{:?}",
             report.unused
         );
+    }
+
+    /// `url_prefix` 以多字节的空白字符开头时，扫描不能在字符中间切开。
+    ///
+    /// 触发者是配置：从网页复制粘贴很容易带进 NBSP（U+00A0）或全角空格（U+3000），
+    /// 而 `url_prefix()` 只剥尾部的 `/`，不动开头。这两个字符本身就在「地址到此为止」
+    /// 的分隔符集合里，于是匹配处 `end == 0`，按 1 字节前进正好落在字符中间——
+    /// 媒体体检整页 panic。
+    #[test]
+    fn multibyte_prefix_does_not_split_a_char() {
+        let urls = extract_urls(
+            "图在这里 \u{3000}/media/a.png 后面还有字",
+            "\u{3000}/media/",
+        );
+        assert!(
+            urls.is_empty(),
+            "前缀以分隔符开头时抓不到地址，但不该 panic"
+        );
+
+        // NBSP 是 2 字节，且这段里匹配两次，顺带验证循环没有卡住。
+        let urls = extract_urls("\u{a0}/m/a.png 和 \u{a0}/m/b.png", "\u{a0}/m/");
+        assert!(urls.is_empty());
     }
 
     #[test]
