@@ -10,6 +10,7 @@ use staticsmith_core::batch::{
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
+use staticsmith_core::history::{Restored, Snapshot, Snapshots};
 use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportReport};
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
@@ -1232,6 +1233,81 @@ fn page_summaries(builder: &staticsmith_core::Builder) -> Vec<PageSummary> {
             summary
         })
         .collect()
+}
+
+// ---------------------------------------------------------------- 内容快照
+
+/// 内容快照清单，最新在前。
+///
+/// 快照由破坏性操作自动留下（界面上的批量动作、删除、栏目改名、跨文件替换，
+/// 以及 MCP 的写工具），见 `staticsmith_core::history`。
+///
+/// `limit` 省略时给 50 条：界面上是个列表，一屏看不完的部分靠滚动，
+/// 拉太多只是白花时间读 commit 对象。
+#[tauri::command]
+pub fn list_snapshots(state: State<'_, AppState>, limit: Option<usize>) -> Result<Vec<Snapshot>> {
+    let limit = limit.unwrap_or(50).clamp(1, 200);
+    state.with_session(|session| Ok(Snapshots::open(&session.builder.paths)?.list(limit)?))
+}
+
+/// 回退到某个快照。
+///
+/// 不走 `with_writing_session`：`restore` 自己会先把**当前**状态存成一笔
+/// （返回值里的 `previous`），外面再加一层就是两条相邻的同内容快照。
+///
+/// 回退之后**重开项目**而不是 `reload`：`staticsmith.toml` 也在跟踪范围里，
+/// 回退可能把它换成旧版，而 `reload` 只重读模板与内容，`config` 与 `paths` 一概不动。
+/// 那样磁盘上是旧配置、内存里是新配置，接下来的构建会拿着错的 `base_url`
+/// 与错的输出目录跑——回退报了成功，站点却是坏的。
+///
+/// **重开失败不能报成「回退失败」。** 签出已经完成，磁盘上就是快照里那份了；
+/// 而重开是把这份刚落盘的内容重新解析一遍，它有独立的失败原因——快照可能是在
+/// 配置或模板正被改坏的那一刻留下的，旧版 `staticsmith.toml` 也可能过不了今天的校验。
+/// 报「失败」会让人再点一次回退，而第二次回退的 `previous` 会因为内容没变而是 `null`，
+/// 「撤销这次回退」的线索就此丢掉。所以这一路单独给一条说清后果的消息。
+///
+/// 整棵内容树的变更都是自己造成的，签出前后各登记一次：登记有有效期
+/// （`SELF_TREE_TTL`），大站点的签出可能比它还长，只在动手前登记会让回退成功之后
+/// 反而弹一条「检测到外部修改」。
+#[tauri::command]
+pub fn restore_snapshot(state: State<'_, AppState>, id: String) -> Result<Restored> {
+    state.with_session_mut(|session| {
+        let paths = session.builder.paths.clone();
+        let watched = [
+            paths.content.clone(),
+            paths.templates.clone(),
+            paths.theme.clone(),
+        ];
+        for dir in &watched {
+            state.note_self_tree(dir);
+        }
+
+        let restored = Snapshots::open(&paths)?.restore(&id)?;
+
+        // 签出可能跑了很久，登记要续期
+        for dir in &watched {
+            state.note_self_tree(dir);
+        }
+
+        match staticsmith_core::Builder::open(&session.root) {
+            Ok(builder) => {
+                session.builder = builder;
+                Ok(restored)
+            }
+            Err(err) => {
+                tracing::error!("回退到 {} 之后重开项目失败: {err}", restored.restored_to);
+                let undo = match &restored.previous {
+                    Some(previous) => format!("不想要这次回退就回退到 {}", previous.id),
+                    None => "内容与回退前一致，没有需要撤销的东西".to_string(),
+                };
+                Err(AppError::Message(format!(
+                    "已回退到 {}，磁盘上的内容就是那一份了，但重新读取项目失败：{err}。\
+                     请重新打开站点；{undo}",
+                    restored.restored_to
+                )))
+            }
+        }
+    })
 }
 
 /// 事件只投给发起操作的窗口。

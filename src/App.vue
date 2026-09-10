@@ -24,7 +24,9 @@ import PageList from './components/PageList.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import SeoPanel from './components/SeoPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import SnapshotDialog from './components/SnapshotDialog.vue'
 import ToastStack from './components/ToastStack.vue'
+
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
 import { actions, isDirty, isTemplateDirty, store } from './store'
@@ -336,6 +338,8 @@ onBeforeUnmount(() => {
     @close="ui.newSiteOpen = false"
     @submit="createSiteWith"
   />
+  <SnapshotDialog :open="ui.snapshotsOpen" @close="ui.snapshotsOpen = false" />
+
 
   <ContextMenu />
   <ToastStack />

@@ -87,6 +87,8 @@ pub fn run() {
             commands::has_secret,
             commands::delete_secret,
             commands::deploy_account,
+            commands::list_snapshots,
+            commands::restore_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri 应用启动失败");

@@ -28,7 +28,9 @@ import type {
   Section,
   SeoReport,
   SiteConfig,
+  Snapshot,
   TemplateInfo,
+
 } from './api'
 
 export type ToastKind = 'success' | 'error' | 'info'
@@ -51,6 +53,15 @@ interface State {
    * 两个入口迟早出现「一边有版式选择、一边没有」的分裂，那正是这次要修的毛病。
    */
   presets: PresetOption[]
+
+  /**
+   * 内容快照清单，最新在前。打开「回退」对话框时才拉，不随项目一起载入。
+   *
+   * 快照是破坏性操作的副产物，平时没人关心；而读它要开一次影子仓库、
+   * 走一遍 commit 对象，没必要挂在打开项目的关键路径上。
+   */
+  snapshots: Snapshot[]
+
 
   /** 当前编辑的内容源路径 */
   currentSource: string | null
@@ -114,6 +125,8 @@ const state = reactive<State>({
   project: null,
   recent: [],
   presets: [],
+  snapshots: [],
+
 
   currentSource: null,
   currentRaw: '',
@@ -257,9 +270,90 @@ export const actions = {
     }
   },
 
+  // -------------------------------------------------------------- 内容快照
+
+  /**
+   * 拉一次快照清单。打开「回退」对话框时才调，见 `State.snapshots`。
+   *
+   * 直接要满额（Rust 侧上限 200）：Agent 一次会话里调几十个写工具是常态，
+   * 每个都留一份快照，默认只取几十条会把「这次会话之前」的那一份挤出列表——
+   * 而那恰恰是最可能要回退到的一份。读 200 个 commit 对象不值得省。
+   */
+  async loadSnapshots() {
+    const list = await run(() => api.listSnapshots(api.SNAPSHOT_LIMIT))
+    if (list) state.snapshots = list
+  },
+
+
+  /**
+   * 回退到某个快照。
+   *
+   * 回退会覆盖磁盘上的源文件，所以要把界面重新对齐到磁盘。要对齐的不止页面列表：
+   *
+   * - 当前打开的那一篇：可能被换成旧版，也可能在那个快照里还不存在
+   * - 当前打开的那个模板：模板同样在跟踪范围里。不重读的话编辑器里还是回退前那份，
+   *   而 `savedTemplateSource` 也是那份，于是「有未保存改动」判定为 false——
+   *   没有脏标记、没有提示，下一次保存会把旧内容写回去，悄悄撤销掉这次回退的一半
+   * - 体检结果：SEO 报告可能还在说一篇已经被回退掉的文章
+   *
+   * 产物不动：`dist/` 还是回退前那次构建的结果。提示里点明这件事，
+   * 否则「回退成功了但预览没变」会被当成 bug。
+   *
+   * 编辑器里未保存的改动会被这次回退作废，所以确认由对话框负责，这里只执行。
+   *
+   * 失败也要亮出「重新读取」的横幅：Rust 侧的失败可能发生在**签出之后**
+   * （磁盘已经变了，只是重开项目失败），那时界面上的一切都不再对应磁盘。
+   */
+  async restoreSnapshot(id: string) {
+    await busySpan(async () => {
+      const restored = await run(() => api.restoreSnapshot(id))
+      if (!restored) {
+        state.externalChange = true
+        return
+      }
+
+      await this.refresh()
+      await this.loadSections()
+      await this.loadSnapshots()
+
+      // 当前打开的那篇要重读；回退后不存在了就清空编辑器，
+      // 否则保存会把一篇「已被回退掉」的文章又写回去。
+      const open = state.currentSource
+      const page = open ? (state.project?.pages.find((p) => p.source === open) ?? null) : null
+      if (page) {
+        await this.openContent(page)
+      } else if (open) {
+        state.currentSource = null
+        state.currentRaw = ''
+        state.savedRaw = ''
+        state.frontMatter = null
+        state.previewHtml = ''
+      }
+
+      // 模板同理
+      const openTemplate = state.currentTemplate
+      const template = openTemplate
+        ? (state.project?.templates.find((t) => t.name === openTemplate) ?? null)
+        : null
+      if (template) {
+        await this.openTemplate(template)
+      } else if (openTemplate) {
+        state.currentTemplate = null
+        state.currentTemplateSource = ''
+        state.savedTemplateSource = ''
+      }
+
+      if (state.seo) await this.auditSeo()
+      if (state.media) await this.auditMedia()
+      await this.recomputePlan()
+      notify('success', `已回退到 ${restored.restored_to}，产物还是旧的，重新生成一次即可`)
+    })
+  },
+
 
   async forgetRecent(path: string) {
     const items = await run(() => api.forgetProject(path))
+
     if (items) state.recent = items
   },
 
@@ -600,6 +694,10 @@ export const actions = {
     state.seo = null
     state.media = null
     state.plan = null
+    // 快照属于那个站点。留着的话下一个站点打开「回退内容」时，
+    // 万一 list_snapshots 失败，就会看到上一个站点的快照 id
+    state.snapshots = []
+
     // 回到起始页时刷新最近列表，刚关闭的站点应排在最前。
     void this.loadRecent()
   },

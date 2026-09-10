@@ -98,6 +98,9 @@ export const ui = reactive({
   paletteOpen: false,
   /** 「新建站点」对话框。菜单只放一条入口，字段在弹出的表单里填。 */
   newSiteOpen: false,
+  /** 「回退内容」对话框：浏览内容快照并回到其中一份。 */
+  snapshotsOpen: false,
+
 
   /** 当前界面模式（布局预设），见 [`modes`]。 */
   mode: 'standard' as Mode,

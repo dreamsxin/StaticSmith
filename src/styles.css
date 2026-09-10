@@ -348,6 +348,55 @@ h3 {
   align-self: flex-start;
 }
 
+/* 快照列表：一行一条「做什么之前 / 什么时候 / 哪一份」。
+   限高滚动而不是分页：快照按时间倒序，要找的那条几乎总在最前面几行。 */
+.snapshots {
+  width: 100%;
+  max-height: 18rem;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.snapshot {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.snapshot:hover,
+.snapshot:focus-visible {
+  background: var(--bg-subtle);
+}
+
+.snapshot__when {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+  text-align: right;
+}
+
+.snapshot__id {
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+
+/* 未保存的改动会被这次回退作废，这句要比其它说明更显眼。 */
+.snapshot__warn {
+  color: var(--warn);
+}
+
+
 
 .welcome__recent {
 

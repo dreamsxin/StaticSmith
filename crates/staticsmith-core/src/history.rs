@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use git2::{
     build::CheckoutBuilder, Commit, IndexAddOption, Repository, RepositoryInitOptions, Signature,
-    Sort,
+    Sort, Tree,
 };
 use serde::Serialize;
 
@@ -69,6 +69,8 @@ pub struct Restored {
 /// 项目的快照仓库。
 pub struct Snapshots {
     repo: Repository,
+    /// 项目根。跨过目录改名的回退要用它重算目标快照那一刻的跟踪范围。
+    root: PathBuf,
     /// 进快照的路径（相对项目根，`/` 分隔）。见 [`tracked_paths`]。
     tracked: Vec<String>,
 }
@@ -101,6 +103,7 @@ impl Snapshots {
         configure(&repo)?;
         Ok(Self {
             repo,
+            root: root.to_path_buf(),
             tracked: tracked_paths(paths),
         })
     }
@@ -183,7 +186,7 @@ impl Snapshots {
         // force：快照之后新建的文件要被删掉，否则「回到那一刻」只回了一半。
         // 限定 pathspec，所以 dist/ 与 .staticsmith/ 不受影响。
         checkout.force();
-        for path in &self.tracked {
+        for path in self.checkout_paths(&tree) {
             checkout.path(path);
         }
         self.repo
@@ -199,6 +202,49 @@ impl Snapshots {
 
     fn head_commit(&self) -> Option<Commit<'_>> {
         self.repo.head().ok()?.peel_to_commit().ok()
+    }
+
+    /// 这次签出要覆盖的路径：**当前**跟踪范围与**目标快照那一刻**跟踪范围的并集。
+    ///
+    /// 只用当前那套会在跨过一次目录改名的回退里两头落空：旧目录在 pathspec 之外，
+    /// 一个字节都不恢复；新目录在 pathspec 之内且目标树里没有，于是被 `force()`
+    /// 全部删掉。而 `staticsmith.toml` 本身在跟踪范围里，会被换回旧版——
+    /// 结果是配置指向一个空目录、整站内容消失，却报「回退成功」。
+    ///
+    /// 目标树里的配置读不出来或解析不了时退回当前那套：宁可少恢复一点，
+    /// 也不能因为读不到配置就整个回退失败。
+    fn checkout_paths(&self, tree: &Tree<'_>) -> Vec<String> {
+        let mut out = self.tracked.clone();
+        out.extend(self.tracked_in(tree));
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    /// 目标快照里那份 `staticsmith.toml` 所描述的跟踪范围。
+    fn tracked_in(&self, tree: &Tree<'_>) -> Vec<String> {
+        let read = || -> Result<Vec<String>> {
+            let entry = tree.get_path(Path::new(crate::CONFIG_FILE_NAME))?;
+            let object = entry.to_object(&self.repo)?;
+            let blob = object
+                .as_blob()
+                .ok_or_else(|| git2::Error::from_str("快照里的 staticsmith.toml 不是文件"))?;
+            let raw = std::str::from_utf8(blob.content())
+                .map_err(|_| git2::Error::from_str("快照里的 staticsmith.toml 不是 UTF-8"))?;
+            let config = crate::config::SiteConfig::parse(raw)?;
+            Ok(tracked_paths(&ProjectPaths::new(
+                &self.root,
+                &config.build,
+                &config.assets,
+            )))
+        };
+        match read() {
+            Ok(paths) => paths,
+            Err(err) => {
+                tracing::warn!("读不出目标快照里的配置，按当前目录布局回退: {err}");
+                Vec::new()
+            }
+        }
     }
 
     fn describe(&self, commit: &Commit<'_>) -> Snapshot {
@@ -585,6 +631,58 @@ mod tests {
         std::fs::write(dir.path().join("docs/a.md"), "被改坏了\n").unwrap();
         snapshots.restore(&first.id).unwrap();
         assert_eq!(read(dir.path(), "docs/a.md"), "原文\n");
+    }
+
+    /// 跨过一次「目录改名」的回退不能把内容删干净。
+    ///
+    /// 跟踪范围是按**当前**配置算的，而目标快照里的布局可能是另一套。
+    /// pathspec 只写当前那套时会两头落空：旧目录在 pathspec 之外，一个字节都不恢复；
+    /// 新目录在 pathspec 之内且目标树里没有，于是被 `force()` 全部删掉。
+    /// 而 `staticsmith.toml` 本身**在**跟踪范围里，会被换回旧版——
+    /// 结果是配置指向一个空目录，整站内容消失，且界面报的是「回退成功」。
+    #[test]
+    fn restoring_across_a_renamed_content_dir_brings_the_old_layout_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("docs")).unwrap();
+        std::fs::write(
+            root.join("staticsmith.toml"),
+            "[site]\ntitle = \"t\"\n\n[build]\ncontent_dir = \"./docs\"\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("docs/a.md"), "原文\n").unwrap();
+
+        let old = ProjectPaths::new(
+            root,
+            &crate::config::Build {
+                content_dir: PathBuf::from("./docs"),
+                ..Default::default()
+            },
+            &crate::config::Assets::default(),
+        );
+        let first = Snapshots::open(&old)
+            .unwrap()
+            .snapshot("起点")
+            .unwrap()
+            .expect("起点要留下快照");
+
+        // 用户把 content_dir 改成默认的 ./content 并把文件搬过去
+        std::fs::write(root.join("staticsmith.toml"), "[site]\ntitle = \"t\"\n").unwrap();
+        std::fs::create_dir_all(root.join("content")).unwrap();
+        std::fs::write(root.join("content/a.md"), "搬过来之后又改了\n").unwrap();
+        std::fs::remove_dir_all(root.join("docs")).unwrap();
+
+        let now = ProjectPaths::new(
+            root,
+            &crate::config::Build::default(),
+            &crate::config::Assets::default(),
+        );
+        Snapshots::open(&now).unwrap().restore(&first.id).unwrap();
+
+        // 配置回到了 docs 版，内容就必须跟着回来，否则站点指向一个空目录
+        let config = std::fs::read_to_string(root.join("staticsmith.toml")).unwrap();
+        assert!(config.contains("docs"), "配置应当回到旧版：{config}");
+        assert_eq!(read(root, "docs/a.md"), "原文\n", "旧布局的内容也要回来");
     }
 
     #[test]

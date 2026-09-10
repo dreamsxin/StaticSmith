@@ -262,7 +262,18 @@ export function menus(): Menu[] {
       label: '编辑',
       items: [
         {
+          id: 'edit.snapshots',
+          label: '回退内容…',
+          hint: '删除、批量修改、跨文件替换之前都自动留了快照',
+          disabled: !store.project || store.busy,
+          run: () => {
+            ui.snapshotsOpen = true
+          },
+        },
+        { separator: true },
+        {
           id: 'edit.find',
+
           label: '查找内容',
           hint: 'Ctrl+Shift+F（编辑器里 Ctrl+F 是找这一篇内部）',
           run: focusSearch,

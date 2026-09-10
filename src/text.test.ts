@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseList } from './text'
+import { parseList, snapshotLabel } from './text'
+
 
 describe('parseList', () => {
   /**
@@ -27,3 +28,23 @@ describe('parseList', () => {
     expect(parseList('hello world, 前端 工程')).toEqual(['hello world', '前端 工程'])
   })
 })
+
+describe('snapshotLabel', () => {
+  it('界面与 Agent 的操作各有说法', () => {
+    expect(snapshotLabel('batch_delete')).toBe('批量删除之前')
+    expect(snapshotLabel('write_content')).toBe('Agent 改文章之前')
+  })
+
+  /**
+   * 认不出来的原样显示。
+   *
+   * 两种情况都会走到这里：MCP 那侧加了新写工具而前端还没跟上，
+   * 以及回滚自己留下的那两笔（本来就是中文）。二者都不能变成空白——
+   * 快照列表里一行没有说明，等于让人在一堆哈希里盲选。
+   */
+  it('不认识的 message 原样显示', () => {
+    expect(snapshotLabel('some_new_tool')).toBe('some_new_tool')
+    expect(snapshotLabel('回滚到 a1b2c3d4e5')).toBe('回滚到 a1b2c3d4e5')
+  })
+})
+

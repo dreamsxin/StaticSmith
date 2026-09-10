@@ -746,7 +746,50 @@ export const saveSectionMeta = (path: string, meta: SectionMeta) =>
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
 export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })
 
+// ---------------------------------------------------------------- 内容快照
+
+/** 一份内容快照。 */
+export interface Snapshot {
+  /** 短哈希，回退时传它 */
+  id: string
+  /** 触发这次快照的操作，如 `batch_delete` */
+  message: string
+  /** RFC3339 时间戳 */
+  at: string
+}
+
+export interface Restored {
+  restored_to: string
+  /**
+   * 回退**前**的状态被存成了这一笔。
+   *
+   * 「改之前先快照」意味着最后一次操作的结果本身还没进历史，所以回退抹掉的
+   * 恰恰是没人存过的那份。传它给 `restoreSnapshot` 就能撤销这次回退。
+   */
+  previous: Snapshot | null
+  /** 记录这次回退本身的新快照 */
+  snapshot: Snapshot | null
+}
+
+/**
+ * 一次最多取多少份快照。
+ *
+ * 与 Rust 侧 `list_snapshots` 的上限一致。界面直接要满额：Agent 一次会话里
+ * 调几十个写工具是常态，取少了会把「这次会话之前」那一份挤出列表。
+ * 到了这个数就是真被截断了，界面要说出来——快照列表里看不到底，
+ * 等于让人以为更早的历史不存在。
+ */
+export const SNAPSHOT_LIMIT = 200
+
+/** 内容快照清单，最新在前。 */
+export const listSnapshots = (limit?: number) => invoke<Snapshot[]>('list_snapshots', { limit })
+
+
+/** 回退到某个快照。产物不动，回退完要重新生成才能让 `dist/` 跟上。 */
+export const restoreSnapshot = (id: string) => invoke<Restored>('restore_snapshot', { id })
+
 // ---------------------------------------------------------------- 主题包
+
 
 /** 主题包的说明文件（包内 theme.toml）。 */
 export interface ThemeManifest {

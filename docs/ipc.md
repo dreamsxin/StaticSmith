@@ -108,7 +108,30 @@
 
 `source` 是相对 `content/` 的正斜杠路径，如 `posts/hello.md`。
 
+## 内容快照
+
+- `list_snapshots(limit?) -> Snapshot[]`：最新在前，`limit` 省略给 50、上限 200
+- `restore_snapshot(id) -> Restored`：回退到某一份
+
+`Snapshot` 字段：`id`（短哈希）、`message`（触发它的操作标识符）、`at`（RFC3339）。
+`message` 存的是标识符而不是中文：界面与 Agent 共用一条历史，标识符是两边唯一都能
+给出的东西。翻译在前端 `src/text.ts` 的 `snapshotLabel`，认不出来的原样显示。
+
+`Restored` 字段：`restored_to`、`previous`、`snapshot`。`previous` 是**回退前**的状态——
+「改之前先快照」意味着最后一次操作的结果本身还没进历史，所以回退要抹掉的恰恰是
+没人存过的那一份，不先存下来回退本身就成了第二次不可逆操作。把 `previous.id` 再传给
+`restore_snapshot` 就能撤销这次回退。
+
+`restore_snapshot` **重开项目**而不是 `reload`：`staticsmith.toml` 也在跟踪范围里，
+回退可能把它换成旧版，而 `reload` 只重读模板与内容。只 reload 的话，磁盘上是旧配置、
+内存里是新配置，随后的构建会拿着错的 `base_url` 与输出目录跑。
+
+产物不动：回退只改源文件，`dist/` 还是回退前那次构建的结果，要重新生成一次。
+
+快照由破坏性操作自动留下，机制见 [MCP 服务](mcp.md) 与 `staticsmith_core::history`。
+
 ## 媒体资源
+
 
 - `save_asset(fileName, dataBase64) -> SavedAsset`：保存粘贴或拖入的文件
 - `list_assets() -> AssetRecord[]`：已登记的资源清单
