@@ -92,15 +92,17 @@ pub fn run() {
         .expect("Tauri 应用启动失败");
 }
 
-/// 把「静默闪退」变成「日志里能查到的闪退」。
+/// 把「静默闪退」变成「日志里能查到的现场」。
 ///
-/// `Cargo.toml` 的 release profile 设了 `panic = "abort"`，所以 panic 不能被
-/// `catch_unwind` 兜住——渲染线程池、预览 HTTP 线程、文件监听线程、内嵌 MCP 线程
-/// 里任何一处 panic 都会让整个窗口当场消失。既然拦不住，至少要留下现场：
-/// 钩子在 abort 之前跑，把线程名、位置与消息写进 tracing。
+/// panic 钩子在展开之前跑，把线程名、位置与消息写进 tracing。它与
+/// `AppState::with_session*` 里的 `catch_unwind` 分工：钩子负责**留下现场**
+/// （谁在哪一行炸的），`catch_unwind` 负责**别把窗口带走**。
 ///
-/// 这不能替代「别 panic」。它只是让事后能查出是谁炸的——真正要杜绝丢稿，
-/// 得去掉 `panic = "abort"` 并在线程边界上兜住，那是另一笔账（见 docs/development.md）。
+/// 没被命令边界覆盖的线程——预览 HTTP、文件监听、内嵌 MCP——里的 panic 只会
+/// 让那一个线程结束，进程继续跑。表现是「预览突然打不开了」这类静默失效，
+/// 所以这条日志是唯一的线索。
+///
+/// 这都不能替代「别 panic」。
 fn install_panic_hook() {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {

@@ -5,6 +5,17 @@
 
 命令抛出的错误统一被序列化为一条中文字符串，前端 `invoke` 的 reject 分支直接可用。
 
+命令内部的 **panic 也会变成这样一条错误**，而不是让窗口消失：release profile 刻意
+保留 unwind（不设 `panic = "abort"`），`AppState::with_session` / `with_session_mut`
+在锁作用域内 `catch_unwind`。这么做兜住两件事——未保存的编辑不会随进程一起没了；
+状态锁不会被 poisoned（否则项目还开着，但之后每个操作都会再炸一次）。
+写入路径捕获后会立刻 `Builder::reload()` 从磁盘重建状态：panic 可能停在改了一半的
+地方，拿着半套内存状态继续生成产物比报错更糟。
+
+没被命令边界覆盖的线程（预览 HTTP、文件监听、内嵌 MCP）里的 panic 只会结束那个线程，
+表现为「预览突然打不开了」这类静默失效，线索在 panic 钩子写的日志里。
+
+
 ## 项目生命周期
 
 - `list_presets() -> PresetOption[]`：可选版式（`slug` / `title` / `description`），供起始页做选择

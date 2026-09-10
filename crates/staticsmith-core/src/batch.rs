@@ -399,9 +399,10 @@ fn describe_patch(
     let described = match action {
         Action::Tags(_) => match tag_edit {
             // 调用方一定先 `clean_tag_edit` 再进来，所以正常不可能是 None。
-            // 但**不用 `expect`**：这是全仓唯一一处真正的逻辑不变量断言，而
-            // `panic = "abort"` 下它会让整个应用当场消失、未保存的编辑一起丢。
-            // 将来若有人加了新入口忘了传，报一行「说不出会改什么」远比 abort 好。
+            // 但**不用 `expect`**：这是全仓唯一一处真正的逻辑不变量断言。
+            // 桌面端现在能在 IPC 边界兜住 panic，但 CLI 与 MCP 没有这层保护，
+            // 一个 expect 会让批量改内容的进程当场中断。
+            // 将来若有人加了新入口忘了传，报一行「说不出会改什么」远比 panic 好。
             None => Err(Error::Other(
                 "内部错误：标签动作没有带上清洗后的增删表".to_string(),
             )),

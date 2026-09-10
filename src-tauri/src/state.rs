@@ -180,15 +180,60 @@ impl AppState {
     pub fn with_session<T>(&self, f: impl FnOnce(&Session) -> Result<T>) -> Result<T> {
         let guard = self.session.lock().expect("状态锁被污染");
         let session = guard.as_ref().ok_or(AppError::NoProject)?;
-        f(session)
+        match catch_panics(|| f(session)) {
+            Ok(result) => result,
+            Err(message) => Err(panic_error("读取", &message)),
+        }
     }
 
     /// 以可写方式访问当前项目（构建、reload 需要 `&mut Builder`）。
+    ///
+    /// panic 在这里被兜住并**立刻从磁盘重载**：写入路径上的 panic 可能把 `Builder`
+    /// 停在改了一半的状态上，拿着半套内存状态继续生成产物比报错更糟。
     pub fn with_session_mut<T>(&self, f: impl FnOnce(&mut Session) -> Result<T>) -> Result<T> {
         let mut guard = self.session.lock().expect("状态锁被污染");
         let session = guard.as_mut().ok_or(AppError::NoProject)?;
-        f(session)
+        match catch_panics(|| f(session)) {
+            Ok(result) => result,
+            Err(message) => {
+                if let Err(err) = session.builder.reload() {
+                    tracing::error!("panic 后从磁盘重载项目状态也失败了，请重新打开项目: {err}");
+                }
+                Err(panic_error("写入", &message))
+            }
+        }
     }
+}
+
+/// 在 IPC 命令边界上兜住 panic，`Err` 分支带回 panic 的消息。
+///
+/// 两件事都靠它：
+///
+/// 1. **不丢稿**。release profile 刻意保留 unwind（见 `Cargo.toml`），
+///    渲染线程池里的 panic 会被 rayon 转发到调用线程，兜住后编辑器还活着。
+/// 2. **不污染状态锁**。panic 若穿过 `MutexGuard`，`Mutex` 会被标记为 poisoned，
+///    此后每次 `lock().expect(...)` 都会再 panic——那才是真正没救的。
+///    在锁作用域**内部**兜住，guard 正常析构，锁保持干净。
+///
+/// `AssertUnwindSafe` 是必需的：`&mut Session` 不是 `UnwindSafe`。这个断言由
+/// 调用方兑现——`with_session_mut` 捕获后会重载状态，不带着半套状态继续用。
+fn catch_panics<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
+        if let Some(s) = payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<非字符串 payload>".to_string()
+        }
+    })
+}
+
+fn panic_error(what: &str, message: &str) -> AppError {
+    tracing::error!("{what}项目时发生 panic：{message}");
+    AppError::Message(format!(
+        "内部错误：{message}。这是程序缺陷，请附日志反馈；磁盘上的内容没有受影响"
+    ))
 }
 
 #[cfg(test)]
@@ -201,6 +246,39 @@ mod tests {
             content: content.iter().map(PathBuf::from).collect(),
             other: Vec::new(),
         }
+    }
+
+    /// 这几个 panic 用例会让默认钩子往 stderr 打印现场，测试输出里出现
+    /// 「thread panicked」是预期的。不去替换全局钩子：它是进程级的，
+    /// 测试并行跑时改它会互相干扰。
+    #[test]
+    fn catch_panics_passes_values_through() {
+        assert_eq!(catch_panics(|| 42), Ok(42));
+    }
+
+    #[test]
+    fn catch_panics_reports_the_message() {
+        let caught = catch_panics(|| panic!("模板索引越界"));
+        assert_eq!(caught, Err("模板索引越界".to_string()));
+    }
+
+    /// panic 必须在锁作用域**内部**被兜住。
+    ///
+    /// 否则 `Mutex` 会被标记为 poisoned，之后每一次 `lock().expect(...)`
+    /// 都会再 panic——那才是真正救不回来的：项目还开着，但任何操作都会炸。
+    #[test]
+    fn catching_inside_the_lock_keeps_the_mutex_usable() {
+        let lock = Mutex::new(1);
+        {
+            let mut guard = lock.lock().unwrap();
+            let caught = catch_panics(|| {
+                *guard += 1;
+                panic!("改了一半就炸了");
+            });
+            assert!(caught.is_err());
+        }
+        assert!(!lock.is_poisoned(), "锁不能被污染");
+        assert_eq!(*lock.lock().unwrap(), 2, "panic 之前的改动仍然可见");
     }
 
     #[test]

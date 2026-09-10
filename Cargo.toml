@@ -48,4 +48,9 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
-panic = "abort"
+# 刻意不设 panic = "abort"。
+#
+# abort 能省下展开表、二进制小一点，但代价是任何一处 panic 都让窗口当场消失、
+# 未保存的编辑一起丢。留着 unwind，IPC 命令边界（`AppState::with_session*`）
+# 就能把 panic 兜成一条错误信息：进程活着，内容还在磁盘上。
+
