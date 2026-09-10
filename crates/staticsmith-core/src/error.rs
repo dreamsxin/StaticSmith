@@ -43,6 +43,11 @@ pub enum Error {
     #[error("文件监听错误: {0}")]
     Watch(#[source] Box<notify::Error>),
 
+    /// 本地快照（影子 git 仓库）操作失败。
+    #[cfg(feature = "history")]
+    #[error("内容快照错误: {0}")]
+    History(#[source] Box<git2::Error>),
+
     #[error("{0}")]
     Other(String),
 }
@@ -89,6 +94,13 @@ impl From<rusqlite::Error> for Error {
 impl From<notify::Error> for Error {
     fn from(source: notify::Error) -> Self {
         Error::Watch(Box::new(source))
+    }
+}
+
+#[cfg(feature = "history")]
+impl From<git2::Error> for Error {
+    fn from(source: git2::Error) -> Self {
+        Error::History(Box::new(source))
     }
 }
 

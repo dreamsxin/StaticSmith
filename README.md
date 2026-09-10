@@ -135,8 +135,11 @@ my-site/
 ├── themes/default/static/    # 主题静态资源，构建时复制到输出目录
 ├── static/                   # 站点静态资源（含编辑器插入的图片，默认在 static/images/）
 ├── dist/                     # 生成产物
-└── .staticsmith/index.db     # 本地索引（可安全删除，删除后退化为全量生成）
+└── .staticsmith/             # 本地状态，自带 .gitignore 对外层仓库整体隐身
+    ├── index.db              # 增量构建索引（可安全删除，删除后退化为全量生成）
+    └── history.git           # 内容快照的影子仓库（删了就没有回退历史了）
 ```
+
 
 目录名全部来自 `staticsmith.toml`，可以按需改动，见 [媒体资源与目录结构](docs/assets.md)。
 

@@ -9,9 +9,13 @@ repository.workspace = true
 authors.workspace = true
 
 [features]
-default = ["serve"]
+default = ["serve", "history"]
 # 本地预览 HTTP 服务器。CLI 与桌面端都需要它；纯构建场景可以关掉以减少依赖。
 serve = ["dep:tiny_http"]
+# 本地内容快照（影子 git 仓库）。破坏性操作前留一份可回退的版本。
+# CI 里只做构建校验的场景可以关掉。
+history = ["dep:git2"]
+
 
 [dependencies]
 thiserror.workspace = true
@@ -35,6 +39,10 @@ tracing.workspace = true
 slug.workspace = true
 zip.workspace = true
 tiny_http = { workspace = true, optional = true }
+# 只用来读写项目内的影子仓库，不发网络请求，所以不开任何传输后端。
+# staticsmith-deploy 会把 https 打开，Cargo 特性合并后是同一份 libgit2。
+git2 = { version = "0.19", optional = true, default-features = false }
+
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -5,6 +5,7 @@
 
 use serde_json::{json, Value};
 use staticsmith_core::build::BuildMode;
+use staticsmith_core::history::Snapshots;
 use staticsmith_core::{Builder, NewContent};
 
 use crate::protocol::tool_result;
@@ -264,7 +265,7 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "replace_text",
             title: "跨文件替换正文",
-            description: "在多篇内容的正文里把一段文字换成另一段（改称呼、统一术语）。只动正文，front matter 一个字节都不碰——改标题、标签用 patch_front_matter。纯文本，不支持正则。默认 dry_run=true 只算不写：先看清哪几篇、共几处，再用 dry_run=false 落盘。正文替换没有撤销。",
+            description: "在多篇内容的正文里把一段文字换成另一段（改称呼、统一术语）。只动正文，front matter 一个字节都不碰——改标题、标签用 patch_front_matter。纯文本，不支持正则。默认 dry_run=true 只算不写：先看清哪几篇、共几处，再用 dry_run=false 落盘。落盘前会自动留一份快照，改坏了用 list_snapshots + restore_snapshot 退回去。",
             access: Access::Write,
             schema: || {
                 json!({
@@ -387,6 +388,37 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "list_snapshots",
+            title: "本地快照列表",
+            description: "每个写工具动手之前都会自动留一份快照。这里列出最近的若干份，最新在前。改坏了用 restore_snapshot 回退。",
+            access: Access::Read,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "limit": { "type": "integer", "description": "最多列几条，默认 20" }
+                    },
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
+            name: "restore_snapshot",
+            title: "回退到某个快照",
+            description: "把内容、模板、主题、静态资源恢复成某个快照的样子（产物目录不动）。回退前的状态也会自动存一份，所以回退错了还能再回来。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string", "description": "快照 id，取自 list_snapshots" }
+                    },
+                    "required": ["id"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
             name: "deploy_site",
             title: "发布站点",
             description: "按配置发布到 Git 或 FTP/SFTP。凭证取自环境变量。这一步会影响线上站点。",
@@ -434,9 +466,45 @@ pub fn call(builder: &mut Builder, permissions: Permissions, name: &str, args: &
         );
     }
 
+    // 改之前先留一份可回退的版本。干跑预览只在人真的逐条读了时才有用，
+    // Agent 连着调十个工具的时候没人在读。
+    if def.access == Access::Write && touches_sources(name) {
+        snapshot_before(builder, name);
+    }
+
     match execute(builder, name, args) {
         Ok(text) => tool_result(text, false),
         Err(message) => tool_result(message, true),
+    }
+}
+
+/// 这个工具会不会改动**源文件**。
+///
+/// 默认为「会」，只排除已知不碰源的那些——方向刻意选成这样：将来新增写工具时
+/// 忘了登记，最坏是多存一次没变化的快照（`snapshot` 会返回 `None`）；
+/// 反过来若默认「不会」，忘了登记就等于那个工具没有安全网。
+///
+/// `restore_snapshot` 自己会把回滚前的状态存下来并把 id 报给调用方，
+/// 在这里再存一次只会把那个 id 吞掉。
+fn touches_sources(name: &str) -> bool {
+    !matches!(name, "build_site" | "deploy_site" | "restore_snapshot")
+}
+
+/// 快照失败不阻断操作。
+///
+/// 没有安全网也比「因为 git 出问题就不让写内容」好。但要留下日志：
+/// 事后发现某次改动没有可回退的版本时，原因得查得到。
+fn snapshot_before(builder: &Builder, tool: &str) {
+    let root = builder.paths.root.clone();
+    match Snapshots::open(&root).and_then(|s| s.snapshot(tool)) {
+        Ok(Some(snapshot)) => {
+            tracing::info!("{tool} 之前已留快照 {}", snapshot.id);
+        }
+        // 内容与上次快照一致，不留空提交
+        Ok(None) => {}
+        Err(err) => {
+            tracing::warn!("{tool} 之前的快照没留下，这次改动将无法回退: {err}");
+        }
     }
 }
 
@@ -463,6 +531,8 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "delete_content" => delete_content(builder, args),
         "write_template" => write_template(builder, args),
         "build_site" => build_site(builder, args),
+        "list_snapshots" => list_snapshots(builder, args),
+        "restore_snapshot" => restore_snapshot(builder, args),
         "deploy_site" => deploy_site(builder),
         other => Err(format!("未知工具: {other}")),
     }
@@ -643,8 +713,9 @@ fn create_content(builder: &mut Builder, args: &Value) -> Result<String, String>
 /// Agent 明确要求搬某一篇，静默跳过会让它以为成功了。
 /// 跨文件替换正文。
 ///
-/// **默认只干跑**：Agent 会照着描述连着调好几次工具，而正文替换没有撤销栈；
-/// 默认值必须是那个「说错了也没损失」的方向。落盘要显式 `dry_run: false`。
+/// **默认只干跑**：Agent 会照着描述连着调好几次工具，落盘要显式 `dry_run: false`。
+/// 快照（见 `call` 里的 `snapshot_before`）是兜底，不是把默认值改成写的理由——
+/// 「先看清再动手」和「动坏了能退回」解决的是两个不同的问题。
 fn replace_text(builder: &mut Builder, args: &Value) -> Result<String, String> {
     use staticsmith_core::replace::{Rule, Scope};
 
@@ -1003,6 +1074,41 @@ fn deploy_site(builder: &mut Builder) -> Result<String, String> {
     pretty(&json!({ "report": report, "log": log }))
 }
 
+// ---------------------------------------------------------------- 本地快照
+
+/// 最近的快照，最新在前。
+fn list_snapshots(builder: &Builder, args: &Value) -> Result<String, String> {
+    let limit = args
+        .get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(20)
+        .clamp(1, 200) as usize;
+    let snapshots = Snapshots::open(&builder.paths.root)
+        .and_then(|s| s.list(limit))
+        .map_err(err)?;
+    let next = if snapshots.is_empty() {
+        "还没有快照：第一次调用写工具时会自动留下第一份"
+    } else {
+        "回退用 restore_snapshot，id 传上面任意一条"
+    };
+    pretty(&json!({ "snapshots": snapshots, "next": next }))
+}
+
+/// 回退到某个快照，随后重新加载内存状态。
+fn restore_snapshot(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    let id = require_str(args, "id")?.to_string();
+    let snapshots = Snapshots::open(&builder.paths.root).map_err(err)?;
+    let restored = snapshots.restore(&id).map_err(err)?;
+    // 磁盘变了：页面列表、模板依赖图都得重读，否则后续工具看到的还是旧内容
+    builder.reload().map_err(err)?;
+
+    pretty(&json!({
+        "restored_to": restored.restored_to,
+        "previous": restored.previous,
+        "next": "产物还是旧的，跑 build_site 让 dist/ 跟上；不想要这次回退就 restore_snapshot 到 previous.id"
+    }))
+}
+
 // ---------------------------------------------------------------- 工具函数
 
 /// 解析 `mode` 参数。
@@ -1063,6 +1169,87 @@ mod tests {
             write: true,
             deploy: false,
         }
+    }
+
+    /// 写工具动手之前必须已经留下快照，改坏了才回得去。
+    ///
+    /// 这条盯的是 `call` 与 `history` 的接线，不是 `history` 本身——
+    /// 那个模块自己有测试。这里要证明的是「Agent 调用写工具」这条路径上
+    /// 安全网真的挂上了。
+    #[test]
+    fn write_tools_leave_a_snapshot_before_touching_anything() {
+        let (dir, mut builder) = project();
+        let snapshots = Snapshots::open(dir.path()).unwrap();
+        assert!(snapshots.list(10).unwrap().is_empty(), "起点没有快照");
+
+        let source = "posts/hello-staticsmith.md";
+        let before = std::fs::read_to_string(dir.path().join("content").join(source)).unwrap();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "write_content",
+            &json!({ "source": source, "raw": "+++\ntitle = \"覆盖掉了\"\n+++\n" }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+
+        // 快照以工具名为提交信息，看历史就知道是谁动的手
+        let list = snapshots.list(10).unwrap();
+        assert_eq!(list.len(), 1, "{list:?}");
+        assert_eq!(list[0].message, "write_content");
+
+        // 而且它真的能把内容还回去
+        call(
+            &mut builder,
+            writer(),
+            "restore_snapshot",
+            &json!({ "id": list[0].id }),
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("content").join(source)).unwrap(),
+            before
+        );
+    }
+
+    /// 只生成产物的工具不必留快照：`dist/` 不进跟踪，存了也是空的。
+    #[test]
+    fn building_does_not_add_snapshots() {
+        let (dir, mut builder) = project();
+        let result = call(&mut builder, writer(), "build_site", &json!({}));
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+
+        let snapshots = Snapshots::open(dir.path()).unwrap();
+        assert!(snapshots.list(10).unwrap().is_empty());
+    }
+
+    /// 回退之后内存状态必须跟着重载，否则后续工具读到的还是旧内容。
+    #[test]
+    fn restoring_reloads_the_in_memory_state() {
+        let (dir, mut builder) = project();
+        let snapshots = Snapshots::open(dir.path()).unwrap();
+
+        let created = call(
+            &mut builder,
+            writer(),
+            "create_content",
+            &json!({ "title": "临时的一篇", "section": "posts" }),
+        );
+        assert_eq!(created["isError"], false);
+        let pages_before = builder.pages().len();
+
+        let list = snapshots.list(10).unwrap();
+        let result = call(
+            &mut builder,
+            writer(),
+            "restore_snapshot",
+            &json!({ "id": list[0].id }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+        assert_eq!(
+            builder.pages().len(),
+            pages_before - 1,
+            "回退掉了新建的那篇，内存里的页面列表也得跟着少一篇"
+        );
     }
 
     /// `mode` 拼错要报错，而不是静默按增量跑。

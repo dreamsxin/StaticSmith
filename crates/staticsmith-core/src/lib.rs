@@ -33,7 +33,11 @@ pub mod feeds;
 pub mod filters;
 pub mod frontmatter;
 pub mod graph;
+/// 本地内容快照。`history` 特性开启时可用（默认开）。
+#[cfg(feature = "history")]
+pub mod history;
 pub mod import;
+
 pub mod index;
 pub mod links;
 pub mod media;

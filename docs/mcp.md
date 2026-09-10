@@ -45,6 +45,8 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `audit_links`：站内死链体检。读产物，所以先 `build_site`；站外链接只计数，不发网络请求
 - `list_sections`：栏目清单（标题、简介、排序权重、地址、直属篇数、草稿数、
   有没有索引页、子栏目）。没有索引页的栏目打不开列表页，报告里会点出来
+- `list_snapshots`：本地快照列表，最新在前。见下面「改坏了怎么退回去」
+
 
 需要 `--allow-write`：
 
@@ -65,10 +67,11 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `replace_text`：跨文件替换**正文**里的一段文字（改称呼、统一术语）。
   front matter 一个字节都不碰——改字段用 `patch_front_matter`；纯文本，不支持正则。
   **默认 `dry_run = true`**：先回传哪几篇、共几处、每处前后对照，
-  确认后再带 `dry_run: false` 落盘。正文替换没有撤销，默认值取那个「说错了也没损失」的方向
+  确认后再带 `dry_run: false` 落盘。默认值取那个「说错了也没损失」的方向
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物
+- `restore_snapshot`：回退到某个快照。见下节
 
 
 需要 `--allow-deploy`：
@@ -76,6 +79,29 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `deploy_site`：按配置发布（标记为 destructive），凭证取自环境变量
 
 `delete_content` 与 `deploy_site` 带 `destructiveHint`，支持该标注的客户端会要求人工确认。
+
+## 改坏了怎么退回去
+
+**每个写工具动手之前都会自动留一份本地快照**，提交信息就是那个工具的名字。
+干跑预览只在人真的逐条读了时才起作用——Agent 连着调十个工具的时候没人在读，
+所以安全网不能只靠预览。
+
+- `list_snapshots`：看有哪些快照（`limit` 默认 20，最新在前）
+- `restore_snapshot`：把内容、模板、主题、静态资源恢复成某个快照的样子
+
+回退**前**的状态也会先存一份，id 在返回的 `previous` 里——所以回退错了还能再回退回来，
+历史只增不改。回退只动源文件，`dist/` 不管，之后要 `build_site` 让产物跟上。
+
+快照存在 `.staticsmith/history.git`，是一个**独立于用户自己 git 仓库**的影子仓库：
+工作树是项目根，但仓库目录在 `.staticsmith` 里，项目根不会出现 `.git`。
+用户的 `git log`、暂存区、`git status` 都不受影响。
+
+跟踪的只有源：`staticsmith.toml`、`content/`、`templates/`、`themes/`、`static/`。
+`dist/` 不进快照（可重新生成），`build_site` 与 `deploy_site` 因此不留快照。
+
+需要说清楚的边界：**这层保护目前只覆盖 MCP 这条路径**。桌面端与命令行的批量操作
+仍然只有干跑预览，没有快照——那是另一笔账。
+
 
 ## 传输与端点
 
