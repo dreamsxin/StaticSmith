@@ -23,8 +23,9 @@ export function parseList(text: string): string[] {
  * 最坏情况是列表里出现一个工具名，而不是一片空白。回滚自己留下的那两笔
  * （「回滚到 …」）本来就是中文，也走这条原样通道。
  *
- * 只列真会出现的名字：界面这边是 `with_writing_session` 的 8 个操作，
+ * 只列真会出现的名字：界面这边是 `with_writing_session` 的那批操作，
  * Agent 那边是 MCP 的写工具名。
+
  */
 const OPERATIONS: Record<string, string> = {
   // 界面上的破坏性操作
@@ -36,6 +37,11 @@ const OPERATIONS: Record<string, string> = {
   apply_replace: '跨文件替换之前',
   rename_section: '栏目改名之前',
   remove_section: '删除栏目之前',
+  import_content: '导入内容之前',
+  import_theme: '装入主题包之前',
+  save_config: '保存站点设置之前',
+  save_config_source: '手改配置原文之前',
+  remove_media: '删除媒体之前',
   // Agent（MCP 写工具）
   create_content: 'Agent 新建文章之前',
   write_content: 'Agent 改文章之前',
@@ -45,6 +51,7 @@ const OPERATIONS: Record<string, string> = {
   create_section: 'Agent 新建栏目之前',
   write_template: 'Agent 改模板之前',
 }
+
 
 
 export function snapshotLabel(message: string): string {

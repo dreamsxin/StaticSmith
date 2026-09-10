@@ -233,9 +233,9 @@ pub fn save_config(state: State<'_, AppState>, config: SiteConfig) -> Result<Vec
     if !issues.is_empty() {
         return Err(AppError::Message(issues.join("；")));
     }
-    state.with_session_mut(|session| {
+    state.with_writing_session("save_config", |session| {
         config.save(&session.root)?;
-        session.builder = staticsmith_core::Builder::open(&session.root)?;
+        reopen_after_write(session, "设置")?;
         Ok(Vec::new())
     })
 }
@@ -264,10 +264,10 @@ pub fn save_config_source(state: State<'_, AppState>, raw: String) -> Result<Vec
     if !issues.is_empty() {
         return Err(AppError::Message(issues.join("；")));
     }
-    state.with_session_mut(|session| {
+    state.with_writing_session("save_config_source", |session| {
         let path = session.root.join(staticsmith_core::CONFIG_FILE_NAME);
         std::fs::write(&path, &raw)?;
-        session.builder = staticsmith_core::Builder::open(&session.root)?;
+        reopen_after_write(session, "配置原文")?;
         Ok(Vec::new())
     })
 }
@@ -517,7 +517,7 @@ pub fn import_content(
     dir: String,
     section: String,
 ) -> Result<ImportReport> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("import_content", |session| {
         let from = Path::new(&dir);
         // 先扫一遍拿到会写哪些文件，逐个登记自身写入：一次导入可能上百个文件，
         // 不登记的话监听器会把它们当成外部改动，界面立刻弹横幅
@@ -875,7 +875,7 @@ pub fn import_theme(
     archive: String,
     overwrite: bool,
 ) -> Result<ThemeImported> {
-    state.with_session_mut(|session| {
+    state.with_writing_session("import_theme", |session| {
         // 一次装十几个模板，逐个记不如把两棵子树都标上：否则装完必弹「检测到外部修改」
         state.note_self_tree(&session.builder.paths.templates);
         state.note_self_tree(&session.builder.paths.theme);
@@ -930,9 +930,18 @@ pub fn audit_links(state: State<'_, AppState>) -> Result<LinkReport> {
 }
 
 /// 删除媒体文件。不可撤销，界面需先二次确认。
+///
+/// 走 `with_writing_session`：这里没有编辑器缓冲兜着，删掉的是磁盘上的二进制，
+/// 除了快照没有别的退路。资源目录在 `static_dir` 之下（`ProjectPaths::new` 把
+/// `assets.dir` 折到 `static_dir` 上，且 `Assets::validate` 不许 `..` 与绝对路径），
+/// 所以**只要 `static_dir` 本身在项目根之内**，删之前那一份快照就能把图片找回来。
+/// `static_dir` 被配成根之外时（`validate()` 目前不查 `build.*` 目录）跟踪范围会
+/// 静默少掉这一块，那时快照救不了——这是 `ProjectPaths` 那个待定问题的一个后果。
 #[tauri::command]
 pub fn remove_media(state: State<'_, AppState>, paths: Vec<String>) -> Result<MediaRemoved> {
-    state.with_session(|session| Ok(session.builder.remove_media(&paths)?))
+    state.with_writing_session("remove_media", |session| {
+        Ok(session.builder.remove_media(&paths)?)
+    })
 }
 
 /// 产物清单（页面 / 标签页 / 分页 / sitemap / 订阅 / 静态资源）。
@@ -1308,6 +1317,31 @@ pub fn restore_snapshot(state: State<'_, AppState>, id: String) -> Result<Restor
             }
         }
     })
+}
+
+/// 写完源文件之后重开项目。
+///
+/// **重开失败不能报成「写入失败」。** 文件已经落盘了；重开是把它重新解析一遍，
+/// 有独立的失败原因——配置能解析、能过 `validate()`，仍可能让 `Builder::open` 失败
+/// （指向一个不存在的模板目录、主题目录读不出来、内容里有一篇解析不了的 front matter）。
+/// 报一句笼统的失败会让人再点一次保存，而磁盘上其实已经是新的、界面上还是旧的，
+/// 两边就此分叉：设置页显示旧值，生成用的是旧内存状态，文件里躺着新配置。
+///
+/// 同一条理由在 [`restore_snapshot`] 那边也成立，那里的消息还要多带一个「怎么撤销」。
+fn reopen_after_write(session: &mut Session, wrote: &str) -> Result<()> {
+    match staticsmith_core::Builder::open(&session.root) {
+        Ok(builder) => {
+            session.builder = builder;
+            Ok(())
+        }
+        Err(err) => {
+            tracing::error!("{wrote}已写入，但重开项目失败: {err}");
+            Err(AppError::Message(format!(
+                "{wrote}已经写进磁盘，但重新读取项目失败：{err}。\
+                 请重新打开站点；写坏了可以用「编辑 → 回退内容」回到保存之前那一份。"
+            )))
+        }
+    }
 }
 
 /// 事件只投给发起操作的窗口。

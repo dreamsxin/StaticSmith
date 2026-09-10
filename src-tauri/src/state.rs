@@ -357,6 +357,49 @@ mod tests {
         assert_eq!(*lock.lock().unwrap(), 2, "panic 之前的改动仍然可见");
     }
 
+    /// 动手之前那份快照真的能把内容找回来。
+    ///
+    /// 断言的是 `snapshot_before` 这一环：留下一笔、提交信息是操作标识符（界面据此
+    /// 翻译成人话）、并且真能还原。`with_writing_session` 需要一个 `Session`
+    /// （进而需要 Tauri `Window`），在单元测试里造不出来，所以**没有**覆盖到
+    /// 「某个命令是不是记得用了带快照的那个访问器」——那一层目前只有编译期的
+    /// 「方法名写在那里」作为约束。
+    #[test]
+    fn a_snapshot_taken_before_a_write_can_be_restored() {
+        use staticsmith_core::config::{Assets, Build};
+        use staticsmith_core::history::Snapshots;
+
+        let dir = tempfile::tempdir().expect("临时目录");
+        std::fs::create_dir_all(dir.path().join("content")).unwrap();
+        std::fs::write(
+            dir.path().join("staticsmith.toml"),
+            "[site]\ntitle = \"t\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("content/a.md"), "原文\n").unwrap();
+
+        let paths = ProjectPaths::new(dir.path(), &Build::default(), &Assets::default());
+        snapshot_before(&paths, "batch_delete");
+
+        // 那个操作把文章删了——这正是没有安全网时找不回来的那种改动
+        std::fs::remove_file(dir.path().join("content/a.md")).unwrap();
+
+        let snapshots = Snapshots::open(&paths).unwrap();
+        let listed = snapshots.list(10).unwrap();
+        assert_eq!(listed.len(), 1, "动手之前必须留下一份：{listed:?}");
+        assert_eq!(
+            listed[0].message, "batch_delete",
+            "提交信息就是操作标识符，界面据此翻译成人话"
+        );
+
+        snapshots.restore(&listed[0].id).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("content/a.md")).unwrap(),
+            "原文\n",
+            "删掉的文章要能回来"
+        );
+    }
+
     #[test]
     fn own_writes_are_filtered_out() {
         let writes = SelfWrites::default();

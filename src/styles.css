@@ -375,9 +375,11 @@ h3 {
 }
 
 .snapshot:hover,
-.snapshot:focus-visible {
+.snapshot:focus-visible,
+.snapshot.active {
   background: var(--bg-subtle);
 }
+
 
 .snapshot__when {
   flex: 1;
