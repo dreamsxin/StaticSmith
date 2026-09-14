@@ -3,6 +3,29 @@
 两条通道共享同一前置条件：产物目录必须存在且非空。空目录会被直接拒绝
 （`Error::EmptyOutput`），避免把空站点同步上去清空线上内容。
 
+## 落盘前先看一眼（干跑）
+
+`Deployer::plan` 与 `Deployer::deploy` 是一对：前者算出「会传什么」，后者去传。
+判断共用一份逻辑（FTP 是 `ftp::compute`，Git 是同一段 `add_all` + diff），
+所以预览说传哪些、跳过几个，执行就是那样。
+
+`DeployPlan` 给 `target` / `upload` / `skipped` / `bytes` / `warnings`。
+`warnings` 说的是**这次干跑自己的代价与限制**，不是「发布会出的警告」：
+
+- FTP/SFTP：除「总是覆盖」外都必须逐个查远端的 `SIZE` 与 `MDTM` 才能判断，
+  所以干跑**会连服务器**——但只读，不建目录也不上传。
+- Git：要先在本地 `dist/.git` 里 `add_all` + `write_tree` 才能与上次提交 diff，
+  所以干跑**会写 dist/.git 的暂存区**，但不提交、不推送，线上不受影响。
+  同时提醒「产物分支是强制推送」。
+- 两条路都提醒「远端多余的文件不会被删除」：否则「上传 3 个」看起来像
+  「线上就只剩这 3 个」。
+
+三端入口：桌面端点「一键发布…」先出确认清单（目标、数量、字节、前几个文件名、
+上述提醒），确认才发；命令行 `staticsmith deploy --dry-run`；
+MCP `deploy_site` **默认 `dry_run = true`**，要真发得显式传 `dry_run: false`。
+理由与其它写操作一致：默认值取那个「说错了也没损失」的方向——别的动作改错了
+还能在本地改回来，发布改错了是别人看到的页面变了。
+
 ## Git
 
 `staticsmith-deploy::git::GitDeployer` 基于 `git2`，不调用系统 Git 可执行文件。

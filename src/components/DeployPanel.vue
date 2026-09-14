@@ -7,8 +7,44 @@
  */
 import { computed, ref, watch } from 'vue'
 
+import type { DeployPlan } from '../api'
 import { ftpOverwriteLabel } from '../labels'
 import { store, actions } from '../store'
+
+/**
+ * 确认清单里最多列几个文件名。
+ *
+ * 一次发布常有几百个文件，全列出来这块面板就没边了；而人要看的是「大概是哪些」
+ * 加上总数。挑 8 是因为它够看出「都是 posts/ 下的」这类判断。
+ */
+const FILES_SHOWN = 8
+
+/** 待确认的发布：干跑结果。`null` 表示还没点发布。 */
+const pending = ref<DeployPlan | null>(null)
+
+/**
+ * 先干跑再问一句。
+ *
+ * 发布是唯一影响**线上**的动作：别的动作改错了还能在本地改回来，这个改错了
+ * 是别人看到的页面变了。干跑失败（连不上、没配置）时错误已由 `run` 弹出，
+ * 这里不进确认态。
+ */
+async function askDeploy() {
+  pending.value = (await actions.planDeploy()) ?? null
+}
+
+async function confirmDeploy() {
+  pending.value = null
+  await actions.deploy()
+}
+
+/** 字节数给人看的写法。发布量在慢链路上是决策依据，不该只报文件个数。 */
+function sizeLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 
 const secret = ref('')
 /** 凭据管理器里是否已有这条凭证。null 表示还没查。 */
@@ -119,7 +155,42 @@ async function removeSecret() {
 
     <div class="deploy__panel">
       <h3>执行发布</h3>
-      <button type="button" :disabled="store.busy" @click="actions.deploy()">一键发布</button>
+      <button v-if="!pending" type="button" :disabled="store.busy" @click="askDeploy">
+        一键发布…
+      </button>
+
+      <!-- 落盘前的确认：这是唯一影响线上的动作，别的动作改错了还能在本地改回来。
+           就地确认而不是浮层——清单要和目标、覆盖规则同时看得见（见 docs/ui.md） -->
+      <div v-else class="deploy__confirm">
+        <p class="deploy__confirm-head">
+          将发布到 <strong>{{ pending.target }}</strong>
+        </p>
+        <ul class="build__stats">
+          <li>上传：{{ pending.upload.length }} 个文件（{{ sizeLabel(pending.bytes) }}）</li>
+          <li>跳过（未变化）：{{ pending.skipped }}</li>
+        </ul>
+        <ul v-if="pending.upload.length" class="deploy__files">
+          <li v-for="path in pending.upload.slice(0, FILES_SHOWN)" :key="path">
+            <code>{{ path }}</code>
+          </li>
+          <li v-if="pending.upload.length > FILES_SHOWN" class="build__muted">
+            …另有 {{ pending.upload.length - FILES_SHOWN }} 个
+          </li>
+        </ul>
+        <p v-for="warning in pending.warnings" :key="warning" class="warn">{{ warning }}</p>
+        <div class="deploy__actions">
+          <button
+            type="button"
+            class="btn--primary"
+            :disabled="store.busy || pending.upload.length === 0"
+            @click="confirmDeploy"
+          >
+            确认发布 {{ pending.upload.length }} 个文件
+          </button>
+          <!-- 取消不写任何东西，不跟随忙态 -->
+          <button type="button" @click="pending = null">取消</button>
+        </div>
+      </div>
 
       <template v-if="store.lastDeploy">
         <ul class="build__stats">

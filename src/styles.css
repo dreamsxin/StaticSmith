@@ -1333,6 +1333,32 @@ kbd {
   line-height: 1.5;
 }
 
+/* 发布前的确认：唯一影响线上的动作，清单要和目标、覆盖规则同时看得见。 */
+.deploy__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.deploy__confirm-head {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.deploy__files {
+  max-height: 9rem;
+  padding-left: 1.1rem;
+  margin: 0;
+  overflow-y: auto;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+}
+
+
 
 .page-list__batch-row input[type='text'] {
   flex: 1;

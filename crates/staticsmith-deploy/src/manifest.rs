@@ -47,6 +47,18 @@ impl SyncPlan {
     }
 }
 
+/// 计划里那些文件一共多少字节。
+///
+/// 影响预览要用：「3 个文件」与「3 个文件 480 MB」在慢链路上是两件事，
+/// 而用户按下确认之前只看得到前者。
+pub fn total_bytes(local: &[LocalEntry], paths: &[String]) -> u64 {
+    paths
+        .iter()
+        .filter_map(|path| local.iter().find(|entry| &entry.path == path))
+        .map(|entry| entry.size)
+        .sum()
+}
+
 /// 扫描输出目录，生成本地清单。
 pub fn scan(dist_dir: &Path) -> Result<Vec<LocalEntry>> {
     let mut entries = Vec::new();

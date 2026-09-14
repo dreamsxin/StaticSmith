@@ -200,6 +200,15 @@ export interface DeployReport {
   warnings: string[]
 }
 
+/** 发布前的影响预览：会传哪些、跳过几个、多少字节，以及这次干跑本身的代价。 */
+export interface DeployPlan {
+  target: string
+  upload: string[]
+  skipped: number
+  bytes: number
+  warnings: string[]
+}
+
 export interface BuildProgress {
   phase: string
   current: number
@@ -928,6 +937,9 @@ export const runBuild = (mode: BuildMode) => invoke<BuildReport>('run_build', { 
 export const outputDir = () => invoke<string>('output_dir')
 
 export const deploySite = () => invoke<DeployReport>('deploy_site')
+
+/** 干跑一次发布：会传哪些文件、跳过几个、多少字节。不写远端。 */
+export const planDeploy = () => invoke<DeployPlan>('plan_deploy')
 
 export const checkDeploy = () => invoke<void>('check_deploy')
 

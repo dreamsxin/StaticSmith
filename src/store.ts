@@ -1294,6 +1294,16 @@ export const actions = {
     if (done !== undefined) notify('success', '连接与凭证检查通过')
   },
 
+  /**
+   * 干跑一次发布。不写远端，各通道的代价在返回的 `warnings` 里说明。
+   *
+   * 发布曾是唯一没有干跑的写操作，而它偏偏是唯一影响**线上**的动作：
+   * 别的动作改错了还能在本地改回来，这个改错了是别人看到的页面变了。
+   */
+  async planDeploy() {
+    return await run(() => api.planDeploy())
+  },
+
   async deploy() {
     const report = await run(() => api.deploySite())
     if (report) {

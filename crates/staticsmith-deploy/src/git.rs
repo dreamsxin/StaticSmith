@@ -11,7 +11,9 @@ use git2::{
     Signature,
 };
 
-use crate::{ensure_output_ready, Credentials, DeployReport, Deployer, Error, Progress, Result};
+use crate::{
+    ensure_output_ready, Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result,
+};
 
 /// Git 发布通道。
 pub struct GitDeployer {
@@ -180,6 +182,48 @@ impl Deployer for GitDeployer {
             duration_ms: started.elapsed().as_millis() as u64,
             commit: Some(commit_id.to_string()),
             warnings: Vec::new(),
+        })
+    }
+
+    fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+        ensure_output_ready(dist_dir)?;
+        progress(Progress {
+            message: "比对上次提交".to_string(),
+            current: 0,
+            total: 1,
+        });
+
+        let repo = self.open_repo(dist_dir)?;
+        repo.set_head(&format!("refs/heads/{}", self.branch))?;
+        // 想知道「相对上次提交变了什么」，只能先暂存一次再 diff：
+        // 这会写 dist/.git 里的 index 与 object，但**不提交、不推送**，
+        // 也就不影响线上。这件事必须在预览里说出来，不能让「干跑」听起来完全无副作用。
+        let mut index = repo.index()?;
+        index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
+        index.write()?;
+        let tree = repo.find_tree(index.write_tree()?)?;
+
+        let upload = changed_paths(&repo, &tree)?;
+        let bytes = upload
+            .iter()
+            .filter_map(|path| std::fs::metadata(dist_dir.join(path)).ok())
+            .map(|meta| meta.len())
+            .sum();
+
+        let mut warnings = vec![
+            "会更新 dist/.git 里的暂存区以算出差异，但不提交、不推送".to_string(),
+            "产物分支是强制推送（+refs/heads/…）：远端该分支上的历史会被这次提交覆盖".to_string(),
+        ];
+        if upload.is_empty() {
+            warnings.push("产物与上次提交一致，这次发布会跳过提交".to_string());
+        }
+
+        Ok(DeployPlan {
+            target: crate::redact_url(&self.remote),
+            upload,
+            skipped: 0,
+            bytes,
+            warnings,
         })
     }
 

@@ -439,9 +439,17 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "deploy_site",
             title: "发布站点",
-            description: "按配置发布到 Git 或 FTP/SFTP。凭证取自环境变量。这一步会影响线上站点。",
+            description: "按配置发布到 Git 或 FTP/SFTP。凭证取自环境变量。这一步会影响线上站点。**默认 dry_run = true**：先回传会传哪些文件、跳过几个、多少字节，确认之后再带 dry_run: false 真发。默认值取那个「说错了也没损失」的方向——别的写操作改错了还能在本地改回来，这个改错了是别人看到的页面变了。",
             access: Access::Deploy,
-            schema: || json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "dry_run": { "type": "boolean", "description": "默认 true：只回传计划，不写远端" }
+                    },
+                    "additionalProperties": false
+                })
+            },
         },
     ]
 }
@@ -564,7 +572,7 @@ fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, St
         "build_site" => build_site(builder, args),
         "list_snapshots" => list_snapshots(builder, args),
         "restore_snapshot" => restore_snapshot(builder, args),
-        "deploy_site" => deploy_site(builder),
+        "deploy_site" => deploy_site(builder, args),
         other => Err(format!("未知工具: {other}")),
     }
 }
@@ -1119,7 +1127,7 @@ fn build_site(builder: &mut Builder, args: &Value) -> Result<String, String> {
     pretty(&json!(report))
 }
 
-fn deploy_site(builder: &mut Builder) -> Result<String, String> {
+fn deploy_site(builder: &mut Builder, args: &Value) -> Result<String, String> {
     let credentials =
         staticsmith_deploy::credentials::from_env(&builder.config).map_err(|e| e.to_string())?;
     let deployer =
@@ -1128,10 +1136,25 @@ fn deploy_site(builder: &mut Builder) -> Result<String, String> {
 
     let mut log = Vec::new();
     let mut on_progress = |p: staticsmith_deploy::Progress| log.push(p.message);
+
+    // 默认干跑。发布是唯一影响线上的动作，Agent 拿不到「就地确认」那一步，
+    // 所以把确认前移成一次显式的 dry_run: false。
+    if args.get("dry_run").and_then(Value::as_bool) != Some(false) {
+        let plan = deployer
+            .plan(&builder.paths.output, &mut on_progress)
+            .map_err(|e| e.to_string())?;
+        return pretty(&json!({
+            "dry_run": true,
+            "plan": plan,
+            "log": log,
+            "next": "确认清单没问题后，带 dry_run: false 再调一次才会真的发布"
+        }));
+    }
+
     let report = deployer
         .deploy(&builder.paths.output, &mut on_progress)
         .map_err(|e| e.to_string())?;
-    pretty(&json!({ "report": report, "log": log }))
+    pretty(&json!({ "dry_run": false, "report": report, "log": log }))
 }
 
 // ---------------------------------------------------------------- 本地快照

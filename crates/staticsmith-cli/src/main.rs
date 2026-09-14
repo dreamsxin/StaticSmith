@@ -142,6 +142,9 @@ pub enum Command {
         /// 只检查连接与凭证，不实际发布
         #[arg(long)]
         check_only: bool,
+        /// 只看会传什么：文件清单、跳过几个、多少字节。不写远端
+        #[arg(long)]
+        dry_run: bool,
         /// 发布前先生成一次
         #[arg(long)]
         build: bool,
@@ -460,9 +463,10 @@ pub fn run(cli: Cli) -> Result<()> {
         } => cmd_serve(&project.project, port, build, !no_watch),
         Command::Deploy {
             check_only,
+            dry_run,
             build,
             project,
-        } => cmd_deploy(&project.project, check_only, build),
+        } => cmd_deploy(&project.project, check_only, dry_run, build),
         Command::Check { project } => cmd_check(&project.project),
         Command::Audit {
             seo,
@@ -1186,7 +1190,7 @@ fn watch_and_rebuild(builder: &mut Builder, server: &PreviewServer) -> Result<()
     Ok(())
 }
 
-fn cmd_deploy(project: &PathBuf, check_only: bool, build_first: bool) -> Result<()> {
+fn cmd_deploy(project: &PathBuf, check_only: bool, dry_run: bool, build_first: bool) -> Result<()> {
     let mut builder = open(project)?;
     if build_first {
         builder.build(BuildMode::Incremental).context("生成失败")?;
@@ -1209,6 +1213,29 @@ fn cmd_deploy(project: &PathBuf, check_only: bool, build_first: bool) -> Result<
             println!("{}", p.message);
         }
     };
+
+    // 干跑：会传什么、跳过几个、多少字节。发布是唯一影响线上的动作，
+    // 而脚本里没有就地确认——这个开关就是那一步。
+    if dry_run {
+        let plan = deployer
+            .plan(&builder.paths.output, &mut on_progress)
+            .context("干跑失败")?;
+        println!(
+            "干跑：{} → 将上传 {} 个、跳过 {} 个，共 {} 字节",
+            plan.target,
+            plan.upload.len(),
+            plan.skipped,
+            plan.bytes
+        );
+        for path in &plan.upload {
+            println!("+ {path}");
+        }
+        for warning in &plan.warnings {
+            println!("提示：{warning}");
+        }
+        return Ok(());
+    }
+
     let report: DeployReport = deployer
         .deploy(&builder.paths.output, &mut on_progress)
         .context("发布失败")?;

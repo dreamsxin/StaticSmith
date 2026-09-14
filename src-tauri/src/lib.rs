@@ -84,6 +84,7 @@ pub fn run() {
             commands::run_build,
             commands::output_dir,
             commands::deploy_site,
+            commands::plan_deploy,
             commands::check_deploy,
             commands::save_secret,
             commands::has_secret,

@@ -20,7 +20,9 @@ staticsmith build [--full]                    # 默认智能增量
 staticsmith plan  [--full]                    # 只算影响范围，不写文件
 staticsmith serve [--port 5321] [--no-watch]  # 本地预览，仅监听 127.0.0.1
 
-staticsmith deploy [--build] [--check-only]   # Git 或 FTP 发布（SFTP 暂不支持）
+staticsmith deploy [--build] [--check-only] [--dry-run]
+                                              # Git 或 FTP 发布（SFTP 暂不支持）
+                                              # --dry-run 只报会传什么，不写远端
 staticsmith check                             # 校验配置、模板与内容
 staticsmith import <目录> [--section posts] [--dry-run] [--json]
                                               # 导入 Hugo / Jekyll 的内容（YAML → TOML）

@@ -141,10 +141,36 @@ pub fn redact_url(url: &str) -> String {
     }
 }
 
+/// 发布前的影响预览。
+///
+/// 发布曾是这个项目里唯一没有干跑的写操作：批量、替换、删除、改地址都要先看一眼
+/// 「会改哪些」，而唯一影响**线上**的动作却是一点就走。这个结构就是那一眼看的东西。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DeployPlan {
+    /// 目标描述，与 `DeployReport.target` 同源（凭据已摘掉）。
+    pub target: String,
+    /// 会上传（Git 那条路是「会提交」）的相对路径。
+    pub upload: Vec<String>,
+    /// 内容一致、会被跳过的文件数。
+    pub skipped: usize,
+    /// 会上传的字节数。让「3 个文件」与「3 个文件 480 MB」在界面上能区分开。
+    pub bytes: u64,
+    /// 干跑自己做了什么、有什么要提醒的。**不是**「发布会出的警告」。
+    pub warnings: Vec<String>,
+}
+
 /// 所有发布通道的统一接口。
 pub trait Deployer {
     /// 把 `dist_dir` 的内容发布出去。`progress` 会被多次回调。
     fn deploy(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployReport>;
+
+    /// 算出「这次发布会动什么」，不写远端。
+    ///
+    /// 各通道的代价不同，各自在 `warnings` 里说清：FTP 必须逐个查远端状态
+    /// （只读，但会连服务器），Git 需要在本地 `dist/.git` 里暂存一次才能 diff
+    /// （不提交、不推送）。**判断与执行共用一份逻辑**——两处各算一遍，
+    /// 迟早出现「预览说传 3 个、实际传 30 个」。
+    fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan>;
 
     /// 连接性与凭证检查，不做任何写操作。
     fn check(&self) -> Result<()>;

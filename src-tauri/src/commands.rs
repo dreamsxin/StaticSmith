@@ -33,7 +33,7 @@ use staticsmith_core::{
     content, frontmatter, scaffold, templates, NewContent, OutputFile, PreviewServer, SavedAsset,
     SeoReport, SiteConfig,
 };
-use staticsmith_deploy::{Credentials, DeployReport, Progress};
+use staticsmith_deploy::{Credentials, DeployPlan, DeployReport, Progress};
 use staticsmith_mcp::Permissions as McpPermissions;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
@@ -1135,6 +1135,28 @@ pub fn deploy_site(window: Window, state: State<'_, AppState>) -> Result<DeployR
     let target = window.clone();
     let mut on_progress = move |p: Progress| emit(&target, EVENT_DEPLOY_PROGRESS, p);
     Ok(deployer.deploy(&dist, &mut on_progress)?)
+}
+
+/// 干跑一次发布：会传哪些文件、跳过几个、多少字节、目标是哪里。
+///
+/// 界面拿它做落盘前的确认。发布曾是唯一没有这一步的写操作，而它偏偏是唯一
+/// 影响**线上**的动作。`plan` 不写远端（各通道的代价写在返回的 `warnings` 里）。
+#[tauri::command]
+pub fn plan_deploy(window: Window, state: State<'_, AppState>) -> Result<DeployPlan> {
+    let (config, dist) = state.with_session(|session| {
+        Ok((
+            session.builder.config.clone(),
+            session.builder.paths.output.clone(),
+        ))
+    })?;
+
+    let credentials = resolve_credentials(&config)?;
+    let deployer = staticsmith_deploy::from_config(&config, credentials)?;
+    deployer.check()?;
+
+    let target = window.clone();
+    let mut on_progress = move |p: Progress| emit(&target, EVENT_DEPLOY_PROGRESS, p);
+    Ok(deployer.plan(&dist, &mut on_progress)?)
 }
 
 /// 仅做连接与凭证检查。

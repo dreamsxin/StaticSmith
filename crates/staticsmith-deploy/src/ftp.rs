@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use staticsmith_core::config::FtpOverwrite;
 
 use crate::manifest::{self, RemoteEntry};
-use crate::{ensure_output_ready, DeployReport, Error, Progress, Result};
+use crate::{ensure_output_ready, DeployPlan, DeployReport, Error, Progress, Result};
 
 /// 单个文件的上传尝试次数。
 ///
@@ -34,21 +34,15 @@ pub trait RemoteFs {
     fn upload(&mut self, local: &Path, remote: &str) -> Result<()>;
 }
 
-/// 执行一次差异同步。
+/// 算出这次同步会传什么。只读远端，不写一个字节。
 ///
-/// `overwrite` 决定远端已存在同名文件时怎么办（见 `FtpOverwrite`）：判定材料只有大小
-/// 与 `MDTM`，哪一项可信取决于用户那台服务器，所以这是配置项而不是我们的推断。
-///
-/// 远端多余文件不会被删除——静态站点常混有手工上传的资源，
-/// 静默删除的代价远高于留下少量陈旧文件。
-pub fn sync(
+/// `sync` 与 `plan` 共用它：两处各算一遍，迟早出现「预览说传 3 个、实际传 30 个」。
+fn compute(
     fs: &mut dyn RemoteFs,
     dist_dir: &Path,
-    target: &str,
     overwrite: FtpOverwrite,
     progress: &mut dyn FnMut(Progress),
-) -> Result<DeployReport> {
-    let started = Instant::now();
+) -> Result<(Vec<manifest::LocalEntry>, manifest::SyncPlan)> {
     ensure_output_ready(dist_dir)?;
 
     let local = manifest::scan(dist_dir)?;
@@ -69,7 +63,56 @@ pub fn sync(
     }
 
     let plan = manifest::plan_sync(&local, &remote, false, overwrite);
+    Ok((local, plan))
+}
 
+/// 干跑：会传哪些文件、跳过几个、总共多少字节。
+///
+/// 「总是上传」之外的四种规则必须连远端才能判断（材料只有 `SIZE` 与 `MDTM`），
+/// 所以这一步会连服务器——但只读。这件事写进 `warnings` 里告诉用户，
+/// 而不是让「干跑」听起来像完全离线。
+pub fn plan(
+    fs: &mut dyn RemoteFs,
+    dist_dir: &Path,
+    target: &str,
+    overwrite: FtpOverwrite,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<DeployPlan> {
+    let (local, plan) = compute(fs, dist_dir, overwrite, progress)?;
+    let mut warnings = vec![if overwrite == FtpOverwrite::Always {
+        "覆盖规则是「总是覆盖」，因此没有查询远端状态：远端已有的同名文件都会被覆盖".to_string()
+    } else {
+        "已逐个查询远端文件的大小与时间（只读），没有写入任何内容".to_string()
+    }];
+    // 远端多余文件一律不删，这一条要在预览里说清：否则「上传 3 个」看起来像
+    // 「线上就只剩这 3 个」。
+    warnings.push("远端多余的文件不会被删除".to_string());
+
+    Ok(DeployPlan {
+        target: target.to_string(),
+        bytes: manifest::total_bytes(&local, &plan.upload),
+        upload: plan.upload,
+        skipped: plan.skipped,
+        warnings,
+    })
+}
+
+/// 执行一次差异同步。
+///
+/// `overwrite` 决定远端已存在同名文件时怎么办（见 `FtpOverwrite`）：判定材料只有大小
+/// 与 `MDTM`，哪一项可信取决于用户那台服务器，所以这是配置项而不是我们的推断。
+///
+/// 远端多余文件不会被删除——静态站点常混有手工上传的资源，
+/// 静默删除的代价远高于留下少量陈旧文件。
+pub fn sync(
+    fs: &mut dyn RemoteFs,
+    dist_dir: &Path,
+    target: &str,
+    overwrite: FtpOverwrite,
+    progress: &mut dyn FnMut(Progress),
+) -> Result<DeployReport> {
+    let started = Instant::now();
+    let (local, plan) = compute(fs, dist_dir, overwrite, progress)?;
     for dir in manifest::required_directories(&plan.upload) {
         fs.mkdir(&dir)?;
     }
@@ -155,9 +198,9 @@ mod plain {
 
     use suppaftp::FtpStream;
 
-    use super::{sync, RemoteFs};
+    use super::{plan, sync, RemoteFs};
     use crate::manifest::RemoteEntry;
-    use crate::{Credentials, DeployReport, Deployer, Error, Progress, Result};
+    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result};
     use staticsmith_core::config::FtpOverwrite;
 
     /// 明文 FTP 发布通道。
@@ -269,6 +312,16 @@ mod plain {
             report
         }
 
+        fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+            let mut fs = FtpFs {
+                stream: self.connect()?,
+            };
+            let target = format!("ftp://{}{}", self.host, self.remote_path);
+            let planned = plan(&mut fs, dist_dir, &target, self.overwrite, progress);
+            let _ = fs.stream.quit();
+            planned
+        }
+
         fn check(&self) -> Result<()> {
             let mut stream = self.connect()?;
             let _ = stream.quit();
@@ -288,9 +341,9 @@ mod secure {
 
     use ssh2::Session;
 
-    use super::{sync, RemoteFs};
+    use super::{plan, sync, RemoteFs};
     use crate::manifest::RemoteEntry;
-    use crate::{Credentials, DeployReport, Deployer, Error, Progress, Result};
+    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result};
     use staticsmith_core::config::FtpOverwrite;
 
     /// SFTP（SSH）发布通道。
@@ -405,6 +458,16 @@ mod secure {
             sync(&mut fs, dist_dir, &target, self.overwrite, progress)
         }
 
+        fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+            let session = self.session()?;
+            let mut fs = SftpFs {
+                sftp: session.sftp()?,
+                base: PathBuf::from(&self.remote_path),
+            };
+            let target = format!("sftp://{}{}", self.host, self.remote_path);
+            plan(&mut fs, dist_dir, &target, self.overwrite, progress)
+        }
+
         fn check(&self) -> Result<()> {
             let session = self.session()?;
             session.sftp()?;
@@ -484,6 +547,89 @@ mod tests {
             FtpOverwrite::default(),
             &mut |_| {},
         )
+    }
+
+    #[test]
+    fn plan_tells_what_would_be_uploaded_without_writing_anything() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+
+        let planned = plan(
+            &mut remote,
+            dir.path(),
+            "ftp://example.test/www",
+            FtpOverwrite::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(planned.target, "ftp://example.test/www");
+        assert_eq!(planned.upload.len(), 3);
+        assert_eq!(planned.skipped, 0);
+        // "home" + "posts" + "page2"
+        assert_eq!(planned.bytes, 14);
+        // 一个字节都不该写：既不建目录也不上传
+        assert!(remote.uploads.is_empty(), "{:?}", remote.uploads);
+        assert!(remote.dirs.is_empty(), "{:?}", remote.dirs);
+        // 但确实查过远端状态，而且这件事要写进 warnings，不能让「干跑」听起来完全离线
+        assert_eq!(remote.stats.len(), 3);
+        assert!(
+            planned.warnings.iter().any(|w| w.contains("只读")),
+            "{:?}",
+            planned.warnings
+        );
+        assert!(
+            planned.warnings.iter().any(|w| w.contains("不会被删除")),
+            "远端多余文件不删这一条必须说明，否则「上传 3 个」看起来像线上只剩 3 个"
+        );
+    }
+
+    #[test]
+    fn plan_and_sync_agree_on_what_changes() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        sync_default(&mut remote, dir.path(), "t").unwrap();
+
+        // 改一个文件，另两个不动
+        std::fs::write(dir.path().join("index.html"), "home v2").unwrap();
+
+        let planned = plan(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(planned.upload, vec!["index.html".to_string()]);
+        assert_eq!(planned.skipped, 2);
+
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
+        assert_eq!(report.uploaded, planned.upload, "预览说传哪个就得传哪个");
+        assert_eq!(report.skipped, planned.skipped);
+    }
+
+    #[test]
+    fn plan_says_it_skipped_the_remote_lookup_when_always_overwriting() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+
+        let planned = plan(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::Always,
+            &mut |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(planned.upload.len(), 3);
+        assert!(remote.stats.is_empty(), "「总是覆盖」不该查远端");
+        assert!(
+            planned.warnings.iter().any(|w| w.contains("总是覆盖")),
+            "{:?}",
+            planned.warnings
+        );
     }
 
     #[test]

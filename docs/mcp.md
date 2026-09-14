@@ -82,7 +82,10 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 
 需要 `--allow-deploy`：
 
-- `deploy_site`：按配置发布（标记为 destructive），凭证取自环境变量
+- `deploy_site`：按配置发布（标记为 destructive），凭证取自环境变量。
+  **默认 `dry_run = true`**：先回传会传哪些文件、跳过几个、多少字节，
+  确认后再带 `dry_run: false` 真发。Agent 拿不到界面上那一步就地确认，
+  所以把它前移成一次显式调用
 
 `delete_content` 与 `deploy_site` 带 `destructiveHint`，支持该标注的客户端会要求人工确认。
 

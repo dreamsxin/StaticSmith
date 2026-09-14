@@ -318,6 +318,10 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 ## 发布
 
 - `deploy_site() -> DeployReport`
+- `plan_deploy() -> DeployPlan`：干跑一次发布，不写远端。返回
+  `{ target, upload, skipped, bytes, warnings }`；界面拿它做落盘前的确认。
+  `warnings` 说的是这次干跑自己的代价（FTP 会连服务器但只读、Git 会写 dist/.git
+  的暂存区但不推送），不是「发布会出的警告」。判断与 `deploy_site` 共用一份逻辑
 - `check_deploy()`：只检查连接与凭证
 - `save_secret(account, secret)` / `has_secret(account) -> bool` / `delete_secret(account)`
 - `deploy_account() -> string`：当前站点的凭据条目名，未配置发布方式时是空串
