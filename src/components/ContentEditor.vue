@@ -13,6 +13,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import OutlineDialog from './OutlineDialog.vue'
+import LinkDialog from './LinkDialog.vue'
+import { linkSnippet, type LinkTarget } from '../crossref'
 import { countWords, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
 import { actions, isDirty, store } from '../store'
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
@@ -170,6 +172,32 @@ function insertLink() {
   // 光标停在 URL 位置，接着就能粘地址
   const urlStart = el.selectionStart + selected.length + 3
   replaceSelection(snippet, urlStart, urlStart + 8)
+}
+
+// ---------------------------------------------------------------- 站内互链
+
+/** 「链到站内哪一篇」浮层是否打开。 */
+const showLink = ref(false)
+
+/**
+ * 插入一条站内链接。
+ *
+ * 有选区就拿选区当链接文字（编辑器通例），否则用对方的标题。跨行的选区不算：
+ * 那多半是想把整段包起来，而不是把一段话变成链接文字。
+ * 拼接规则（转义、HTML 站点用 `<a>`）在 `crossref.ts`，那里有测试钉着。
+ */
+function insertInternalLink(page: LinkTarget) {
+  const el = textarea.value
+  const selected = el ? store.currentRaw.slice(el.selectionStart, el.selectionEnd) : ''
+  const text = selected && !selected.includes('\n') ? selected : page.title || page.source
+  const format = store.project?.config.build.source_format ?? 'markdown'
+  const snippet = linkSnippet(text, page.url, format)
+  if (el) {
+    const caret = el.selectionStart + snippet.length
+    replaceSelection(snippet, caret, caret)
+  } else {
+    actions.setRaw(store.currentRaw + snippet)
+  }
 }
 
 // ---------------------------------------------------------------- 资源插入
@@ -456,11 +484,19 @@ function onKeydown(event: KeyboardEvent) {
     // Ctrl+Shift+O 跳标题，与各家编辑器的「转到符号」一致
     o: editorCommands.outline,
   }
-  // 两个键要看 Shift，写进上面那张表反而更难读，单独列出来：
+  // 三个键要看 Shift，写进上面那张表反而更难读，单独列出来：
   // Ctrl+Shift+F 是「找文章」（挂在 window 上），这里放它过去；
-  // 大纲固定用 Ctrl+Shift+O，不带 Shift 的 Ctrl+O 留给系统与将来的「打开」。
+  // 大纲固定用 Ctrl+Shift+O，不带 Shift 的 Ctrl+O 留给系统与将来的「打开」；
+  // Ctrl+Shift+K 是站内链接——与 Ctrl+K「插链接」同一个字母，多按一个 Shift
+  // 就是「链到站内的一篇」，这层关系比另找一个字母好记。
   if (event.shiftKey && key === 'f') return
   if (key === 'o' && !event.shiftKey) return
+  if (event.shiftKey && key === 'k') {
+    event.preventDefault()
+    event.stopPropagation()
+    editorCommands.internalLink()
+    return
+  }
   const handler = handlers[key]
   if (!handler) return
   event.preventDefault()
@@ -489,6 +525,9 @@ const editorCommands: EditorCommands = {
   find: () => openFind(),
   outline: () => {
     showOutline.value = true
+  },
+  internalLink: () => {
+    showLink.value = true
   },
 }
 
@@ -646,6 +685,14 @@ onBeforeUnmount(() => {
       </button>
       <button
         type="button"
+        title="链到站内的一篇 Ctrl+Shift+K：地址由站点给出，不用手打"
+        aria-label="链到站内的一篇"
+        @click="editorCommands.internalLink()"
+      >
+        站内链接
+      </button>
+      <button
+        type="button"
         title="图片或附件…（也可直接粘贴或拖入）"
         aria-label="插入图片或附件"
         @click="editorCommands.pickFile()"
@@ -788,6 +835,14 @@ onBeforeUnmount(() => {
       :source="store.currentRaw"
       @close="showOutline = false"
       @jump="jumpTo"
+    />
+
+    <LinkDialog
+      :open="showLink"
+      :pages="store.project?.pages ?? []"
+      :exclude="store.currentSource ?? undefined"
+      @close="showLink = false"
+      @pick="insertInternalLink"
     />
   </section>
 

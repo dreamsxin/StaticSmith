@@ -468,6 +468,23 @@ h3 {
   white-space: nowrap;
 }
 
+/* 站内链接候选：地址压暗跟在标题后面——挑的时候看标题，确认的时候看地址。 */
+.link__url {
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 草稿不进产物，链过去就是死链。标出来但不禁用：先写互链再补那一篇是常见顺序。 */
+.link__draft {
+  color: var(--warn);
+  font-size: 0.7rem;
+}
+
+
 
 
 

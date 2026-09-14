@@ -371,6 +371,13 @@ export function menus(): Menu[] {
           run: () => ui.editor?.link(),
         },
         {
+          id: 'insert.internal-link',
+          label: '站内链接…',
+          hint: 'Ctrl+Shift+K：挑一篇，地址由站点给出',
+          disabled: noEditor(),
+          run: () => ui.editor?.internalLink(),
+        },
+        {
           id: 'insert.file',
           label: '图片或附件…',
           hint: '也可直接粘贴 / 拖入编辑器',

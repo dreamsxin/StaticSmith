@@ -92,6 +92,8 @@ export interface EditorCommands {
   find(): void
   /** 打开大纲浮层：按标题跳转 */
   outline(): void
+  /** 挑一篇站内内容并插入链接（地址由站点数据给，不手打） */
+  internalLink(): void
 }
 
 export const ui = reactive({
