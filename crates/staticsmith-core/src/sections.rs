@@ -246,11 +246,29 @@ pub fn create(paths: &ProjectPaths, path: &str, title: &str, description: &str) 
     })
 }
 
-/// 栏目改名（等于把目录搬到新名字下）。
+/// 栏目改名的干跑结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct RenamePreview {
+    pub from: String,
+    pub to: String,
+    /// 会搬动的文件数（Markdown 之外的附件也算：它们跟着目录一起走）。
+    pub files: usize,
+    /// 会补旧地址的文章数。关掉 `keep_aliases` 时是 0；
+    /// 已经写着同一个旧地址的那几篇不重复计入。
+    pub aliases: usize,
+    /// 会被改写站内引用的篇目与条数。
+    pub refs: Vec<refs::RefUpdate>,
+}
+
+/// 改名前的校验与准备，预览与执行共用。
 ///
-/// `keep_aliases` 为真时给每篇被移动的文章补上旧地址，构建会为旧地址生成重定向页，
-/// 站外的老链接与搜索结果不会因为整理结构而全部失效。默认就该开着。
-pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) -> Result<Renamed> {
+/// 五种拒绝理由（根目录、同名、搬进自己、栏目不存在、目标已存在）只在这里判一次：
+/// 两处各写一遍，迟早出现「预览通过、执行报错」。
+fn rename_setup(
+    paths: &ProjectPaths,
+    from: &str,
+    to: &str,
+) -> Result<(String, String, PathBuf, PathBuf, Vec<Page>)> {
     let from_rel = util::sanitize_relative_dir(from);
     let to_rel = util::sanitize_relative_dir(to);
     if from_rel.is_empty() || to_rel.is_empty() {
@@ -275,15 +293,81 @@ pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) ->
         return Err(Error::Other(format!("{to_rel} 已存在，请换个名字")));
     }
 
-    // 移动前先记下每篇文章的旧地址：移动之后就算不出来了
-    let old_urls: BTreeMap<String, String> =
-        content::load_all(&paths.content, SourceFormat::default())?
-            .into_iter()
-            .filter(|page| {
-                page.section == from_rel || page.section.starts_with(&format!("{from_rel}/"))
+    // 移动前先记下这棵子树里的页面：移动之后旧地址就算不出来了
+    let pages: Vec<Page> = content::load_all(&paths.content, SourceFormat::default())?
+        .into_iter()
+        .filter(|page| {
+            page.section == from_rel || page.section.starts_with(&format!("{from_rel}/"))
+        })
+        .collect();
+
+    Ok((from_rel, to_rel, source_dir, target_dir, pages))
+}
+
+/// 这批页面的地址会怎么变。改名只换目录前缀，所以是一次前缀替换。
+fn rename_url_moves(pages: &[Page], from_rel: &str, to_rel: &str) -> Vec<UrlMove> {
+    pages
+        .iter()
+        .filter_map(|page| {
+            let rest = page.url.strip_prefix(&format!("/{from_rel}"))?;
+            Some(UrlMove {
+                from: page.url.clone(),
+                to: format!("/{to_rel}{rest}"),
             })
-            .map(|page| (page.source.clone(), page.url.clone()))
-            .collect();
+        })
+        .collect()
+}
+
+/// 干跑一次栏目改名：会搬几个文件、给几篇补旧地址、改写哪几篇里的几处引用。不碰磁盘。
+///
+/// 三条「改地址」的路里，栏目改名一次动的地址最多（整棵子树），却是最后一个补上
+/// 干跑的——搬动、改 slug 早就有了。
+pub fn preview_rename(
+    paths: &ProjectPaths,
+    from: &str,
+    to: &str,
+    keep_aliases: bool,
+) -> Result<RenamePreview> {
+    let (from_rel, to_rel, source_dir, _, pages) = rename_setup(paths, from, to)?;
+
+    let files = WalkDir::new(&source_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .count();
+
+    // 与 `add_alias` 的判断保持一致：已经写着这个旧地址的那篇不会被再写一次
+    let aliases = if keep_aliases {
+        pages
+            .iter()
+            .filter(|page| {
+                is_markdown(Path::new(&page.source)) && !page.aliases.contains(&page.url)
+            })
+            .count()
+    } else {
+        0
+    };
+
+    let url_moves = rename_url_moves(&pages, &from_rel, &to_rel);
+    Ok(RenamePreview {
+        from: from_rel,
+        to: to_rel,
+        files,
+        aliases,
+        refs: refs::preview_site(&paths.content, &url_moves)?.updated,
+    })
+}
+
+/// 栏目改名（等于把目录搬到新名字下）。
+///
+/// `keep_aliases` 为真时给每篇被移动的文章补上旧地址，构建会为旧地址生成重定向页，
+/// 站外的老链接与搜索结果不会因为整理结构而全部失效。默认就该开着。
+pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) -> Result<Renamed> {
+    let (from_rel, to_rel, source_dir, target_dir, pages) = rename_setup(paths, from, to)?;
+    let old_urls: BTreeMap<String, String> = pages
+        .iter()
+        .map(|page| (page.source.clone(), page.url.clone()))
+        .collect();
 
     if let Some(parent) = target_dir.parent() {
         std::fs::create_dir_all(parent).map_err(|e| Error::io(parent, e))?;
@@ -318,17 +402,10 @@ pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) ->
 
     // 整栏目换名等于一批地址同时变：把站内指向它们的链接一并改到新位置。
     // 旧地址仍然照原样补进 aliases，站外的老链接靠重定向页兜着——两件事都要做。
-    let url_moves: Vec<UrlMove> = old_urls
-        .values()
-        .filter_map(|old_url| {
-            let rest = old_url.strip_prefix(&format!("/{from_rel}"))?;
-            Some(UrlMove {
-                from: old_url.clone(),
-                to: format!("/{to_rel}{rest}"),
-            })
-        })
-        .collect();
-    let rewritten = refs::rewrite_site(&paths.content, &url_moves)?;
+    let rewritten = refs::rewrite_site(
+        &paths.content,
+        &rename_url_moves(&pages, &from_rel, &to_rel),
+    )?;
 
     Ok(Renamed {
         from: from_rel,
@@ -490,6 +567,69 @@ mod tests {
 
     fn sections(f: &Fixture) -> Vec<Section> {
         list(&content::load_all(&f.paths.content, SourceFormat::default()).unwrap())
+    }
+
+    /// 栏目改名是三条「改地址」的路里一次动得最多的（整棵子树），
+    /// 却曾是唯一直接落盘的。这几条钉住它的干跑。
+    #[test]
+    fn rename_preview_agrees_with_the_rename_and_touches_nothing() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n\n正文\n");
+        write(&f, "posts/cover.png", "not really a png");
+        write(
+            &f,
+            "notes/b.md",
+            "+++\ntitle = \"乙\"\n+++\n\n见 [甲](/posts/a/) 与 [列表](/posts/)\n",
+        );
+
+        let dry = preview_rename(&f.paths, "posts", "essays", true).unwrap();
+        assert_eq!(dry.from, "posts");
+        assert_eq!(dry.to, "essays");
+        assert_eq!(dry.files, 3, "附件也会跟着搬");
+        assert_eq!(dry.aliases, 2, "两篇 Markdown 会补旧地址，图片不算");
+        assert_eq!(dry.refs.len(), 1);
+        assert_eq!(dry.refs[0].source, "notes/b.md");
+        assert_eq!(dry.refs[0].hits, 2, "文章与栏目列表两个地址都会改");
+        // 干跑不碰磁盘
+        assert!(f.paths.content.join("posts/a.md").is_file());
+        assert!(!f.paths.content.join("essays").exists());
+
+        let done = rename(&f.paths, "posts", "essays", true).unwrap();
+        assert_eq!(done.moved, dry.files, "预览说搬几个就搬几个");
+        assert_eq!(done.aliases_added, dry.aliases);
+        assert_eq!(done.refs_updated, dry.refs);
+    }
+
+    #[test]
+    fn rename_preview_refuses_exactly_what_the_rename_refuses() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+        write(&f, "notes/b.md", "+++\ntitle = \"乙\"\n+++\n");
+
+        for (from, to) in [
+            ("posts", ""),          // 根目录不能改名
+            ("posts", "posts"),     // 新旧同名
+            ("posts", "posts/sub"), // 搬进自己里面
+            ("missing", "x"),       // 栏目不存在
+            ("posts", "notes"),     // 目标已存在
+        ] {
+            assert!(
+                preview_rename(&f.paths, from, to, true).is_err(),
+                "{from} → {to} 该被拦下"
+            );
+            assert!(rename(&f.paths, from, to, true).is_err());
+        }
+    }
+
+    #[test]
+    fn rename_preview_counts_no_aliases_when_they_are_turned_off() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+
+        let dry = preview_rename(&f.paths, "posts", "essays", false).unwrap();
+        assert_eq!(dry.aliases, 0);
+        assert_eq!(dry.files, 1);
     }
 
     fn find<'a>(list: &'a [Section], path: &str) -> &'a Section {

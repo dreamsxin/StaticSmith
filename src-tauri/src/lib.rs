@@ -59,6 +59,7 @@ pub fn run() {
             commands::list_sections,
             commands::create_section,
             commands::rename_section,
+            commands::preview_rename_section,
             commands::remove_section,
             commands::save_section_meta,
             commands::batch_edit_tags,

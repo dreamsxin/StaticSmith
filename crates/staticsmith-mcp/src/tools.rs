@@ -343,7 +343,7 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "rename_section",
             title: "栏目改名",
-            description: "把栏目目录搬到新名字下。默认给每篇文章补 aliases（旧地址），构建后老链接仍可用；除非确认没有外部链接，不要关掉它。",
+            description: "把栏目目录搬到新名字下。默认给每篇文章补 aliases（旧地址），构建后老链接仍可用；除非确认没有外部链接，不要关掉它。整栏目换名等于一批地址同时变，站内指向它们的链接会一并改到新位置——先用 dry_run: true 看清会动多少。",
             access: Access::Write,
             schema: || {
                 json!({
@@ -354,6 +354,10 @@ pub fn all() -> Vec<ToolDef> {
                         "keep_aliases": {
                             "type": "boolean",
                             "description": "默认 true：给每篇文章补旧地址，生成重定向页"
+                        },
+                        "dry_run": {
+                            "type": "boolean",
+                            "description": "只看会搬几个文件、补几个旧地址、改写哪几篇里的引用，不写盘"
                         }
                     },
                     "required": ["from", "to"],
@@ -975,6 +979,15 @@ fn rename_section(builder: &mut Builder, args: &Value) -> Result<String, String>
         .get("keep_aliases")
         .and_then(Value::as_bool)
         .unwrap_or(true);
+
+    // 整栏目换名一次动整棵子树的地址，先看清再落盘
+    if args.get("dry_run").and_then(Value::as_bool) == Some(true) {
+        let preview = builder
+            .preview_rename_section(&from, &to, keep_aliases)
+            .map_err(err)?;
+        return pretty(&json!({ "dry_run": true, "preview": preview }));
+    }
+
     let report = builder
         .rename_section(&from, &to, keep_aliases)
         .map_err(err)?;

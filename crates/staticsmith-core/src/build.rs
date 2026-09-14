@@ -391,6 +391,16 @@ impl Builder {
         Ok(created)
     }
 
+    /// 干跑一次栏目改名：会搬几个文件、给几篇补旧地址、改写哪几篇里的几处引用。只读。
+    pub fn preview_rename_section(
+        &self,
+        from: &str,
+        to: &str,
+        keep_aliases: bool,
+    ) -> Result<sections::RenamePreview> {
+        sections::preview_rename(&self.paths, from, to, keep_aliases)
+    }
+
     /// 栏目改名。`keep_aliases` 为真时给每篇文章补旧地址，老链接经重定向页继续可用。
     pub fn rename_section(
         &mut self,

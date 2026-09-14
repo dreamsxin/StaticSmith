@@ -700,6 +700,11 @@ export const actions = {
    * `keepAliases` 默认开着：整理结构不该顺手打断所有外部链接。它会给每篇文章
    * 补上旧地址，构建后旧地址是一张重定向页。
    */
+  /** 干跑一次栏目改名：会搬几个文件、给几篇补旧地址、改写哪几篇里的几处引用。 */
+  async previewRenameSection(from: string, to: string, keepAliases = true) {
+    return await run(() => api.previewRenameSection(from, to, keepAliases))
+  },
+
   async renameSection(from: string, to: string, keepAliases = true) {
     const report = await run(() => api.renameSection(from, to, keepAliases))
     if (!report) return

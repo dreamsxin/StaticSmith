@@ -331,6 +331,42 @@ mod tests {
         assert!(matches!(err, Error::EmptyOutput(_)));
     }
 
+    /// 干跑会写 `dist/.git` 的暂存区，所以必须钉住「先干跑再真发」与「直接真发」等价。
+    /// 这是加 `plan()` 时唯一靠推理下的结论（diff 的基准是 HEAD 而不是 index），
+    /// 推理不该长期代替测试。
+    #[test]
+    fn planning_first_does_not_change_what_the_real_deploy_does() {
+        let (remote_dir, remote_url) = bare_remote();
+        let dist = dist_with_files();
+        let deployer = GitDeployer::new(&remote_url, "main");
+
+        let plan = deployer.plan(dist.path(), &mut |_| {}).unwrap();
+        assert_eq!(plan.upload, vec!["index.html", "posts/index.html"]);
+        assert_eq!(plan.bytes, 35, "两个文件的字节数（17 + 18）");
+        assert!(
+            plan.warnings.iter().any(|w| w.contains("不提交、不推送")),
+            "{:?}",
+            plan.warnings
+        );
+        // 干跑不碰远端
+        let bare = Repository::open_bare(remote_dir.path()).unwrap();
+        assert!(bare.find_reference("refs/heads/main").is_err());
+
+        // 紧接着真发布：结果与「没干跑过」那次一模一样（对照 deploy_commits_and_pushes_to_remote）
+        let report = deployer.deploy(dist.path(), &mut |_| {}).unwrap();
+        assert_eq!(report.uploaded, plan.upload);
+        assert!(report.commit.is_some());
+
+        // 再干跑一次：这次该说「与上次提交一致」，而不是把两个文件又报一遍
+        let again = deployer.plan(dist.path(), &mut |_| {}).unwrap();
+        assert!(again.upload.is_empty(), "{:?}", again.upload);
+        assert!(
+            again.warnings.iter().any(|w| w.contains("跳过提交")),
+            "{:?}",
+            again.warnings
+        );
+    }
+
     #[test]
     fn deploy_commits_and_pushes_to_remote() {
         let (_remote_dir, remote_url) = bare_remote();

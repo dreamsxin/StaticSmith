@@ -14,7 +14,14 @@ import { parseList } from '../text'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import type { BatchPreview, PageSummary, ReplaceResult, SearchHit, SeoSeverity } from '../api'
+import type {
+  BatchPreview,
+  PageSummary,
+  ReplaceResult,
+  SearchHit,
+  SectionRenamePreview,
+  SeoSeverity,
+} from '../api'
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
@@ -518,12 +525,48 @@ function startRename(path: string) {
   focusInside('.page-list__rename input')
 }
 
+/**
+ * 改名先干跑再问一句。
+ *
+ * 栏目改名一次动整棵子树的地址：搬文件、补旧地址、改写站内引用，其中最后一件
+ * 会写到用户没有点名的文件上。搬动、改 slug、删除、发布都有这一步，它是最后补的。
+ * 干跑被拦下时（同名、目标已存在、栏目不存在）错误已由 `run` 弹出，这里不进确认态。
+ */
 async function submitRename() {
   const from = renamingSection.value
   const to = renameTo.value.trim()
+  if (!from || !to || from === to) {
+    renamingSection.value = null
+    return
+  }
+  const preview = await actions.previewRenameSection(from, to, keepAliases.value)
+  if (!preview) {
+    renamingSection.value = null
+    return
+  }
+  pendingRename.value = { to, preview }
+}
+
+/** 待确认的栏目改名。 */
+const pendingRename = ref<{ to: string; preview: SectionRenamePreview } | null>(null)
+
+/** 会被改写的引用总处数，确认那一句要用。 */
+const pendingRenameHits = computed(() =>
+  (pendingRename.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
+)
+
+async function confirmRename() {
+  const pending = pendingRename.value
+  const from = renamingSection.value
+  pendingRename.value = null
   renamingSection.value = null
-  if (!from || !to || from === to) return
-  await actions.renameSection(from, to, keepAliases.value)
+  if (!pending || !from) return
+  await actions.renameSection(from, pending.to, keepAliases.value)
+}
+
+function cancelRename() {
+  pendingRename.value = null
+  renamingSection.value = null
 }
 
 /** 删空栏目也是不可逆的，沿用列表里的就地确认，不用原生弹窗。 */
@@ -1067,11 +1110,35 @@ async function copyText(text: string) {
           <input v-model="keepAliases" type="checkbox" />
           保留旧地址（生成重定向页）
         </label>
-        <div class="page-list__new-actions">
+        <!-- 干跑结果：改名会写到用户没有点名的文件上（那些引用这个栏目的文章） -->
+        <div v-if="pendingRename" class="page-list__dry">
+          <p class="page-list__batch-head">
+            将把 <code>{{ section }}</code> 改名为 <code>{{ pendingRename.to }}</code>
+          </p>
+          <ul class="page-list__dry-list">
+            <li>
+              <span>搬动 {{ pendingRename.preview.files }} 个文件</span>
+            </li>
+            <li v-if="pendingRename.preview.aliases">
+              <span>给 {{ pendingRename.preview.aliases }} 篇补旧地址（构建后是重定向页）</span>
+            </li>
+          </ul>
+          <p v-if="pendingRenameHits" class="page-list__batch-note">
+            另会把 {{ pendingRename.preview.refs.length }} 篇里的 {{ pendingRenameHits }}
+            处站内链接改到新地址：{{ pendingRename.preview.refs.map((r) => r.source).join('、') }}
+          </p>
+          <div class="page-list__batch-row">
+            <button type="button" class="btn--primary" :disabled="store.busy" @click="confirmRename">
+              确认改名
+            </button>
+            <button type="button" @click="cancelRename">取消</button>
+          </div>
+        </div>
+        <div v-else class="page-list__new-actions">
           <button type="submit" class="btn--primary" :disabled="store.busy || !renameTo.trim()">
-            改名
+            改名…
           </button>
-          <button type="button" @click="renamingSection = null">取消</button>
+          <button type="button" @click="cancelRename">取消</button>
         </div>
       </form>
 

@@ -796,6 +796,20 @@ export const createSection = (path: string, title: string, description?: string)
 export const renameSection = (from: string, to: string, keepAliases: boolean) =>
   invoke<SectionRenamed>('rename_section', { args: { from, to, keep_aliases: keepAliases } })
 
+/** 栏目改名的干跑：会搬几个文件、给几篇补旧地址、改写哪几篇里的几处引用。 */
+export interface SectionRenamePreview {
+  from: string
+  to: string
+  files: number
+  aliases: number
+  refs: RefUpdate[]
+}
+
+export const previewRenameSection = (from: string, to: string, keepAliases: boolean) =>
+  invoke<SectionRenamePreview>('preview_rename_section', {
+    args: { from, to, keep_aliases: keepAliases },
+  })
+
 /** 删除空栏目，返回删除后的栏目清单。里面还有文章时后端报错，不会连带删除。 */
 export const removeSection = (path: string) => invoke<Section[]>('remove_section', { path })
 

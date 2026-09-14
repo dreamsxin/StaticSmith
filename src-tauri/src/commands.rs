@@ -22,7 +22,8 @@ use staticsmith_core::replace::{
 };
 use staticsmith_core::search::Hit as SearchHit;
 use staticsmith_core::sections::{
-    Created as SectionCreated, Meta as SectionMeta, Renamed as SectionRenamed, Section,
+    Created as SectionCreated, Meta as SectionMeta, RenamePreview as SectionRenamePreview,
+    Renamed as SectionRenamed, Section,
 };
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::theme::{
@@ -855,6 +856,21 @@ pub fn create_section(
         let index = content::resolve_source(&session.builder.paths.content, &created.index_source)?;
         state.note_self_write(&index);
         Ok(created)
+    })
+}
+
+/// 干跑一次栏目改名：会搬几个文件、给几篇补旧地址、改写哪几篇里的几处引用。只读。
+///
+/// 三条改地址的路里栏目改名一次动得最多（整棵子树），界面拿这个结果先问一句。
+#[tauri::command]
+pub fn preview_rename_section(
+    state: State<'_, AppState>,
+    args: RenameSectionArgs,
+) -> Result<SectionRenamePreview> {
+    state.with_session(|session| {
+        Ok(session
+            .builder
+            .preview_rename_section(&args.from, &args.to, args.keep_aliases)?)
     })
 }
 
