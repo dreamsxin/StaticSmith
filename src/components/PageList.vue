@@ -823,6 +823,13 @@ async function copyText(text: string) {
               <span>{{ change.effect }}</span>
             </li>
           </ul>
+          <!-- 搬动会写到用户没勾的文件上（改它们里面的链接），必须先说清楚：
+               背着人改东西比不改更糟 -->
+          <p v-if="pending.preview.refs.length" class="page-list__batch-note">
+            另会把 {{ pending.preview.refs.length }} 篇里的
+            {{ pending.preview.refs.reduce((sum, item) => sum + item.hits, 0) }}
+            处站内链接改到新地址：{{ pending.preview.refs.map((item) => item.source).join('、') }}
+          </p>
           <div class="page-list__batch-row">
             <button
               type="button"

@@ -599,6 +599,12 @@ export interface BatchMoved {
   alias_added: boolean
 }
 
+/** 某一篇里被改写（或将被改写）的站内引用条数。 */
+export interface RefUpdate {
+  source: string
+  hits: number
+}
+
 export interface BatchReport {
   changed: string[]
   skipped: Skipped[]
@@ -608,6 +614,8 @@ export interface BatchReport {
 export interface BatchMoveReport {
   moved: BatchMoved[]
   skipped: Skipped[]
+  /** 站内引用被改写的篇目与条数：搬动会改地址，指向它的链接跟着改 */
+  refs_updated: RefUpdate[]
   plan: BuildPlan
 }
 
@@ -648,6 +656,8 @@ export interface BatchPreview {
   changes: BatchChange[]
   /** 真的会改动的篇数 */
   affected: number
+  /** 搬动会顺手改写的站内引用：哪几篇、各几处。其它动作为空 */
+  refs: RefUpdate[]
 }
 
 /** 干跑：算出每篇会发生什么，不碰磁盘。判断与执行同源。 */

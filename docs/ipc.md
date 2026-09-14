@@ -210,14 +210,20 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 
 `action` 是带标签的枚举：`{ kind: "tags", add, remove }`、`{ kind: "draft", draft }`、
 `{ kind: "move", to_section }`、`{ kind: "delete" }`。`BatchPreview` 给
-`changes`（`{source, changes, effect}`）与 `affected`（真会改动的篇数），
+`changes`（`{source, changes, effect}`）、`affected`（真会改动的篇数）与
+`refs`（`{source, hits}[]`，搬动会顺手改写的站内引用；其它动作为空），
 `effect` 是人能读的一句话（「搬到 notes/a.md，旧地址 /posts/a/」「已经是目标状态」）。
 判断与执行共用一份逻辑，所以预览说会改的，执行就会改。
 
 
 `BatchReport`：`changed`（真正写了盘的源文件）、`skipped`（`{source, reason}`）、
 `plan`（增量计划，界面据此更新「待生成」标记，不必再单独请求一次）。
-`BatchMoveReport` 把 `changed` 换成 `moved`（`{from, to, alias_added}`）。
+`BatchMoveReport` 把 `changed` 换成 `moved`（`{from, to, alias_added}`），
+另有 `refs_updated`（`{source, hits}[]`）：搬动会把站内其它文章里指向这几篇的链接
+改到新地址（Dreamweaver 的 Update Links，实现在 `staticsmith_core::refs`）。
+这一步会写用户没有勾选的文件，所以干跑与结果两处都要报出来；
+`refs_updated` 里若包含当前打开的那一篇，前端会把磁盘内容读回编辑器
+——不读回来，下一次保存就用旧文本把刚改好的链接盖掉。
 
 加什么、去什么分开传是刻意的：整集合覆盖会把各篇原有的标签洗掉。
 `keep_aliases` 省略时按 `true`——搬动会改 URL，不补旧地址等于打断外部链接。

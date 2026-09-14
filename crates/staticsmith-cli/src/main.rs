@@ -816,6 +816,13 @@ fn cmd_batch_move(
         };
         println!("+ {} → {}{alias}", moved.from, moved.to);
     }
+    // 改写别的文件是「用户没点却发生了」的事，必须逐篇报出来
+    for update in &outcome.refs_updated {
+        println!(
+            "~ {} 里的 {} 处站内链接已改到新地址",
+            update.source, update.hits
+        );
+    }
     for skipped in &outcome.skipped {
         println!("! {} —— {}", skipped.source, skipped.reason);
     }

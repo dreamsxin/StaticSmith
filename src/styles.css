@@ -1325,6 +1325,15 @@ kbd {
   align-items: center;
 }
 
+/* 「还会改到别的文件」这句要比列表本身醒目一点：它说的是用户没勾的那些篇。 */
+.page-list__batch-note {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+
 .page-list__batch-row input[type='text'] {
   flex: 1;
   min-width: 0;

@@ -550,7 +550,14 @@ export const actions = {
     await this.afterBatch(report.changed.length, report.skipped, report.plan)
   },
 
-  /** 批量搬到另一个栏目。默认补旧地址，老链接经重定向页继续可用。 */
+  /**
+   * 批量搬到另一个栏目。默认补旧地址，老链接经重定向页继续可用。
+   *
+   * 搬动还会改写站内其它文章里指向这几篇的链接（Rust 侧 `refs` 模块）。
+   * 于是这里多了一件事：**被改写的那一篇如果正开在编辑器里，要把磁盘内容读回来**——
+   * 不读回来，下一次保存就用编辑器里的旧文本把刚改好的链接盖掉。
+   * 缓冲区有未保存改动时不动它，只说一声（同 `applyReplace` 的处理）。
+   */
   async batchMove(sources: string[], toSection: string, keepAliases = true) {
     const report = await run(() => api.batchMove(sources, toSection, keepAliases))
     if (!report) return
@@ -560,6 +567,23 @@ export const actions = {
       state.currentRaw = ''
       state.savedRaw = ''
       state.previewHtml = ''
+    }
+    const open = state.currentSource
+    if (open !== null && report.refs_updated.some((r) => r.source === open)) {
+      if (isDirty.value) {
+        notify('info', '这一篇里的站内链接已在磁盘上改到新地址，但编辑器里有未保存改动，没有覆盖它')
+      } else {
+        const raw = await run(() => api.readContent(open))
+        if (raw !== undefined) {
+          state.currentRaw = raw
+          state.savedRaw = raw
+          await this.loadFrontMatter()
+        }
+      }
+    }
+    if (report.refs_updated.length > 0) {
+      const hits = report.refs_updated.reduce((sum, item) => sum + item.hits, 0)
+      notify('success', `顺手把 ${report.refs_updated.length} 篇里的 ${hits} 处站内链接改到了新地址`)
     }
     await this.afterBatch(report.moved.length, report.skipped, report.plan)
   },

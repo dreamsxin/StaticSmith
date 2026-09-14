@@ -796,6 +796,8 @@ fn move_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
             "from": moved.from,
             "to": moved.to,
             "alias_added": moved.alias_added,
+            // Agent 必须知道「除了这一篇，还改了哪几篇」：它接下来可能正要编辑那些文件
+            "refs_updated": out.refs_updated,
             "next": "旧地址的重定向页要下一次 build_site 才出现；改完看一眼 audit_links"
         })),
         None => Err(out

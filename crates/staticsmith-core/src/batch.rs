@@ -20,6 +20,7 @@ use crate::config::{ProjectPaths, SourceFormat};
 use crate::content::{self, Page};
 use crate::error::{Error, Result};
 use crate::frontmatter::{self, Patch};
+use crate::refs::{self, RefUpdate, UrlMove};
 use crate::util;
 
 /// 加载全站页面，只为读 front matter 与路径。
@@ -64,6 +65,8 @@ pub struct Moved {
 pub struct MoveOutcome {
     pub moved: Vec<Moved>,
     pub skipped: Vec<Skipped>,
+    /// 站内引用被改写的篇目与条数（Dreamweaver 的 Update Links 那件事）。
+    pub refs_updated: Vec<RefUpdate>,
 }
 
 /// 标签增删。
@@ -137,6 +140,11 @@ pub fn set_draft(paths: &ProjectPaths, sources: &[String], draft: bool) -> Resul
 ///
 /// `keep_aliases` 默认由调用方决定，但界面与 Agent 都该给真：搬动会改 URL，
 /// 不补旧地址就等于把外部链接全部打断。
+///
+/// 搬完还会把**站内其它文章里指向这几篇的链接**改到新地址（见 [`crate::refs`]）。
+/// 光补 `aliases` 只是让旧链接经重定向继续可用，站内引用仍指着旧地址——
+/// 攒上几次搬动之后就没人说得清哪条还对。两件事都做：站内引用直接改对，
+/// 外部链接靠重定向兜着。
 pub fn move_to_section(
     paths: &ProjectPaths,
     sources: &[String],
@@ -146,6 +154,7 @@ pub fn move_to_section(
     let target = util::sanitize_relative_dir(to_section);
     let pages = load_for_front_matter(&paths.content)?;
     let mut out = MoveOutcome::default();
+    let mut url_moves: Vec<UrlMove> = Vec::new();
 
     for source in sources {
         let Some(page) = pages.iter().find(|p| &p.source == source) else {
@@ -156,7 +165,13 @@ pub fn move_to_section(
             continue;
         };
         match move_one(paths, page, &target, keep_aliases) {
-            Ok(Some(moved)) => out.moved.push(moved),
+            Ok(Some(moved)) => {
+                url_moves.push(UrlMove {
+                    from: page.url.clone(),
+                    to: moved_url(&page.url, &target),
+                });
+                out.moved.push(moved);
+            }
             Ok(None) => out.skipped.push(Skipped {
                 source: source.clone(),
                 reason: "已经在这个栏目里".to_string(),
@@ -167,7 +182,55 @@ pub fn move_to_section(
             }),
         }
     }
+
+    if !url_moves.is_empty() {
+        // 搬完再重新读一遍：文件已经改了位置，而搬走的那几篇自己也可能引用了彼此
+        let after = load_for_front_matter(&paths.content)?;
+        for page in &after {
+            match update_refs(paths, &page.source, &url_moves) {
+                Ok(Some(update)) => out.refs_updated.push(update),
+                Ok(None) => {}
+                // 引用没改成不影响已经搬好的文件，报出来让人手改，不回滚
+                Err(err) => out.skipped.push(Skipped {
+                    source: page.source.clone(),
+                    reason: format!("引用未改写：{err}"),
+                }),
+            }
+        }
+    }
     Ok(out)
+}
+
+/// 搬动之后这篇的新地址。
+///
+/// URL 恒为 `/目录/slug/`（`content::output_paths`），搬动只换目录那一段，
+/// 所以从旧地址取末段再拼上新栏目就够，不必为了算地址把文件先搬走。
+/// 预览与执行共用这一份推算——两处各写一遍，迟早出现「预览说改成 A、实际改成 B」。
+fn moved_url(old_url: &str, target: &str) -> String {
+    let slug = old_url.trim_matches('/').rsplit('/').next().unwrap_or("");
+    if target.is_empty() {
+        format!("/{slug}/")
+    } else {
+        format!("/{target}/{slug}/")
+    }
+}
+
+/// 改写一篇里的站内引用并写回。`None` 表示这篇没有指向搬动目标的链接。
+fn update_refs(
+    paths: &ProjectPaths,
+    source: &str,
+    url_moves: &[UrlMove],
+) -> Result<Option<RefUpdate>> {
+    let path = content::resolve_source(&paths.content, source)?;
+    let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
+    let Some((updated, hits)) = refs::rewrite(&raw, url_moves)? else {
+        return Ok(None);
+    };
+    std::fs::write(&path, updated).map_err(|e| Error::io(&path, e))?;
+    Ok(Some(RefUpdate {
+        source: source.to_string(),
+        hits,
+    }))
 }
 
 /// 搬一篇的判断结果。预览与执行共用，避免「预览说能搬、执行却跳过」。
@@ -298,6 +361,8 @@ pub struct Preview {
     pub changes: Vec<Change>,
     /// 真的会改动的篇数。
     pub affected: usize,
+    /// 搬动会顺手改写的站内引用：哪几篇、各几处。其它动作为空。
+    pub refs: Vec<RefUpdate>,
 }
 
 /// 干跑：算出每篇会发生什么，不碰磁盘。
@@ -306,6 +371,7 @@ pub struct Preview {
 /// 反手就能改回来的动作，多一步确认只是白点一下。
 pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Result<Preview> {
     let mut out = Preview::default();
+    let mut url_moves: Vec<UrlMove> = Vec::new();
     let pages = match action {
         Action::Move { .. } => load_for_front_matter(&paths.content)?,
         _ => Vec::new(),
@@ -362,11 +428,17 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
                     MoveDecision::Go {
                         new_source,
                         old_url,
-                    } => Change {
-                        source: source.clone(),
-                        changes: true,
-                        effect: format!("搬到 {new_source}，旧地址 {old_url}"),
-                    },
+                    } => {
+                        url_moves.push(UrlMove {
+                            from: old_url.clone(),
+                            to: moved_url(&old_url, &target),
+                        });
+                        Change {
+                            source: source.clone(),
+                            changes: true,
+                            effect: format!("搬到 {new_source}，旧地址 {old_url}"),
+                        }
+                    }
                 },
             },
             Action::Tags(_) | Action::Draft(_) => {
@@ -385,6 +457,27 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
             out.affected += 1;
         }
         out.changes.push(change);
+    }
+
+    // 干跑也要报「另有几篇里的几处引用会跟着改」：这一步会写别的文件，
+    // 而用户只勾了这几篇——不说清楚就是背着人改东西。
+    if !url_moves.is_empty() {
+        for page in &pages {
+            let Ok(path) = content::resolve_source(&paths.content, &page.source) else {
+                continue;
+            };
+            let Ok(raw) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            // 干跑遇到 front matter 坏了的文件不报错：这一步只是数数，
+            // 真正搬的时候那一篇会作为「引用未改写」被单独报出来
+            if let Ok(Some((_, hits))) = refs::rewrite(&raw, &url_moves) {
+                out.refs.push(RefUpdate {
+                    source: page.source.clone(),
+                    hits,
+                });
+            }
+        }
     }
     Ok(out)
 }
@@ -578,6 +671,55 @@ mod tests {
         assert!(!content::resolve_source(&f.paths.content, "essays/a.md")
             .unwrap()
             .exists());
+    }
+
+    #[test]
+    fn moving_a_page_rewrites_inbound_links_and_preview_says_so() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n\n正文\n");
+        // 引用方：Markdown 链接、HTML 属性、不带尾斜杠的写法，外加围栏里那条不该动的
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\n+++\n\n见 [甲](/posts/a/) 与 <a href=\"/posts/a\">甲</a>\n\n```md\n[甲](/posts/a/)\n```\n",
+        );
+        write(&f, "notes/c.md", "+++\ntitle = \"丙\"\n+++\n\n没有引用\n");
+
+        let sources = vec!["posts/a.md".to_string()];
+        let action = Action::Move {
+            to_section: "notes".to_string(),
+        };
+
+        // 干跑要把「另有哪几篇的引用会被改」说清楚：这一步会写用户没勾的文件
+        let dry = preview(&f.paths, &sources, &action).unwrap();
+        assert_eq!(dry.affected, 1);
+        assert_eq!(dry.refs.len(), 1, "{:?}", dry.refs);
+        assert_eq!(dry.refs[0].source, "posts/b.md");
+        assert_eq!(dry.refs[0].hits, 2, "围栏里那条不该算");
+        // 干跑不写盘
+        assert!(read(&f, "posts/b.md").contains("[甲](/posts/a/)"));
+
+        let out = move_to_section(&f.paths, &sources, "notes", true).unwrap();
+        assert_eq!(out.moved.len(), 1);
+        assert!(out.moved[0].alias_added, "外部旧链接仍要靠重定向兜着");
+        assert_eq!(out.refs_updated.len(), 1);
+        assert_eq!(out.refs_updated[0].source, "posts/b.md");
+        assert_eq!(out.refs_updated[0].hits, 2);
+
+        let b = read(&f, "posts/b.md");
+        assert!(b.contains("[甲](/notes/a/)"), "{b}");
+        assert!(
+            b.contains("<a href=\"/notes/a\">"),
+            "作者没写尾斜杠就别加：{b}"
+        );
+        assert!(
+            b.contains("```md\n[甲](/posts/a/)\n```"),
+            "围栏里的是教学材料：{b}"
+        );
+        // 没有引用的那篇不该被写过
+        assert!(read(&f, "notes/c.md").contains("没有引用"));
+        // 搬走的那篇自己的 aliases 记的是旧地址，不能被改写掉
+        assert!(read(&f, "notes/a.md").contains("/posts/a/"));
     }
 
     #[test]

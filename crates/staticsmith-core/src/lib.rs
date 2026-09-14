@@ -43,6 +43,7 @@ pub mod links;
 pub mod media;
 pub mod outputs;
 pub mod preview;
+pub mod refs;
 pub mod replace;
 pub mod scaffold;
 pub mod search;
