@@ -90,6 +90,8 @@ export interface EditorCommands {
   assets(): void
   /** 展开「在这一篇里查找 / 替换」那一行 */
   find(): void
+  /** 打开大纲浮层：按标题跳转 */
+  outline(): void
 }
 
 export const ui = reactive({

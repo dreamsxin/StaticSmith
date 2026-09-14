@@ -12,6 +12,8 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import OutlineDialog from './OutlineDialog.vue'
+import { countWords, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
 import { actions, isDirty, store } from '../store'
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
@@ -45,6 +47,17 @@ function syncScroll() {
   box.scrollTop = el.scrollTop
   box.scrollLeft = el.scrollLeft
 }
+
+/**
+ * 字数与预计阅读时长。
+ *
+ * 长文写着写着就没了长度感——纸质书有厚度和页码，这里只有一个滚动条。
+ * 规则在 `manuscript.ts`：中文按字、西文按词，front matter 与代码块不算
+ * （读者不会读它们）。边打字边算：一篇文章几万字这个量级，重算的开销可以忽略。
+ */
+const words = computed(() => countWords(store.currentRaw))
+const minutes = computed(() => readingMinutes(words.value))
+
 
 
 const affected = computed(() => store.plan?.pages.length ?? 0)
@@ -281,19 +294,6 @@ const showGuide = computed(() => steps.value.slice(0, 2).some((step) => !step.do
 // ---------------------------------------------------------------- 快捷键
 
 
-/** 正文字数（不含 front matter）。中文按字算，西文按词算。 */
-const wordCount = computed(() => {
-  const raw = store.currentRaw
-  let body = raw
-  if (raw.startsWith('+++')) {
-    const end = raw.indexOf('+++', 3)
-    if (end !== -1) body = raw.slice(end + 3)
-  }
-  const cjk = (body.match(/[\u3400-\u9fff\u3040-\u30ff]/g) ?? []).length
-  const words = (body.match(/[A-Za-z0-9_'-]+/g) ?? []).length
-  return cjk + words
-})
-
 // ---------------------------------------------------------------- 单篇内查找替换
 
 /**
@@ -377,6 +377,22 @@ function closeFind() {
   textarea.value?.focus()
 }
 
+/** 大纲浮层是否打开。 */
+const showOutline = ref(false)
+
+/**
+ * 跳到源文本的某个位置（大纲点击的落点）。
+ *
+ * 光标落在该行开头并把选区收拢成一点：选中整行会让下一次输入直接覆盖标题。
+ * `focus()` 之后浏览器会把光标滚进视野，不必自己算滚动位置。
+ */
+function jumpTo(offset: number) {
+  const el = textarea.value
+  if (!el) return
+  el.focus()
+  el.setSelectionRange(offset, offset)
+}
+
 /** 跳到第 n 处（可越界，自动首尾相接）。 */
 function selectMatch(n: number) {
   const matches = findMatches.value
@@ -437,9 +453,15 @@ function onKeydown(event: KeyboardEvent) {
     i: editorCommands.italic,
     k: editorCommands.link,
     f: editorCommands.find,
+    // Ctrl+Shift+O 跳标题，与各家编辑器的「转到符号」一致
+    o: editorCommands.outline,
   }
-  // Ctrl+Shift+F 是「找文章」，让它照常冒泡到 window
-  const handler = event.shiftKey && key === 'f' ? undefined : handlers[key]
+  // 两个键要看 Shift，写进上面那张表反而更难读，单独列出来：
+  // Ctrl+Shift+F 是「找文章」（挂在 window 上），这里放它过去；
+  // 大纲固定用 Ctrl+Shift+O，不带 Shift 的 Ctrl+O 留给系统与将来的「打开」。
+  if (event.shiftKey && key === 'f') return
+  if (key === 'o' && !event.shiftKey) return
+  const handler = handlers[key]
   if (!handler) return
   event.preventDefault()
   // 编辑器内的 Ctrl+F 归正文查找：不拦住冒泡，window 上那个「找文章」会把焦点抢去侧栏
@@ -465,6 +487,9 @@ const editorCommands: EditorCommands = {
   pickFile: () => filePicker.value?.click(),
   assets: () => void toggleAssets(),
   find: () => openFind(),
+  outline: () => {
+    showOutline.value = true
+  },
 }
 
 /**
@@ -636,6 +661,17 @@ onBeforeUnmount(() => {
       >
         媒体库
       </button>
+      <!-- 大纲放在工具条右侧：它问的是「这一篇结构如何」，
+           与左边那排「改这一段」的按钮不是一类事。字数在页脚（状态栏的位置） -->
+      <span class="app__spacer" />
+      <button
+        type="button"
+        title="大纲 Ctrl+Shift+O：按标题跳转"
+        aria-label="大纲，按标题跳转"
+        @click="editorCommands.outline()"
+      >
+        大纲
+      </button>
       <input
         ref="filePicker"
         type="file"
@@ -739,9 +775,20 @@ onBeforeUnmount(() => {
 
 
     <footer class="editor__foot">
-      {{ wordCount }} 字 · <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
-      <kbd>Ctrl+K</kbd> 链接 · <kbd>Ctrl+Enter</kbd> 增量生成 · 粘贴或拖入图片即插入
+      <span :title="`按每分钟 ${WORDS_PER_MINUTE} 字估算；front matter 与代码块不计入`">
+        {{ words }} 字 · 约 {{ minutes }} 分钟
+      </span>
+      · <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
+      <kbd>Ctrl+K</kbd> 链接 · <kbd>Ctrl+Shift+O</kbd> 大纲 · <kbd>Ctrl+Enter</kbd> 增量生成 ·
+      粘贴或拖入图片即插入
     </footer>
+
+    <OutlineDialog
+      :open="showOutline"
+      :source="store.currentRaw"
+      @close="showOutline = false"
+      @jump="jumpTo"
+    />
   </section>
 
   <section v-else class="editor editor--empty">

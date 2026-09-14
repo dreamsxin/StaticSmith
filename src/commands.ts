@@ -286,6 +286,13 @@ export function menus(): Menu[] {
           run: () => ui.editor?.find(),
         },
         {
+          id: 'edit.outline',
+          label: '大纲…',
+          hint: 'Ctrl+Shift+O：按标题跳转',
+          disabled: noEditor(),
+          run: () => ui.editor?.outline(),
+        },
+        {
           id: 'edit.replace',
           label: '跨文件替换…',
           hint: '只改正文，front matter 不动；先干跑再落盘',
