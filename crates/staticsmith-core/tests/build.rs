@@ -138,6 +138,92 @@ fn editing_a_global_component_cascades_to_every_page() {
     assert!(read(dir.path(), "posts/hello-staticsmith/index.html").contains("回到首页"));
 }
 
+/// 空跑不重算标签页。
+///
+/// 标签页依赖全站（词条成员 + 侧栏里的全局 `pages`），所以只能整体重算或整体跳过。
+/// 实测 400 篇站点上它占了增量空跑 377 ms 里的 359 ms，而空跑的输入与上次逐字节相同。
+#[test]
+fn an_idle_incremental_build_reuses_the_taxonomy_pages() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let tag_page = dir.path().join("dist/tags/index.html");
+    let before = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+
+    builder.reload().unwrap();
+    builder.build(BuildMode::Incremental).unwrap();
+
+    let after = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    assert_eq!(before, after, "什么都没改，标签页不该被重写");
+}
+
+/// 改了内容就要重算：侧栏里的「最近文章」也要跟着更新，这不是可以省的开销。
+#[test]
+fn editing_content_still_rebuilds_the_taxonomy_pages() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let tag_page = dir.path().join("dist/tags/index.html");
+    let before = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+
+    let article = dir.path().join("content/posts/hello-staticsmith.md");
+    let source = std::fs::read_to_string(&article).unwrap();
+    std::fs::write(&article, format!("{source}\n补一段。\n")).unwrap();
+    builder.reload().unwrap();
+    builder.build(BuildMode::Incremental).unwrap();
+
+    let after = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    assert_ne!(before, after, "内容变了，标签页必须重算");
+}
+
+/// 产物被手删时，指纹相同也要补回来。
+#[test]
+fn deleted_taxonomy_output_is_regenerated_even_when_nothing_changed() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let tag_page = dir.path().join("dist/tags/index.html");
+    std::fs::remove_file(&tag_page).unwrap();
+
+    builder.reload().unwrap();
+    builder.build(BuildMode::Incremental).unwrap();
+
+    assert!(
+        tag_page.exists(),
+        "产物没了就得重新生成，不能因为指纹相同而跳过"
+    );
+}
+
+/// 改模板要重算：标签页也 extend 同一套布局。
+#[test]
+fn editing_a_template_rebuilds_the_taxonomy_pages() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    let tag_page = dir.path().join("dist/tags/index.html");
+    let before = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+
+    let layout = dir.path().join("templates/layouts/base.html");
+    let source = std::fs::read_to_string(&layout).unwrap();
+    std::fs::write(
+        &layout,
+        source.replace("</body>", "<!-- 改一下 -->\n</body>"),
+    )
+    .unwrap();
+    builder.reload().unwrap();
+    builder.build(BuildMode::Incremental).unwrap();
+
+    let after = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    assert_ne!(before, after, "模板变了，标签页必须重算");
+}
+
 /// 每次构建都要能回答「时间花在哪」。
 ///
 /// 只钉「各阶段之和不超过总耗时」这一条：具体数字随机器变化，钉住会变成假失败。

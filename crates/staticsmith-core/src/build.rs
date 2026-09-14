@@ -94,6 +94,9 @@ pub struct BuildReport {
     pub warnings: Vec<String>,
 }
 
+/// 标签页输入指纹在 `meta` 表里的键名。
+const TAXONOMY_SIGNATURE_KEY: &str = "taxonomy_signature";
+
 /// 各阶段耗时（毫秒）。
 ///
 /// 为什么每次构建都算：没有归因的话，「增量空跑要 260 ms」这种问题只能靠起一个基准去猜
@@ -569,14 +572,23 @@ impl Builder {
             );
         }
 
-        // 标签页同理：数量少、依赖全站 tags，每次构建整体重算。
+        // 标签页依赖全站（词条成员，以及侧栏里的全局 `pages`），所以它要么整体重算、
+        // 要么整体跳过。输入指纹相同且产物还在时跳过——那正是空跑的情形。
         let taxonomy_started = Instant::now();
-        match self.write_taxonomy(&renderer, &site_ctx, &collected) {
-            Ok((count, notes)) => {
-                files_written += count;
-                warnings.extend(notes);
+        let template_hash = self.combined_template_hash();
+        let signature = self.taxonomy_signature(&all_pages, &template_hash);
+        let reusable = matches!(mode, BuildMode::Incremental)
+            && self.index.meta(TAXONOMY_SIGNATURE_KEY)?.as_deref() == Some(signature.as_str())
+            && self.taxonomy_outputs_present();
+        if !reusable {
+            match self.write_taxonomy(&renderer, &site_ctx, &collected) {
+                Ok((count, notes)) => {
+                    files_written += count;
+                    warnings.extend(notes);
+                    self.index.set_meta(TAXONOMY_SIGNATURE_KEY, &signature)?;
+                }
+                Err(e) => warnings.push(format!("标签页生成失败: {e}")),
             }
-            Err(e) => warnings.push(format!("标签页生成失败: {e}")),
         }
         phases.taxonomy_ms = taxonomy_started.elapsed().as_millis() as u64;
 
@@ -607,7 +619,6 @@ impl Builder {
 
         // 索引更新：写入新哈希并清除脏标记。
         let index_started = Instant::now();
-        let template_hash = self.combined_template_hash();
         for page in &outputs {
             self.index.upsert_page(&PageRecord {
                 source: page.source.clone(),
@@ -893,6 +904,61 @@ impl Builder {
             .collect::<Vec<_>>()
             .join("|");
         util::hash_str(&joined)
+    }
+
+    /// 标签页那一段的输入指纹：只有它变了才需要整体重算。
+    ///
+    /// 为什么把**全站每一页的哈希**都算进去，而不是只算词条成员：标签页 extend 的
+    /// `base.html` 里有侧栏，而两个自带版式的侧栏都用了全局 `pages`
+    /// （docs 列最近 5 篇、blog 列最近 8 篇并显示总篇数）。也就是说改任意一篇都可能改变
+    /// 每一个标签页的输出——那不是浪费，是它真的依赖全站。只按「这个词条的成员变没变」
+    /// 来跳过，会让侧栏停在旧数据上，而这种错「看起来一切正常」，最难发现。
+    ///
+    /// 所以这道判断只回答一个问题：**这次的输入和上次完全一样吗**。一样就跳过整段。
+    /// 覆盖的是空跑：`serve` 下没有改动的重建、连点两次「生成」、CI 里的重复构建。
+    /// 改了内容仍然整体重算，这是上面那条依赖关系的必然代价，不是可以省掉的开销。
+    fn taxonomy_signature(&self, all_pages: &[&Page], template_hash: &str) -> String {
+        let mut parts = String::with_capacity(all_pages.len() * 48);
+        parts.push_str(template_hash);
+        parts.push('\n');
+        // 配置里能影响标签页的部分：**生效的**维度定义（含内置的 tags）、分页大小、绝对地址。
+        for taxonomy in self.config.effective_taxonomies() {
+            parts.push_str(&format!(
+                "{}|{}|{}\n",
+                taxonomy.normalized_slug(),
+                taxonomy.title,
+                taxonomy.field()
+            ));
+        }
+        parts.push_str(&format!(
+            "{}|{}\n",
+            self.config.build.page_size, self.config.site.base_url
+        ));
+        for page in all_pages {
+            parts.push_str(&page.source);
+            parts.push('\t');
+            parts.push_str(&page.hash);
+            parts.push('\n');
+        }
+        util::hash_str(&parts)
+    }
+
+    /// 上次算出的标签页产物是否还在盘上。
+    ///
+    /// 指纹相同也不能直接跳过：用户可能手删了 `dist/`，或者上次构建中途失败。
+    /// 只查每个维度的列表页——逐个词条查会退化成一次目录遍历，而漏掉的那种情况
+    /// （手删单个词条页）下一次全量会补上。
+    ///
+    /// 用 `effective_taxonomies()` 而不是 `config.taxonomies`：内置的 tags 维度不在配置里，
+    /// 用后者会得到一个空列表，而空列表的 `all()` 恒为真——那等于这道检查根本没生效。
+    fn taxonomy_outputs_present(&self) -> bool {
+        self.config.effective_taxonomies().iter().all(|taxonomy| {
+            self.paths
+                .output
+                .join(taxonomy.normalized_slug())
+                .join("index.html")
+                .exists()
+        })
     }
 }
 

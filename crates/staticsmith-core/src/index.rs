@@ -116,7 +116,35 @@ impl Index {
                 created_at   TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_assets_path ON assets(path);
+
+            -- 构建之间要记住的零散状态，目前只有标签页的输入指纹。
+            -- 用一张 key-value 表而不是给每件事加一张表：这类东西的共同点是
+            -- 「一行、无关系、只被写它的那段代码读」，独立建表只会让 schema 变胖。
+            CREATE TABLE IF NOT EXISTS meta (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
             "#,
+        )?;
+        Ok(())
+    }
+
+    /// 读一条构建间状态，不存在返回 `None`。
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        let mut stmt = self.conn.prepare("SELECT value FROM meta WHERE key = ?1")?;
+        let mut rows = stmt.query([key])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// 写一条构建间状态。
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
         )?;
         Ok(())
     }
