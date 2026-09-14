@@ -8,6 +8,7 @@ import { computed, reactive, readonly } from 'vue'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
+import { appendNotice, type Notice } from './notices'
 import type {
   AssetRecord,
   BuildMode,
@@ -115,6 +116,15 @@ interface State {
    */
   error: string | null
   toasts: Toast[]
+  /**
+   * 通知历史（新的在前）。
+   *
+   * toast 是瞬时的，这份留着让「刚才那条错误说了什么」事后还能翻到。
+   * 上限见 `NOTICE_LIMIT`。
+   */
+  notices: Notice[]
+  /** 已经看过的最大通知 id，用来算未读数 */
+  lastSeenNotice: number
   /** 磁盘上被外部编辑器改动、界面尚未刷新的提示 */
   externalChange: boolean
 }
@@ -155,6 +165,8 @@ const state = reactive<State>({
   autoBuild: localStorage.getItem(AUTO_BUILD_KEY) === '1',
   error: null,
   toasts: [],
+  notices: [],
+  lastSeenNotice: 0,
   externalChange: false,
 })
 
@@ -175,10 +187,17 @@ export const isTemplateDirty = computed(
 
 let toastId = 0
 
-/** 弹一条通知。错误停留更久，因为用户往往需要读完整句。 */
+/**
+ * 弹一条通知。错误停留更久，因为用户往往需要读完整句。
+ *
+ * 同时进历史（`state.notices`）：toast 是瞬时出口，几秒后就没了，而「刚才那条错误
+ * 到底说了什么」经常要事后再看一遍——手改配置存盘失败时，Rust 侧那条带行列号的
+ * TOML 报错飘走之后就无处可查了。
+ */
 function notify(kind: ToastKind, message: string) {
   const id = ++toastId
   state.toasts.push({ id, kind, message })
+  state.notices = appendNotice(state.notices, { id, level: kind, message, at: Date.now() })
   const ttl = kind === 'error' ? 8000 : 3500
   setTimeout(() => {
     state.toasts = state.toasts.filter((t) => t.id !== id)
@@ -248,6 +267,22 @@ export const actions = {
 
   dismissToast(id: number) {
     state.toasts = state.toasts.filter((t) => t.id !== id)
+  },
+
+  /**
+   * 标记通知历史已读。
+   *
+   * 记「看过的最大 id」而不是清零一个布尔：面板开着时又来了新消息，
+   * 布尔标记会把它一并算成已读。
+   */
+  markNoticesSeen() {
+    state.lastSeenNotice = state.notices[0]?.id ?? state.lastSeenNotice
+  },
+
+  /** 清空通知历史。已读位置一起前移，否则清空后未读数还挂着。 */
+  clearNotices() {
+    state.lastSeenNotice = state.notices[0]?.id ?? state.lastSeenNotice
+    state.notices = []
   },
 
   /** 读取最近打开的站点。已被删除或移动的条目由后端自动清理。 */

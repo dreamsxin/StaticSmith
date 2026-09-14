@@ -382,6 +382,17 @@ export function menus(): Menu[] {
     {
       label: '视图',
       items: [
+        // 消息排在最前：它是「刚才那条报错说了什么」的唯一去处，而通知气泡几秒就没了。
+        // 只有状态栏一个入口的话，键盘用户得 Tab 穿过整个界面才够得到。
+        {
+          id: 'view.notices',
+          label: '消息…',
+          hint: '翻看最近的通知；气泡消失后还能在这里读',
+          run: () => {
+            ui.noticesOpen = true
+          },
+        },
+        { separator: true },
         // 模式排在最前：它一次决定整套布局，单个窗格的开关是它之后的微调
         ...modes.map((spec) => ({
           id: `view.mode.${spec.id}`,

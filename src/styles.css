@@ -772,6 +772,24 @@ h3 {
   color: var(--fg-muted);
 }
 
+/* 状态栏里的「消息」入口。做成看起来像状态文字的按钮：状态栏本身是只报告状态的地方，
+   一个显眼的按钮会把它变成工具栏，而这里只需要一个不抢注意的入口 */
+.app__status-notices {
+  padding: 0 0.35rem;
+  color: var(--fg-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.app__status-notices:hover {
+  color: var(--fg);
+  border-color: var(--border);
+}
+
+
 
 
 .app__body {
@@ -1445,6 +1463,55 @@ kbd {
   border: 1px solid currentcolor;
   color: var(--success);
 }
+
+/* 消息中心的三档：与 toast 的三种样式同名，颜色也对齐——同一条消息在气泡里
+   和在历史里应该看起来是同一件事 */
+.badge--success {
+  border: 1px solid currentcolor;
+  color: var(--success);
+}
+
+.badge--info {
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.badge--error {
+  border: 1px solid currentcolor;
+  color: var(--danger);
+}
+
+/* 消息历史：时间与程度定宽，正文占满剩下的宽度并允许换行——
+   报错常常带路径与行列号，截断会把最有用的那截藏掉 */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notice__time {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.notice__text {
+  word-break: break-word;
+}
+
 
 
 .editor__dirty {

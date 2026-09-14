@@ -19,6 +19,7 @@ import ContextMenu from './components/ContextMenu.vue'
 import DeployPanel from './components/DeployPanel.vue'
 import LayoutManager from './components/LayoutManager.vue'
 import NewSiteDialog from './components/NewSiteDialog.vue'
+import NoticeCenter from './components/NoticeCenter.vue'
 import PageList from './components/PageList.vue'
 
 import PreviewPane from './components/PreviewPane.vue'
@@ -29,6 +30,7 @@ import ToastStack from './components/ToastStack.vue'
 
 import WelcomeScreen from './components/WelcomeScreen.vue'
 import { useSplit } from './composables/useSplit'
+import { unseenCount } from './notices'
 import { actions, isDirty, isTemplateDirty, store } from './store'
 import { applyResponsive, allTabs, modeSpec, restoreLayout, tabGroups, tabHint, ui } from './ui'
 
@@ -121,6 +123,9 @@ const editing = computed(() => {
 
 /** 状态栏的「未保存」取并集：文章与模板可以同时挂着改动，藏掉任何一个都是说谎。 */
 const anyDirty = computed(() => isDirty.value || isTemplateDirty.value)
+
+/** 状态栏「消息」上的未读数。没有未读时不显示数字，避免常驻一个 0。 */
+const unseen = computed(() => unseenCount(store.notices, store.lastSeenNotice))
 
 /**
  * 内容页是三栏可调，其余面板占满整行。
@@ -314,9 +319,13 @@ onBeforeUnmount(() => {
     </main>
 
     <footer class="app__status">
-      <span v-if="store.busy">处理中…</span>
-      <span v-else-if="store.progress">{{ store.progress }}</span>
-      <span v-else>就绪</span>
+      <!-- 进度进无障碍通道：这里是长耗时操作唯一的实时出口，读屏器听不到就等于没有。
+           polite 而不是 assertive——进度会连续刷新，抢读会把用户正在听的内容打断。 -->
+      <span role="status" aria-live="polite">
+        <template v-if="store.busy">处理中…</template>
+        <template v-else-if="store.progress">{{ store.progress }}</template>
+        <template v-else>就绪</template>
+      </span>
       <!-- 「待生成」是级联更新的唯一实时体现，排在左侧视线起点；
            预览地址这类环境信息才靠右 -->
       <span v-if="store.plan" class="app__status-plan">
@@ -324,6 +333,16 @@ onBeforeUnmount(() => {
       </span>
       <span v-if="anyDirty" class="app__status-dirty">● 未保存</span>
       <span class="app__spacer" />
+      <!-- 消息入口：通知气泡几秒后消失，事后要查只能靠这里。未读数只在有新消息时出现 -->
+      <button
+        type="button"
+        class="app__status-notices"
+        :aria-label="unseen ? `消息，${unseen} 条未读` : '消息'"
+        title="翻看最近的通知（气泡消失后还能在这里读）"
+        @click="ui.noticesOpen = true"
+      >
+        消息<template v-if="unseen"> {{ unseen }}</template>
+      </button>
       <!-- 当前模式属于环境信息，靠右；状态栏只报告状态，切换走「视图」菜单 -->
       <span class="app__status-mode" :title="modeSpec(ui.mode).hint">
         {{ modeSpec(ui.mode).label }}模式
@@ -331,6 +350,8 @@ onBeforeUnmount(() => {
       <span v-if="store.previewServer">预览 {{ store.previewServer }}</span>
     </footer>
   </div>
+
+  <NoticeCenter :open="ui.noticesOpen" @close="ui.noticesOpen = false" />
 
   <CommandPalette :open="ui.paletteOpen" @close="ui.paletteOpen = false" />
   <NewSiteDialog

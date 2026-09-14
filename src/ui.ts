@@ -96,6 +96,8 @@ export const ui = reactive({
   /** 当前视图。标签页与菜单的「视图」组都改这一个值。 */
   tab: 'content' as Tab,
   paletteOpen: false,
+  /** 消息中心是否打开（状态栏右侧的「消息」入口） */
+  noticesOpen: false,
   /** 「新建站点」对话框。菜单只放一条入口，字段在弹出的表单里填。 */
   newSiteOpen: false,
   /** 「回退内容」对话框：浏览内容快照并回到其中一份。 */
