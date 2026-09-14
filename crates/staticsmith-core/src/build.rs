@@ -576,7 +576,7 @@ impl Builder {
         // 要么整体跳过。输入指纹相同且产物还在时跳过——那正是空跑的情形。
         let taxonomy_started = Instant::now();
         let template_hash = self.combined_template_hash();
-        let signature = self.taxonomy_signature(&all_pages, &template_hash);
+        let signature = self.taxonomy_signature(&collected, &all_pages, &template_hash);
         let reusable = matches!(mode, BuildMode::Incremental)
             && self.index.meta(TAXONOMY_SIGNATURE_KEY)?.as_deref() == Some(signature.as_str())
             && self.taxonomy_outputs_present();
@@ -714,9 +714,7 @@ impl Builder {
         collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
         all_pages: &[&Page],
     ) -> Context {
-        let mut ctx = Context::new();
-        ctx.insert("site", &self.config.site);
-        ctx.insert("build", &self.config.build);
+        let mut ctx = self.site_wide_context(collected);
         // 整站页面列表**在这里注入一次**，由每页克隆去用。
         //
         // 以前是每渲染一页 `ctx.insert("pages", all_pages)` 一次，而 `insert` 会立刻
@@ -727,6 +725,22 @@ impl Builder {
         // 注入一次之后每页仍要克隆一份上下文（Tera 只接受一个 `Context`，
         // 而每页要放自己的 `page`），但克隆一棵已经建好的 `Value` 比重新序列化便宜得多。
         ctx.insert("pages", all_pages);
+        ctx
+    }
+
+    /// 除 `pages` 之外的全站上下文：配置、导航、栏目、词条、站点级地址。
+    ///
+    /// 单独拆出来是为了让 [`Builder::taxonomy_signature`] 能把「模板能看到的全站数据」
+    /// 整份算进指纹，而不是手挑几个字段。手挑必然漏——第一版就漏了 `site.title`、
+    /// `menu`、`[extra]`：改了它们标签页不重算，页面停在旧数据上还看不出错。
+    /// 这里是这些键的唯一来源，新增一个键会自动进指纹。
+    fn site_wide_context(
+        &self,
+        collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
+    ) -> Context {
+        let mut ctx = Context::new();
+        ctx.insert("site", &self.config.site);
+        ctx.insert("build", &self.config.build);
         // 模板据此渲染分类入口：taxonomies 是生效的全部维度，
         // taxonomy 保留为其中第一个，兼容只有标签的旧模板。
         let taxonomies = self.config.effective_taxonomies();
@@ -917,23 +931,23 @@ impl Builder {
     /// 所以这道判断只回答一个问题：**这次的输入和上次完全一样吗**。一样就跳过整段。
     /// 覆盖的是空跑：`serve` 下没有改动的重建、连点两次「生成」、CI 里的重复构建。
     /// 改了内容仍然整体重算，这是上面那条依赖关系的必然代价，不是可以省掉的开销。
-    fn taxonomy_signature(&self, all_pages: &[&Page], template_hash: &str) -> String {
-        let mut parts = String::with_capacity(all_pages.len() * 48);
+    ///
+    /// 配置那一半直接序列化 [`Builder::site_wide_context`]（模板能看到的全站数据，
+    /// 除 `pages` 之外的全部），而不是手挑字段。第一版就是手挑的，漏了 `site.title`、
+    /// `menu`、`[extra]`——改了它们标签页不重算。整份算进来还能自动跟上以后新增的键。
+    fn taxonomy_signature(
+        &self,
+        collected: &[(TaxonomyConfig, Vec<taxonomy::TermPages<'_>>)],
+        all_pages: &[&Page],
+        template_hash: &str,
+    ) -> String {
+        let mut parts = String::with_capacity(all_pages.len() * 48 + 4096);
         parts.push_str(template_hash);
         parts.push('\n');
-        // 配置里能影响标签页的部分：**生效的**维度定义（含内置的 tags）、分页大小、绝对地址。
-        for taxonomy in self.config.effective_taxonomies() {
-            parts.push_str(&format!(
-                "{}|{}|{}\n",
-                taxonomy.normalized_slug(),
-                taxonomy.title,
-                taxonomy.field()
-            ));
-        }
-        parts.push_str(&format!(
-            "{}|{}\n",
-            self.config.build.page_size, self.config.site.base_url
-        ));
+        // `into_json` 的键有序（serde_json 的 map 默认按插入序，这里用 BTreeMap 保序），
+        // 所以同一份配置每次得到同一个字符串。
+        parts.push_str(&self.site_wide_context(collected).into_json().to_string());
+        parts.push('\n');
         for page in all_pages {
             parts.push_str(&page.source);
             parts.push('\t');

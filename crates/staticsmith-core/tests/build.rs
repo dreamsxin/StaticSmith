@@ -224,6 +224,36 @@ fn editing_a_template_rebuilds_the_taxonomy_pages() {
     assert_ne!(before, after, "模板变了，标签页必须重算");
 }
 
+/// 改配置也要重算：模板能看到的全站数据不只有页面列表。
+///
+/// 第一版指纹是手挑字段的（维度定义 + 分页大小 + base_url），于是改 `site.title`
+/// 之后标签页不重算——页头上还是旧站名，而页面看起来完全正常。
+#[test]
+fn editing_the_config_rebuilds_the_taxonomy_pages() {
+    let dir = new_project();
+    {
+        let mut builder = Builder::open(dir.path()).unwrap();
+        builder.build(BuildMode::Full).unwrap();
+    }
+
+    let tag_page = dir.path().join("dist/tags/index.html");
+    let before = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    let changed = config.replace("测试站点", "改了名字的站点");
+    assert_ne!(changed, config, "改配置这一步本身要生效");
+    std::fs::write(&config_path, changed).unwrap();
+
+    // 重新 open：配置是打开项目时读的。
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Incremental).unwrap();
+
+    let after = std::fs::metadata(&tag_page).unwrap().modified().unwrap();
+    assert_ne!(before, after, "站点标题变了，标签页必须重算");
+}
+
 /// 每次构建都要能回答「时间花在哪」。
 ///
 /// 只钉「各阶段之和不超过总耗时」这一条：具体数字随机器变化，钉住会变成假失败。
