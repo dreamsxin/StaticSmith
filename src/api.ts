@@ -633,6 +633,17 @@ export const batchMove = (sources: string[], toSection: string, keepAliases: boo
     args: { sources, to_section: toSection, keep_aliases: keepAliases },
   })
 
+/** 干跑一次改地址：新地址是什么、会改写哪几篇里的几处引用。不碰磁盘。 */
+export interface SlugPreview {
+  source: string
+  from_url: string
+  to_url: string
+  refs: RefUpdate[]
+}
+
+export const previewSlug = (source: string, slug: string) =>
+  invoke<SlugPreview>('preview_slug', { args: { source, slug } })
+
 /** 改一篇的地址（slug）。默认补旧地址，并把站内指向它的链接改到新地址。 */
 export interface SlugChangeReport {
   source: string

@@ -5,7 +5,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use staticsmith_core::batch::{
     Action as BatchAction, Moved as BatchMoved, Preview as BatchPreview, Skipped as BatchSkipped,
-    TagEdit,
+    SlugPreview, TagEdit,
 };
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
@@ -658,6 +658,15 @@ pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<Bat
             plan: session.builder.plan(BuildMode::Incremental)?,
         })
     })
+}
+
+/// 干跑一次改地址：新地址是什么、会改写哪几篇里的几处引用。只读。
+///
+/// 改地址会写用户没有点名的文件（那些引用它的文章），所以界面先拿这个结果
+/// 就地问一句再落盘——与搬动、删除同一条约定。
+#[tauri::command]
+pub fn preview_slug(state: State<'_, AppState>, args: SlugArgs) -> Result<SlugPreview> {
+    state.with_session(|session| Ok(session.builder.preview_slug(&args.source, &args.slug)?))
 }
 
 /// 改一篇的地址（slug）。

@@ -205,6 +205,9 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `batch_edit_tags(args: { sources, add, remove }) -> BatchReport`
 - `batch_set_draft(sources, draft) -> BatchReport`
 - `batch_move(args: { sources, to_section, keep_aliases }) -> BatchMoveReport`
+- `preview_slug(args: { source, slug }) -> SlugPreview`：干跑一次改地址，不碰磁盘。
+  返回 `{ source, from_url, to_url, refs }`；被拦下的三种情况（索引页、同名、空）
+  在这里就会报错，于是界面能在落盘前挡住它们。判断与执行共用 `slug_target()`
 - `change_slug(args: { source, slug, keep_alias }) -> SlugChangeReport`：改一篇的地址。
   写新 `slug` + 补旧地址 + 改写站内引用三件事在 core 里一次做完
   （`batch::change_slug`）；`keep_alias` 省略时按 `true`。

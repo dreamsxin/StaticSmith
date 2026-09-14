@@ -14,6 +14,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import OutlineDialog from './OutlineDialog.vue'
 import LinkDialog from './LinkDialog.vue'
+import type { SlugPreview } from '../api'
 import { linkSnippet, type LinkTarget } from '../crossref'
 import { countWords, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
 import { actions, isDirty, store } from '../store'
@@ -115,14 +116,43 @@ const slugText = computed(
  * 三件事在 Rust 侧一次做完（`change_slug`）。之前这里只能手改 front matter，
  * 于是「改完一批死链」是默认结果。
  *
- * 失败之后重新读一次 front matter：输入框里还留着没生效的文本，
- * 不同步回去用户会以为改成了。
+ * 先干跑再落盘，与搬动、删除同一条约定：这一步会写用户没有点名的文件
+ * （那些引用它的文章），不先说一句就是背着人改东西。干跑被拦下来
+ * （索引页、同名、空）时错误已经弹过，这里只把输入框同步回磁盘上的值——
+ * 留着没生效的文本会让人以为改成了。
  */
 async function onSlugChange(event: Event) {
   const next = fieldValue(event).trim()
   const source = store.currentSource
   if (!source || !next || next === slugText.value) return
-  await actions.changeSlug(source, next)
+  const preview = await actions.previewSlug(source, next)
+  if (!preview) {
+    await actions.loadFrontMatter()
+    return
+  }
+  pendingSlug.value = { slug: next, preview }
+}
+
+/** 待确认的改地址：干跑结果 + 用户填的新地址。 */
+const pendingSlug = ref<{ slug: string; preview: SlugPreview } | null>(null)
+
+/** 会被改写的引用总处数，确认那一句要用。 */
+const pendingSlugHits = computed(() =>
+  (pendingSlug.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
+)
+
+async function confirmSlug() {
+  const pending = pendingSlug.value
+  const source = store.currentSource
+  pendingSlug.value = null
+  if (!pending || !source) return
+  await actions.changeSlug(source, pending.slug)
+  await actions.loadFrontMatter()
+}
+
+async function cancelSlug() {
+  pendingSlug.value = null
+  // 输入框里还留着放弃掉的文本，读回磁盘上的值
   await actions.loadFrontMatter()
 }
 
@@ -696,6 +726,20 @@ onBeforeUnmount(() => {
       </p>
     </div>
 
+
+    <!-- 改地址先就地问一句：这一步会写那些引用它的文章，而用户只改了这一篇 -->
+    <p v-if="pendingSlug" class="editor__pending">
+      <span>
+        地址将从 <code>{{ pendingSlug.preview.from_url }}</code> 改为
+        <code>{{ pendingSlug.preview.to_url }}</code>，旧地址会保留（构建后是重定向页）<template
+          v-if="pendingSlugHits"
+          >，另会改写 {{ pendingSlug.preview.refs.length }} 篇里的 {{ pendingSlugHits }}
+          处站内链接</template
+        >。
+      </span>
+      <button type="button" :disabled="store.busy" @click="confirmSlug">确认改地址</button>
+      <button type="button" @click="cancelSlug">取消</button>
+    </p>
 
     <p v-if="store.pendingPage" class="editor__pending">
       <span>当前文章有未保存改动，切换到「{{ store.pendingPage.title }}」前要怎么处理？</span>

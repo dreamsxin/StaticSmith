@@ -588,6 +588,11 @@ export const actions = {
     await this.afterBatch(report.moved.length, report.skipped, report.plan)
   },
 
+  /** 干跑一次改地址：新地址是什么、会改写哪几篇里的几处引用。不碰磁盘。 */
+  async previewSlug(source: string, slug: string) {
+    return await run(() => api.previewSlug(source, slug))
+  },
+
   /**
    * 改一篇的地址（slug）。
    *
@@ -619,9 +624,13 @@ export const actions = {
       }
     }
 
-    // 引用没改成的必须报出来：地址已经改了，这几条链接还指着旧的
-    for (const failure of report.refs_failed) {
-      notify('error', `${failure.source} 里的链接没能改写：${failure.reason}`)
+    // 引用没改成的必须报出来：地址已经改了，这几条链接还指着旧的。
+    // 一条讲完（同批量结果的约定）：十几条堆在通知里没人看
+    if (report.refs_failed.length > 0) {
+      const first = report.refs_failed[0]
+      const rest =
+        report.refs_failed.length > 1 ? `，另有 ${report.refs_failed.length - 1} 篇同样没改成` : ''
+      notify('error', `${first.source} 里的链接没能改写：${first.reason}${rest}`)
     }
 
     const alias = report.alias_added ? '，旧地址已保留（构建后是重定向页）' : ''

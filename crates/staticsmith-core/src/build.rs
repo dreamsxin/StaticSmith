@@ -286,6 +286,11 @@ impl Builder {
         Ok(out)
     }
 
+    /// 干跑一次改地址：新地址是什么、会改写哪几篇里的几处引用。只读。
+    pub fn preview_slug(&self, source: &str, slug: &str) -> Result<batch::SlugPreview> {
+        batch::preview_slug(&self.paths, source, slug)
+    }
+
     /// 改一篇的地址（slug），顺手补旧地址并改写站内引用。
     pub fn change_slug(
         &mut self,

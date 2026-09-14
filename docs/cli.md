@@ -34,7 +34,7 @@ staticsmith batch delete <源文件…> [--yes] [--json]
                                               # 批量改内容，判断与桌面端 / MCP 同源
 staticsmith replace --find <文字> [--to <文字>] [--in <源文件>…] [--ignore-case] [--yes] [--json]
                                               # 跨文件替换正文，默认只干跑
-staticsmith slug <源文件> --to <新地址> [--no-alias] [--json]
+staticsmith slug <源文件> --to <新地址> [--no-alias] [--dry-run] [--json]
                                               # 改一篇的地址：自动补旧地址并改写站内引用
 
 

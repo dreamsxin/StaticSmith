@@ -224,6 +224,9 @@ pub enum Command {
         /// 不把旧地址补进 aliases（默认会补）
         #[arg(long)]
         no_alias: bool,
+        /// 只看会发生什么：新地址是什么、会改写哪几篇里的几处引用
+        #[arg(long)]
+        dry_run: bool,
         #[arg(long)]
         json: bool,
         #[command(flatten)]
@@ -532,9 +535,10 @@ pub fn run(cli: Cli) -> Result<()> {
             source,
             to,
             no_alias,
+            dry_run,
             json,
             project,
-        } => cmd_slug(&project.project, &source, &to, !no_alias, json),
+        } => cmd_slug(&project.project, &source, &to, !no_alias, dry_run, json),
         Command::Theme { action } => match action {
             ThemeAction::Export {
                 out,
@@ -896,22 +900,39 @@ fn report_preview(preview: &staticsmith_core::batch::Preview, json: bool) -> Res
     Ok(())
 }
 
-/// 跨文件替换正文。
-///
-/// **默认只干跑**，与批量删除同一条理由：CLI 里没有就地确认，脚本一跑就落盘，
-/// 而正文替换没有撤销栈——改错一个词不会报错，只会安静地把内容改坏。
 /// 改一篇的地址。补旧地址与改写站内引用都在 core 里一次做完。
 ///
-/// 不给 `--dry-run`：这一步是可逆的（把 slug 改回去即可，旧地址还在 aliases 里），
-/// 而落盘前先留快照，走错了用 `staticsmith history restore` 退回来。
+/// `--dry-run` 只报「新地址是什么、会改写哪几篇里的几处引用」——这一步会写你没有
+/// 点名的文件。落盘那次先留快照，走错了用 `staticsmith history restore` 退回来。
 fn cmd_slug(
     project: &PathBuf,
     source: &str,
     slug: &str,
     keep_alias: bool,
+    dry_run: bool,
     json: bool,
 ) -> Result<()> {
     let mut builder = open(project)?;
+
+    if dry_run {
+        let preview = builder.preview_slug(source, slug).context("干跑失败")?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&preview)?);
+            return Ok(());
+        }
+        println!(
+            "{} : {} → {}",
+            preview.source, preview.from_url, preview.to_url
+        );
+        for update in &preview.refs {
+            println!(
+                "~ {} 里的 {} 处站内链接会改到新地址",
+                update.source, update.hits
+            );
+        }
+        return Ok(());
+    }
+
     snapshot_before(&builder, "slug");
     let out = builder
         .change_slug(source, slug, keep_alias)
@@ -941,6 +962,10 @@ fn cmd_slug(
     Ok(())
 }
 
+/// 跨文件替换正文。
+///
+/// **默认只干跑**，与批量删除同一条理由：CLI 里没有就地确认，脚本一跑就落盘，
+/// 而正文替换没有撤销栈——改错一个词不会报错，只会安静地把内容改坏。
 fn cmd_replace(
     project: &PathBuf,
     rule: &staticsmith_core::replace::Rule,

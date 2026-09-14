@@ -226,21 +226,21 @@ pub struct SlugChanged {
     pub refs_failed: Vec<refs::Failure>,
 }
 
-/// 改一篇的地址（front matter 里的 `slug`），并把该做的善后一次做完。
+/// 改地址的干跑结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct SlugPreview {
+    pub source: String,
+    pub from_url: String,
+    pub to_url: String,
+    /// 会被改写的站内引用：哪几篇、各几处。
+    pub refs: Vec<RefUpdate>,
+}
+
+/// 算出「新地址是什么」。预览与执行共用，避免「预览说改成 A、实际改成 B」。
 ///
-/// 以前改 slug 只能在属性面板里手改 front matter：不会补 `aliases`（要人自己在
-/// 「旧地址」那一栏填对老地址），也不会动站内那些指向老地址的链接——
-/// 一次改名换来一批死链，而它们要等「体检」页才浮出来。这里三件事一起做：
-/// 写新 slug、补旧地址、改写站内引用。
-///
-/// **只改地址，不改文件名**：磁盘位置由用户在文件系统里决定（`content/` 就是站点结构），
-/// 而地址是 front matter 的事。要换目录请用「移动到栏目」。
-pub fn change_slug(
-    paths: &ProjectPaths,
-    source: &str,
-    slug: &str,
-    keep_alias: bool,
-) -> Result<SlugChanged> {
+/// 拦下来的三种情况也在这里判，于是干跑就能替用户挡住它们——
+/// 两处各写一遍校验，迟早出现「预览通过、执行报错」。
+fn slug_target(pages: &[Page], source: &str, slug: &str) -> Result<(String, String, String)> {
     let slug = util::sanitize_url_segment(slug.trim());
     if slug.is_empty() {
         return Err(Error::Other("新地址不能为空".to_string()));
@@ -250,8 +250,6 @@ pub fn change_slug(
             "地址里不能带 /：换栏目请用「移动到栏目」".to_string(),
         ));
     }
-
-    let pages = load_for_front_matter(&paths.content)?;
     let Some(page) = pages.iter().find(|p| p.source == source) else {
         return Err(Error::Other(format!("找不到这篇内容: {source}")));
     };
@@ -270,6 +268,48 @@ pub fn change_slug(
     if to_url == from_url {
         return Err(Error::Other("新地址与原来相同".to_string()));
     }
+    Ok((slug, from_url, to_url))
+}
+
+/// 干跑一次改地址：新地址是什么、还会改写哪几篇里的几处引用。不碰磁盘。
+///
+/// 改地址会写用户没有点名的文件（那些引用它的文章），所以这一步该先给人看一眼——
+/// 搬动一直有干跑，改地址以前直接落盘，两者不一致。
+pub fn preview_slug(paths: &ProjectPaths, source: &str, slug: &str) -> Result<SlugPreview> {
+    let pages = load_for_front_matter(&paths.content)?;
+    let (_, from_url, to_url) = slug_target(&pages, source, slug)?;
+    let rewritten = refs::preview_site(
+        &paths.content,
+        &[UrlMove {
+            from: from_url.clone(),
+            to: to_url.clone(),
+        }],
+    )?;
+    Ok(SlugPreview {
+        source: source.to_string(),
+        from_url,
+        to_url,
+        refs: rewritten.updated,
+    })
+}
+
+/// 改一篇的地址（front matter 里的 `slug`），并把该做的善后一次做完。
+///
+/// 以前改 slug 只能在属性面板里手改 front matter：不会补 `aliases`（要人自己在
+/// 「旧地址」那一栏填对老地址），也不会动站内那些指向老地址的链接——
+/// 一次改名换来一批死链，而它们要等「体检」页才浮出来。这里三件事一起做：
+/// 写新 slug、补旧地址、改写站内引用。
+///
+/// **只改地址，不改文件名**：磁盘位置由用户在文件系统里决定（`content/` 就是站点结构），
+/// 而地址是 front matter 的事。要换目录请用「移动到栏目」。
+pub fn change_slug(
+    paths: &ProjectPaths,
+    source: &str,
+    slug: &str,
+    keep_alias: bool,
+) -> Result<SlugChanged> {
+    let pages = load_for_front_matter(&paths.content)?;
+    let (slug, from_url, to_url) = slug_target(&pages, source, slug)?;
 
     let path = content::resolve_source(&paths.content, source)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
@@ -780,6 +820,50 @@ mod tests {
         assert!(read(&f, "notes/c.md").contains("没有引用"));
         // 搬走的那篇自己的 aliases 记的是旧地址，不能被改写掉
         assert!(read(&f, "notes/a.md").contains("/posts/a/"));
+    }
+
+    #[test]
+    fn slug_preview_agrees_with_the_change_and_touches_nothing() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n\n正文\n");
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\n+++\n\n见 [甲](/posts/a/)\n",
+        );
+
+        let dry = preview_slug(&f.paths, "posts/a.md", "新名字").unwrap();
+        assert_eq!(dry.from_url, "/posts/a/");
+        assert_eq!(dry.to_url, "/posts/新名字/");
+        assert_eq!(dry.refs.len(), 1, "{:?}", dry.refs);
+        assert_eq!(dry.refs[0].source, "posts/b.md");
+        // 干跑不碰磁盘
+        assert!(!read(&f, "posts/a.md").contains("slug"));
+        assert!(read(&f, "posts/b.md").contains("[甲](/posts/a/)"));
+
+        // 判断同源：预览说改成什么、改几处，执行就得是那样
+        let out = change_slug(&f.paths, "posts/a.md", "新名字", true).unwrap();
+        assert_eq!(out.to_url, dry.to_url);
+        assert_eq!(out.refs_updated, dry.refs);
+    }
+
+    #[test]
+    fn slug_preview_refuses_exactly_what_the_change_refuses() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+
+        for (source, slug) in [
+            ("posts/index.md", "x"),
+            ("posts/a.md", "a"),
+            ("posts/a.md", ""),
+        ] {
+            assert!(
+                preview_slug(&f.paths, source, slug).is_err(),
+                "{source} → {slug} 该被拦下"
+            );
+            assert!(change_slug(&f.paths, source, slug, true).is_err());
+        }
     }
 
     #[test]
