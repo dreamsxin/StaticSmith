@@ -54,3 +54,18 @@ export function trapTab(container: HTMLElement | null, event: KeyboardEvent): vo
   event.preventDefault()
   items[next].focus()
 }
+
+/**
+ * 就地表单／确认态出现后，把焦点放到最该操作的那个控件上。
+ *
+ * 键盘用户点开「改名…」之后，焦点还留在刚刚消失的菜单项上——等于回到 body，
+ * 要按好几次 Tab 才走到新出现的输入框。危险动作的确认态应当聚焦**取消**：
+ * 那不该是默认落点，误按空格就删了。
+ *
+ * 用选择器而不是模板 ref：这些表单常在 `v-for` 里，ref 会收集成数组，
+ * 而同一时刻只可能展开一个（互斥由各自的 start 函数保证），选择器反而更直白。
+ * 等一帧再找：元素要等这次渲染提交之后才在 DOM 里。
+ */
+export function focusSelector(selector: string): void {
+  requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus())
+}

@@ -6,9 +6,11 @@
  * 标题行说明这一栏是内容并给出新建入口，搜索行只负责过滤，剩下才是列表。
  * 之前搜索框与「＋」并排且没有任何标识，很容易被当成「新建内容的名称输入框」。
  */
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
+import SectionHeader from './SectionHeader.vue'
 import { openContextMenu, type MenuEntry } from '../commands'
+import { focusSelector } from '../focus'
 import { actions, isDirty, store } from '../store'
 import { parseList } from '../text'
 import { ui } from '../ui'
@@ -19,7 +21,6 @@ import type {
   PageSummary,
   ReplaceResult,
   SearchHit,
-  SectionRenamePreview,
   SeoSeverity,
 } from '../api'
 
@@ -100,9 +101,6 @@ function weightOf(path: string): number {
 /** 栏目元信息（有没有索引页、直属篇数）按路径取用。 */
 const sectionOf = computed(() => new Map(store.sections.map((s) => [s.path, s])))
 
-function sectionLabel(path: string): string {
-  return path === '' ? '根目录' : path
-}
 
 
 const total = computed(() => store.project?.pages.length ?? 0)
@@ -239,6 +237,17 @@ function openCreate() {
   replacing.value = false
   // 展开即聚焦到标题，少一次点击
   requestAnimationFrame(() => titleBox.value?.focus())
+}
+
+/**
+ * 栏目头的「在此栏目新建文章…」：新建表单在这里，栏目组件只把意图递过来。
+ *
+ * 把栏目那一块抽成组件之后，这是两者之间唯一的一条线——其余（改名、元信息、删除）
+ * 组件自己调 actions 就够了。
+ */
+function startNewContentIn(section: string) {
+  newSection.value = section
+  openCreate()
 }
 
 async function create() {
@@ -499,115 +508,6 @@ watch(
 )
 
 
-const renamingSection = ref<string | null>(null)
-const renameTo = ref('')
-const keepAliases = ref(true)
-
-/**
- * 就地表单与确认态出现后，把焦点放到最该操作的那个控件。
- *
- * 键盘用户点开「改名…」之后，焦点还留在刚刚消失的菜单项上——等于回到 body，
- * 要按好几次 Tab 才走到新出现的输入框。确认态聚焦的是**取消**：
- * 危险动作不该是默认落点，误按空格就删了。
- *
- * 用选择器而不是模板 ref：这几个表单在 v-for 里，ref 会收集成数组，
- * 而同一时刻只可能展开一个（互斥由各自的 start 函数保证），选择器反而更直白。
- */
-function focusInside(selector: string) {
-  requestAnimationFrame(() => document.querySelector<HTMLElement>(selector)?.focus())
-}
-
-function startRename(path: string) {
-  renamingSection.value = path
-  renameTo.value = path
-  editingMeta.value = null
-  confirmingSectionDelete.value = null
-  focusInside('.page-list__rename input')
-}
-
-/**
- * 改名先干跑再问一句。
- *
- * 栏目改名一次动整棵子树的地址：搬文件、补旧地址、改写站内引用，其中最后一件
- * 会写到用户没有点名的文件上。搬动、改 slug、删除、发布都有这一步，它是最后补的。
- * 干跑被拦下时（同名、目标已存在、栏目不存在）错误已由 `run` 弹出，这里不进确认态。
- */
-async function submitRename() {
-  const from = renamingSection.value
-  const to = renameTo.value.trim()
-  if (!from || !to || from === to) {
-    renamingSection.value = null
-    return
-  }
-  const preview = await actions.previewRenameSection(from, to, keepAliases.value)
-  if (!preview) {
-    renamingSection.value = null
-    return
-  }
-  pendingRename.value = { to, preview }
-}
-
-/** 待确认的栏目改名。 */
-const pendingRename = ref<{ to: string; preview: SectionRenamePreview } | null>(null)
-
-/** 会被改写的引用总处数，确认那一句要用。 */
-const pendingRenameHits = computed(() =>
-  (pendingRename.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
-)
-
-async function confirmRename() {
-  const pending = pendingRename.value
-  const from = renamingSection.value
-  pendingRename.value = null
-  renamingSection.value = null
-  if (!pending || !from) return
-  await actions.renameSection(from, pending.to, keepAliases.value)
-}
-
-function cancelRename() {
-  pendingRename.value = null
-  renamingSection.value = null
-}
-
-/** 删空栏目也是不可逆的，沿用列表里的就地确认，不用原生弹窗。 */
-const confirmingSectionDelete = ref<string | null>(null)
-
-async function removeSection(path: string) {
-  confirmingSectionDelete.value = null
-  await actions.removeSection(path)
-}
-
-/**
- * 栏目元信息：标题、简介、排序权重。
- *
- * 这三项都存在索引页的 front matter 里——栏目就是目录，它的介绍该在那张列表页上，
- * 而不是另开一个栏目配置文件。缺索引页的栏目保存时会顺手补一张。
- */
-const editingMeta = ref<string | null>(null)
-const metaForm = reactive({ title: '', description: '', weight: 0 })
-
-function startMeta(path: string) {
-  const section = sectionOf.value.get(path)
-  metaForm.title = section?.title ?? sectionLabel(path)
-  metaForm.description = section?.description ?? ''
-  metaForm.weight = section?.weight ?? 0
-  editingMeta.value = path
-  renamingSection.value = null
-  confirmingSectionDelete.value = null
-  focusInside('.page-list__rename input')
-}
-
-async function submitMeta() {
-  const path = editingMeta.value
-  if (path === null || !metaForm.title.trim()) return
-  editingMeta.value = null
-  await actions.saveSectionMeta(path, {
-    title: metaForm.title.trim(),
-    description: metaForm.description.trim(),
-    weight: metaForm.weight,
-  })
-}
-
 // ---------------------------------------------------------------- 删除文章
 
 /**
@@ -659,49 +559,15 @@ function pageMenu(page: PageSummary): MenuEntry[] {
       danger: true,
       run: () => {
         confirmingDelete.value = page.source
-        focusInside('.page-list__confirm-cancel')
+        focusSelector('.page-list__confirm-cancel')
       },
     },
   ]
 }
 
-/** 分组头的右键菜单：栏目级动作。根目录不能改名也不能删，那两项直接不出现。 */
-function sectionMenu(path: string): MenuEntry[] {
-  const section = sectionOf.value.get(path)
-  const items: MenuEntry[] = [
-    {
-      id: 'section.new',
-      label: '在此栏目新建文章…',
-      run: () => {
-        newSection.value = path
-        openCreate()
-      },
-    },
-    { separator: true },
-    {
-      id: 'section.meta',
-      label: '栏目信息（标题 / 简介 / 排序）…',
-      run: () => startMeta(path),
-    },
-  ]
-  if (path === '') return items
-  items.push(
-    { id: 'section.rename', label: '栏目改名…', hint: '默认保留旧地址', run: () => startRename(path) },
-    { separator: true },
-    {
-      id: 'section.remove',
-      label: '删除空栏目…',
-      hint: (section?.pages ?? 0) > 0 ? '里面还有文章' : '还要再确认一次',
-      danger: true,
-      disabled: (section?.pages ?? 0) > 0,
-      run: () => {
-        confirmingSectionDelete.value = path
-        focusInside('.page-list__confirm-cancel')
-      },
-    },
-  )
-  return items
-}
+
+
+
 
 /** 复制到剪贴板。写不进去（无权限、旧 WebView）就说清楚，别假装成功。 */
 async function copyText(text: string) {
@@ -1024,123 +890,12 @@ async function copyText(text: string) {
     </form>
 
     <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
-      <h3 @contextmenu="openContextMenu($event, sectionMenu(section))">
-        <span class="page-list__section-name">{{ sectionLabel(section) }}</span>
-        <span class="page-list__count">{{ pages.length }}</span>
-        <span
-          v-if="section !== '' && sectionOf.get(section) && !sectionOf.get(section)!.index_source"
-          class="badge badge--seo-warn"
-          title="没有索引页，栏目地址打不开列表页。新建一篇 slug 为 index 的内容即可"
-          >缺列表页</span
-        >
-        <span class="page-list__spacer" />
-        <button
-          type="button"
-          class="page-list__icon"
-          title="栏目信息：标题、简介、排序（存在索引页的 front matter 里）"
-          @click="startMeta(section)"
-        >
-          信息
-        </button>
-        <template v-if="confirmingSectionDelete === section">
-          <button
-            type="button"
-            class="page-list__danger"
-            :disabled="store.busy"
-            title="只删空栏目：里面还有文章时会报错"
-            @click="removeSection(section)"
-          >
-            删除栏目
-          </button>
-          <button
-            type="button"
-            class="page-list__icon page-list__confirm-cancel"
-            @click="confirmingSectionDelete = null"
-          >
-            取消
-          </button>
-        </template>
-        <button
-          v-else
-          type="button"
-          class="page-list__icon"
-          title="更多动作（也可在这一行上右键）"
-          aria-label="更多栏目动作"
-          @click="openContextMenu($event, sectionMenu(section))"
-        >
-          ⋯
-        </button>
-      </h3>
-
-      <form
-        v-if="editingMeta === section"
-        class="page-list__rename"
-        @submit.prevent="submitMeta"
-      >
-        <label>
-          栏目标题
-          <input v-model="metaForm.title" type="text" />
-        </label>
-        <label>
-          简介（列表页与 SEO 描述用）
-          <input v-model="metaForm.description" type="text" />
-        </label>
-        <label>
-          排序（小的在前，0 表示不排）
-          <input v-model.number="metaForm.weight" type="number" />
-        </label>
-        <p v-if="!sectionOf.get(section)?.index_source" class="page-list__hint">
-          这个栏目还没有列表页，保存时会顺手建一张 index.md。
-        </p>
-        <div class="page-list__new-actions">
-          <button type="submit" class="btn--primary" :disabled="store.busy || !metaForm.title.trim()">
-            保存
-          </button>
-          <button type="button" @click="editingMeta = null">取消</button>
-        </div>
-      </form>
-
-      <form
-        v-if="renamingSection === section"
-        class="page-list__rename"
-        @submit.prevent="submitRename"
-      >
-        <input v-model="renameTo" type="text" aria-label="新栏目名" />
-        <label class="page-list__keep">
-          <input v-model="keepAliases" type="checkbox" />
-          保留旧地址（生成重定向页）
-        </label>
-        <!-- 干跑结果：改名会写到用户没有点名的文件上（那些引用这个栏目的文章） -->
-        <div v-if="pendingRename" class="page-list__dry">
-          <p class="page-list__batch-head">
-            将把 <code>{{ section }}</code> 改名为 <code>{{ pendingRename.to }}</code>
-          </p>
-          <ul class="page-list__dry-list">
-            <li>
-              <span>搬动 {{ pendingRename.preview.files }} 个文件</span>
-            </li>
-            <li v-if="pendingRename.preview.aliases">
-              <span>给 {{ pendingRename.preview.aliases }} 篇补旧地址（构建后是重定向页）</span>
-            </li>
-          </ul>
-          <p v-if="pendingRenameHits" class="page-list__batch-note">
-            另会把 {{ pendingRename.preview.refs.length }} 篇里的 {{ pendingRenameHits }}
-            处站内链接改到新地址：{{ pendingRename.preview.refs.map((r) => r.source).join('、') }}
-          </p>
-          <div class="page-list__batch-row">
-            <button type="button" class="btn--primary" :disabled="store.busy" @click="confirmRename">
-              确认改名
-            </button>
-            <button type="button" @click="cancelRename">取消</button>
-          </div>
-        </div>
-        <div v-else class="page-list__new-actions">
-          <button type="submit" class="btn--primary" :disabled="store.busy || !renameTo.trim()">
-            改名…
-          </button>
-          <button type="button" @click="cancelRename">取消</button>
-        </div>
-      </form>
+      <SectionHeader
+        :section="section"
+        :count="pages.length"
+        :meta="sectionOf.get(section)"
+        @new-content="startNewContentIn"
+      />
 
       <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
