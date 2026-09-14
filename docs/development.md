@@ -65,10 +65,19 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   却一直没有测试。断言的是「除了着色器自己的 `<span class="tok-*">`，
   输出里不该有别的标签」——逐个断言「这个 payload 被转义了」追不上新 payload。
   注意 payload 的**文字**该出现（源码视图本来就要显示源文），成为标签才是问题。
+- **组件测试用 `@vue/test-utils` + jsdom**，但**默认环境仍是 node**：要 DOM 的文件
+  自己在顶部写 `// @vitest-environment jsdom`，谁用谁付。目前覆盖两个浮层
+  （大纲、站内链接）与编辑器的「改地址」那条路。挑这三处是因为它们是
+  「焦点归还、Esc、方向键、就地确认后剩什么状态」的落地处，而这几条约定
+  （docs/ui.md）以前只能靠人工推理——第一次跑就抓到一个真 bug：
+  换文章后待确认的改地址没有作废。
+- 组件测试里把 `../store` 整个 `vi.mock` 掉：真 store 一路连到 Tauri 的 `invoke`，
+  而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
+  焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
 
 前端还没测到的部分：`store.ts` 的忙态计数器与未保存确认流（要先 mock
-`@tauri-apps/api`）、`useSplit` 的夹取（要 jsdom）、组件渲染（要 `@vue/test-utils`）。
-那三样各自需要新依赖，等真要测时再装，不提前付账。
+`@tauri-apps/api`）、`useSplit` 的夹取、其余组件（消息中心、新建站点、回退内容、
+列表栏）。依赖已经装齐，剩下的只是没写。
 
 新增行为时优先在这些既有位置扩展，而不是新建测试文件。
 

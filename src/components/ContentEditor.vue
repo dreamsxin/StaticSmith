@@ -446,11 +446,15 @@ const findLabel = computed(() => {
   return `${Math.min(findIndex.value + 1, total)} / ${total}`
 })
 
-// 换文章后命中表整个变了，旧序号必须作废，否则会显示成「3 / 1」这种不存在的位置
+// 换文章后这两样临时状态都要作废：
+// - 命中表整个变了，旧序号会显示成「3 / 1」这种不存在的位置；
+// - 待确认的改地址更严重：`confirmSlug` 取的是**点确认那一刻**的 `currentSource`，
+//   留着它等于把上一篇填的新地址落到刚打开的这一篇上。
 watch(
   () => store.currentSource,
   () => {
     findIndex.value = -1
+    pendingSlug.value = null
   },
 )
 
