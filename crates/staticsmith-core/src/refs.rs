@@ -20,9 +20,13 @@
 //! 行内代码常常就是在说这个链接），以及相对地址（`../a/`）——它要按引用方所在目录
 //! 解析，而搬动改变的是被引用方，两者对不上，留给「死链体检」发现。
 
+use std::path::Path;
+
 use serde::Serialize;
 
-use crate::error::Result;
+use crate::config::SourceFormat;
+use crate::content;
+use crate::error::{Error, Result};
 use crate::frontmatter;
 
 /// 一次地址变更：从旧地址到新地址。
@@ -92,6 +96,85 @@ pub fn rewrite(raw: &str, moves: &[UrlMove]) -> Result<Option<(String, usize)>> 
     result.push_str(head);
     result.push_str(&out);
     Ok(Some((result, hits)))
+}
+
+/// 全站改写的结果。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Rewritten {
+    /// 改了（或将要改）哪几篇、各几处。
+    pub updated: Vec<RefUpdate>,
+    /// 没能改的那几篇及原因。多半是 front matter 手改坏了。
+    pub failed: Vec<Failure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Failure {
+    pub source: String,
+    pub reason: String,
+}
+
+/// 干跑：全站有多少处引用会被改。不碰磁盘。
+pub fn preview_site(content_root: &Path, moves: &[UrlMove]) -> Result<Rewritten> {
+    run(content_root, moves, false)
+}
+
+/// 全站改写并写回。
+///
+/// 搬动、改 slug、栏目改名三条路都用它：地址变了就该把指向它的链接改过来，
+/// 三处各写一遍循环，迟早有一处漏掉「写盘失败要报出来」这类细节。
+pub fn rewrite_site(content_root: &Path, moves: &[UrlMove]) -> Result<Rewritten> {
+    run(content_root, moves, true)
+}
+
+/// 干跑与执行共用一份遍历，差别只在最后写不写盘（同 `replace` 模块）。
+///
+/// 这里固定用默认正文格式加载：改写只看源文本身，与站点的 `source_format` 无关，
+/// 而 `load_all` 收哪些扩展名也与格式无关——HTML 站点的 `.html` 同样在列。
+fn run(content_root: &Path, moves: &[UrlMove], write: bool) -> Result<Rewritten> {
+    let mut out = Rewritten::default();
+    if moves.is_empty() {
+        return Ok(out);
+    }
+    for page in content::load_all(content_root, SourceFormat::default())? {
+        let path = match content::resolve_source(content_root, &page.source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.failed.push(Failure {
+                    source: page.source,
+                    reason: err.to_string(),
+                });
+                continue;
+            }
+        };
+        let result = std::fs::read_to_string(&path)
+            .map_err(|e| Error::io(&path, e))
+            .and_then(|raw| rewrite(&raw, moves));
+        match result {
+            Ok(None) => {}
+            Ok(Some((updated, hits))) => {
+                if write {
+                    if let Err(err) =
+                        std::fs::write(&path, updated).map_err(|e| Error::io(&path, e))
+                    {
+                        out.failed.push(Failure {
+                            source: page.source,
+                            reason: err.to_string(),
+                        });
+                        continue;
+                    }
+                }
+                out.updated.push(RefUpdate {
+                    source: page.source,
+                    hits,
+                });
+            }
+            Err(err) => out.failed.push(Failure {
+                source: page.source,
+                reason: err.to_string(),
+            }),
+        }
+    }
+    Ok(out)
 }
 
 /// 一行里的改写，命中数作为返回值。

@@ -305,6 +305,24 @@ pub fn all() -> Vec<ToolDef> {
             },
         },
         ToolDef {
+            name: "change_slug",
+            title: "改地址",
+            description: "改一篇内容的地址（front matter 的 slug）。默认补 aliases（旧地址），并把站内其它文章里指向它的链接改到新地址——用 patch_front_matter 直接改 slug 不会做这两件善后，会留下一批死链。栏目索引页的地址由栏目名决定，改它用 rename_section。",
+            access: Access::Write,
+            schema: || {
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "source": { "type": "string" },
+                        "slug": { "type": "string", "description": "新的地址末段，不能带 /" },
+                        "keep_alias": { "type": "boolean", "description": "默认 true：把旧地址补进 aliases" }
+                    },
+                    "required": ["source", "slug"],
+                    "additionalProperties": false
+                })
+            },
+        },
+        ToolDef {
             name: "create_section",
             title: "新建栏目",
             description: "在 content/ 下建一层目录并写好索引页（index.md）。没有索引页的栏目打不开列表页，所以两件事一起做。",
@@ -523,6 +541,7 @@ fn snapshot_before(builder: &Builder, tool: &str) {
 fn execute(builder: &mut Builder, name: &str, args: &Value) -> Result<String, String> {
     match name {
         "move_content" => move_content(builder, args),
+        "change_slug" => change_slug(builder, args),
         "replace_text" => replace_text(builder, args),
         "site_info" => site_info(builder),
         "list_pages" => list_pages(builder, args),
@@ -808,6 +827,30 @@ fn move_content(builder: &mut Builder, args: &Value) -> Result<String, String> {
     }
 }
 
+/// 改一篇的地址。补旧地址与改写站内引用都在 core 里一次做完。
+fn change_slug(builder: &mut Builder, args: &Value) -> Result<String, String> {
+    let source = require_str(args, "source")?.to_string();
+    let slug = require_str(args, "slug")?.to_string();
+    let keep_alias = args
+        .get("keep_alias")
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
+    let out = builder
+        .change_slug(&source, &slug, keep_alias)
+        .map_err(err)?;
+    pretty(&json!({
+        "source": out.source,
+        "from_url": out.from_url,
+        "to_url": out.to_url,
+        "alias_added": out.alias_added,
+        // Agent 接下来若要编辑这几篇，得先重新读一遍：它们的正文已经变了
+        "refs_updated": out.refs_updated,
+        "refs_failed": out.refs_failed,
+        "next": "旧地址的重定向页要下一次 build_site 才出现"
+    }))
+}
+
 /// SEO 体检。可按严重程度或单篇过滤——Agent 通常一次只修一批同类问题。
 fn audit_seo(builder: &Builder, args: &Value) -> Result<String, String> {
     use staticsmith_core::seo::Severity;
@@ -932,6 +975,9 @@ fn rename_section(builder: &mut Builder, args: &Value) -> Result<String, String>
         "to": report.to,
         "moved": report.moved,
         "aliases_added": report.aliases_added,
+        // 整栏目换名会改一批地址；这几篇的正文已经变了，Agent 要编辑得先重读
+        "refs_updated": report.refs_updated,
+        "refs_failed": report.refs_failed,
         "next": "旧地址的重定向页要下一次 build_site 才会出现；改完记得看 audit_links"
     }))
 }
@@ -1374,6 +1420,26 @@ mod tests {
             &json!({ "source": "hello-staticsmith.md" }),
         );
         assert_eq!(missing["isError"], true);
+    }
+
+    /// 改地址这条路必须自己补旧地址：`patch_front_matter` 改 slug 不做善后。
+    #[test]
+    fn change_slug_keeps_the_old_url() {
+        let (dir, mut builder) = project();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "change_slug",
+            &json!({ "source": "posts/hello-staticsmith.md", "slug": "开场" }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+
+        // 文件名不变，改的是地址
+        let raw =
+            std::fs::read_to_string(dir.path().join("content/posts/hello-staticsmith.md")).unwrap();
+        assert!(raw.contains("slug = \"开场\""), "{raw}");
+        assert!(raw.contains("aliases"), "旧地址要补上：{raw}");
     }
 
     /// `aliases` 以前在 schema 里有、实现里没读，传了被静默丢掉。

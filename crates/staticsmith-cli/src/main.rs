@@ -212,6 +212,24 @@ pub enum Command {
         project: ProjectArgs,
     },
 
+    /// 改一篇的地址（slug）。自动补旧地址，并把站内指向它的链接改到新地址
+    ///
+    /// 直接改 front matter 里的 `slug` 不会做这两件善后，一次改名换来一批死链。
+    Slug {
+        /// 源路径（相对 content/）
+        source: String,
+        /// 新的地址末段，不能带 /
+        #[arg(long)]
+        to: String,
+        /// 不把旧地址补进 aliases（默认会补）
+        #[arg(long)]
+        no_alias: bool,
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        project: ProjectArgs,
+    },
+
     /// 主题包：把外观（模板 + 主题静态资源）打包带走，或装到另一个站点
     Theme {
         #[command(subcommand)]
@@ -510,6 +528,13 @@ pub fn run(cli: Cli) -> Result<()> {
             yes,
             json,
         ),
+        Command::Slug {
+            source,
+            to,
+            no_alias,
+            json,
+            project,
+        } => cmd_slug(&project.project, &source, &to, !no_alias, json),
         Command::Theme { action } => match action {
             ThemeAction::Export {
                 out,
@@ -875,6 +900,47 @@ fn report_preview(preview: &staticsmith_core::batch::Preview, json: bool) -> Res
 ///
 /// **默认只干跑**，与批量删除同一条理由：CLI 里没有就地确认，脚本一跑就落盘，
 /// 而正文替换没有撤销栈——改错一个词不会报错，只会安静地把内容改坏。
+/// 改一篇的地址。补旧地址与改写站内引用都在 core 里一次做完。
+///
+/// 不给 `--dry-run`：这一步是可逆的（把 slug 改回去即可，旧地址还在 aliases 里），
+/// 而落盘前先留快照，走错了用 `staticsmith history restore` 退回来。
+fn cmd_slug(
+    project: &PathBuf,
+    source: &str,
+    slug: &str,
+    keep_alias: bool,
+    json: bool,
+) -> Result<()> {
+    let mut builder = open(project)?;
+    snapshot_before(&builder, "slug");
+    let out = builder
+        .change_slug(source, slug, keep_alias)
+        .context("改地址失败")?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&out)?);
+        return Ok(());
+    }
+    let alias = if out.alias_added {
+        "（旧地址已保留）"
+    } else {
+        ""
+    };
+    println!("{} : {} → {}{alias}", out.source, out.from_url, out.to_url);
+    for update in &out.refs_updated {
+        println!(
+            "~ {} 里的 {} 处站内链接已改到新地址",
+            update.source, update.hits
+        );
+    }
+    for failure in &out.refs_failed {
+        println!(
+            "! {} 里的链接没能改写 —— {}",
+            failure.source, failure.reason
+        );
+    }
+    Ok(())
+}
+
 fn cmd_replace(
     project: &PathBuf,
     rule: &staticsmith_core::replace::Rule,

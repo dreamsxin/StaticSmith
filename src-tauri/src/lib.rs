@@ -64,6 +64,7 @@ pub fn run() {
             commands::batch_edit_tags,
             commands::batch_set_draft,
             commands::batch_move,
+            commands::change_slug,
             commands::batch_delete,
             commands::batch_preview,
             commands::preview_replace,

@@ -16,6 +16,7 @@ use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
 use staticsmith_core::media::{Removed as MediaRemoved, Report as MediaReport};
 use staticsmith_core::preview::Inlined as PreviewInlined;
+use staticsmith_core::refs::{Failure as RefFailure, RefUpdate};
 use staticsmith_core::replace::{
     Report as ReplaceResult, Rule as ReplaceRule, Scope as ReplaceScope,
 };
@@ -106,6 +107,17 @@ pub struct RenameSectionArgs {
 
 fn keep_aliases_default() -> bool {
     true
+}
+
+/// 改一篇的地址（slug）。
+///
+/// `keep_alias` 省略时按 true：改地址等于让老链接 404，补旧地址才是默认该做的事。
+#[derive(Debug, Deserialize)]
+pub struct SlugArgs {
+    pub source: String,
+    pub slug: String,
+    #[serde(default = "keep_aliases_default")]
+    pub keep_alias: bool,
 }
 
 /// 栏目元信息的参数。
@@ -574,6 +586,19 @@ pub struct BatchReport {
 pub struct BatchMoveReport {
     pub moved: Vec<BatchMoved>,
     pub skipped: Vec<BatchSkipped>,
+    pub refs_updated: Vec<RefUpdate>,
+    pub plan: BuildPlan,
+}
+
+/// 改地址的结果 + 增量计划。
+#[derive(Debug, Serialize)]
+pub struct SlugChangeReport {
+    pub source: String,
+    pub from_url: String,
+    pub to_url: String,
+    pub alias_added: bool,
+    pub refs_updated: Vec<RefUpdate>,
+    pub refs_failed: Vec<RefFailure>,
     pub plan: BuildPlan,
 }
 
@@ -629,6 +654,33 @@ pub fn batch_move(state: State<'_, AppState>, args: BatchMoveArgs) -> Result<Bat
         Ok(BatchMoveReport {
             moved: out.moved,
             skipped: out.skipped,
+            refs_updated: out.refs_updated,
+            plan: session.builder.plan(BuildMode::Incremental)?,
+        })
+    })
+}
+
+/// 改一篇的地址（slug）。
+///
+/// 补旧地址与改写站内引用都在 core 里一次做完（`batch::change_slug`）：
+/// 以前这件事只能在属性面板里手改 front matter，两样善后都得靠人记得。
+#[tauri::command]
+pub fn change_slug(state: State<'_, AppState>, args: SlugArgs) -> Result<SlugChangeReport> {
+    state.with_writing_session("change_slug", |session| {
+        // 这一篇与所有引用它的文件都会被写，整棵内容树一并登记，
+        // 免得改完弹一串「检测到外部修改」
+        let content_root = session.builder.paths.content.clone();
+        state.note_self_tree(&content_root);
+        let out = session
+            .builder
+            .change_slug(&args.source, &args.slug, args.keep_alias)?;
+        Ok(SlugChangeReport {
+            source: out.source,
+            from_url: out.from_url,
+            to_url: out.to_url,
+            alias_added: out.alias_added,
+            refs_updated: out.refs_updated,
+            refs_failed: out.refs_failed,
             plan: session.builder.plan(BuildMode::Incremental)?,
         })
     })

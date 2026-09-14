@@ -91,6 +91,41 @@ const fm = computed(() => store.frontMatter)
 /** 标签在源文里是数组，表单里用逗号分隔——中文逗号也认。 */
 const tagText = computed(() => (fm.value?.tags ?? []).join(', '))
 
+// ---------------------------------------------------------------- 地址（slug）
+
+/** 当前这一篇在站点数据里的那条记录，用来拿地址与「是不是索引页」。 */
+const currentPage = computed(() =>
+  store.project?.pages.find((page) => page.source === store.currentSource),
+)
+
+/**
+ * 地址那一栏显示什么。
+ *
+ * front matter 里写了 `slug` 就显示它，没写就从当前地址反推末段——显示空白会让人
+ * 以为「这篇还没有地址」，而它其实由文件名决定。
+ */
+const slugText = computed(
+  () => fm.value?.slug ?? currentPage.value?.url.replace(/\/$/, '').split('/').pop() ?? '',
+)
+
+/**
+ * 改地址。
+ *
+ * 不走属性面板那条 `patchFrontMatter` 通路：改地址要连带补旧地址、改写站内引用，
+ * 三件事在 Rust 侧一次做完（`change_slug`）。之前这里只能手改 front matter，
+ * 于是「改完一批死链」是默认结果。
+ *
+ * 失败之后重新读一次 front matter：输入框里还留着没生效的文本，
+ * 不同步回去用户会以为改成了。
+ */
+async function onSlugChange(event: Event) {
+  const next = fieldValue(event).trim()
+  const source = store.currentSource
+  if (!source || !next || next === slugText.value) return
+  await actions.changeSlug(source, next)
+  await actions.loadFrontMatter()
+}
+
 /** 关键词同理。它与标签分开：标签会生成标签页，关键词只进 meta。 */
 const keywordText = computed(() => (fm.value?.keywords ?? []).join(', '))
 
@@ -583,6 +618,21 @@ onBeforeUnmount(() => {
             :value="fm.date ?? ''"
             placeholder="2026-09-07"
             @change="actions.patchFrontMatter({ date: fieldValue($event) })"
+          />
+        </label>
+        <label class="editor__prop">
+          地址（slug）
+          <input
+            type="text"
+            :value="slugText"
+            :disabled="currentPage?.is_index"
+            :title="
+              currentPage?.is_index
+                ? '栏目索引页的地址就是栏目名，请用侧栏的「栏目改名」'
+                : `当前地址 ${currentPage?.url ?? ''}；改这里会自动保留旧地址，并把站内指向它的链接改到新地址`
+            "
+            placeholder="留空则用文件名"
+            @change="onSlugChange"
           />
         </label>
         <label class="editor__prop editor__prop--wide">

@@ -18,6 +18,7 @@ use crate::config::{ProjectPaths, SourceFormat};
 use crate::content::{self, Page};
 use crate::error::{Error, Result};
 use crate::frontmatter;
+use crate::refs::{self, UrlMove};
 use crate::util;
 
 /// 一个栏目。
@@ -72,6 +73,13 @@ pub struct Renamed {
     pub moved: usize,
     /// 补了旧地址的文章数。
     pub aliases_added: usize,
+    /// 站内引用被改写的篇目与条数：整栏目换名会改一批地址，指向它们的链接跟着改。
+    pub refs_updated: Vec<refs::RefUpdate>,
+    /// 引用没能改写的那几篇及原因（多半是 front matter 手改坏了）。
+    ///
+    /// 不能静默丢掉：目录已经搬走了，这几篇的链接却还指着旧地址，
+    /// 不说一声用户就要等死链体检才发现。
+    pub refs_failed: Vec<refs::Failure>,
 }
 
 /// 列出全部栏目，按权重、再按路径排序。根目录也算一个栏目（`path` 为空串）。
@@ -308,11 +316,27 @@ pub fn rename(paths: &ProjectPaths, from: &str, to: &str, keep_aliases: bool) ->
         }
     }
 
+    // 整栏目换名等于一批地址同时变：把站内指向它们的链接一并改到新位置。
+    // 旧地址仍然照原样补进 aliases，站外的老链接靠重定向页兜着——两件事都要做。
+    let url_moves: Vec<UrlMove> = old_urls
+        .values()
+        .filter_map(|old_url| {
+            let rest = old_url.strip_prefix(&format!("/{from_rel}"))?;
+            Some(UrlMove {
+                from: old_url.clone(),
+                to: format!("/{to_rel}{rest}"),
+            })
+        })
+        .collect();
+    let rewritten = refs::rewrite_site(&paths.content, &url_moves)?;
+
     Ok(Renamed {
         from: from_rel,
         to: to_rel,
         moved,
         aliases_added,
+        refs_updated: rewritten.updated,
+        refs_failed: rewritten.failed,
     })
 }
 

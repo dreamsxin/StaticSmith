@@ -184,18 +184,15 @@ pub fn move_to_section(
     }
 
     if !url_moves.is_empty() {
-        // 搬完再重新读一遍：文件已经改了位置，而搬走的那几篇自己也可能引用了彼此
-        let after = load_for_front_matter(&paths.content)?;
-        for page in &after {
-            match update_refs(paths, &page.source, &url_moves) {
-                Ok(Some(update)) => out.refs_updated.push(update),
-                Ok(None) => {}
-                // 引用没改成不影响已经搬好的文件，报出来让人手改，不回滚
-                Err(err) => out.skipped.push(Skipped {
-                    source: page.source.clone(),
-                    reason: format!("引用未改写：{err}"),
-                }),
-            }
+        // 全站重新扫一遍：文件已经改了位置，而搬走的那几篇自己也可能引用了彼此
+        let rewritten = refs::rewrite_site(&paths.content, &url_moves)?;
+        out.refs_updated = rewritten.updated;
+        // 引用没改成不影响已经搬好的文件，报出来让人手改，不回滚
+        for failure in rewritten.failed {
+            out.skipped.push(Skipped {
+                source: failure.source,
+                reason: format!("引用未改写：{}", failure.reason),
+            });
         }
     }
     Ok(out)
@@ -215,22 +212,98 @@ fn moved_url(old_url: &str, target: &str) -> String {
     }
 }
 
-/// 改写一篇里的站内引用并写回。`None` 表示这篇没有指向搬动目标的链接。
-fn update_refs(
+/// 一次改地址的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct SlugChanged {
+    pub source: String,
+    pub from_url: String,
+    pub to_url: String,
+    /// 是否把旧地址补进了 `aliases`。
+    pub alias_added: bool,
+    /// 站内引用被改写的篇目与条数。
+    pub refs_updated: Vec<RefUpdate>,
+    /// 引用没能改写的那几篇及原因。不能静默丢：地址已经改了，这几条链接还指着旧的。
+    pub refs_failed: Vec<refs::Failure>,
+}
+
+/// 改一篇的地址（front matter 里的 `slug`），并把该做的善后一次做完。
+///
+/// 以前改 slug 只能在属性面板里手改 front matter：不会补 `aliases`（要人自己在
+/// 「旧地址」那一栏填对老地址），也不会动站内那些指向老地址的链接——
+/// 一次改名换来一批死链，而它们要等「体检」页才浮出来。这里三件事一起做：
+/// 写新 slug、补旧地址、改写站内引用。
+///
+/// **只改地址，不改文件名**：磁盘位置由用户在文件系统里决定（`content/` 就是站点结构），
+/// 而地址是 front matter 的事。要换目录请用「移动到栏目」。
+pub fn change_slug(
     paths: &ProjectPaths,
     source: &str,
-    url_moves: &[UrlMove],
-) -> Result<Option<RefUpdate>> {
+    slug: &str,
+    keep_alias: bool,
+) -> Result<SlugChanged> {
+    let slug = util::sanitize_url_segment(slug.trim());
+    if slug.is_empty() {
+        return Err(Error::Other("新地址不能为空".to_string()));
+    }
+    if slug.contains('/') {
+        return Err(Error::Other(
+            "地址里不能带 /：换栏目请用「移动到栏目」".to_string(),
+        ));
+    }
+
+    let pages = load_for_front_matter(&paths.content)?;
+    let Some(page) = pages.iter().find(|p| p.source == source) else {
+        return Err(Error::Other(format!("找不到这篇内容: {source}")));
+    };
+    // 索引页的地址就是栏目本身（`content::output_paths` 不给它拼 slug），改它得改栏目名
+    if page.is_index {
+        return Err(Error::Other(
+            "栏目索引页的地址由栏目名决定，请用「栏目改名」".to_string(),
+        ));
+    }
+    let from_url = page.url.clone();
+    let to_url = if page.section.is_empty() {
+        format!("/{slug}/")
+    } else {
+        format!("/{}/{slug}/", page.section)
+    };
+    if to_url == from_url {
+        return Err(Error::Other("新地址与原来相同".to_string()));
+    }
+
     let path = content::resolve_source(&paths.content, source)?;
     let raw = std::fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
-    let Some((updated, hits)) = refs::rewrite(&raw, url_moves)? else {
-        return Ok(None);
-    };
+    let updated = frontmatter::apply(
+        &raw,
+        &Patch {
+            slug: Some(slug),
+            ..Patch::default()
+        },
+    )?;
     std::fs::write(&path, updated).map_err(|e| Error::io(&path, e))?;
-    Ok(Some(RefUpdate {
+
+    // 补旧地址在写完 slug 之后：`add_alias` 自己读一次文件，顺序颠倒会把 slug 覆盖掉
+    let mut alias_added = false;
+    if keep_alias {
+        alias_added = content::add_alias(&path, &from_url)?;
+    }
+
+    let rewritten = refs::rewrite_site(
+        &paths.content,
+        &[UrlMove {
+            from: from_url.clone(),
+            to: to_url.clone(),
+        }],
+    )?;
+
+    Ok(SlugChanged {
         source: source.to_string(),
-        hits,
-    }))
+        from_url,
+        to_url,
+        alias_added,
+        refs_updated: rewritten.updated,
+        refs_failed: rewritten.failed,
+    })
 }
 
 /// 搬一篇的判断结果。预览与执行共用，避免「预览说能搬、执行却跳过」。
@@ -461,23 +534,10 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
 
     // 干跑也要报「另有几篇里的几处引用会跟着改」：这一步会写别的文件，
     // 而用户只勾了这几篇——不说清楚就是背着人改东西。
+    // 干跑不把 front matter 坏掉的文件当错误：这里只是数数，
+    // 真正搬的时候那一篇会作为「引用未改写」被单独报出来。
     if !url_moves.is_empty() {
-        for page in &pages {
-            let Ok(path) = content::resolve_source(&paths.content, &page.source) else {
-                continue;
-            };
-            let Ok(raw) = std::fs::read_to_string(&path) else {
-                continue;
-            };
-            // 干跑遇到 front matter 坏了的文件不报错：这一步只是数数，
-            // 真正搬的时候那一篇会作为「引用未改写」被单独报出来
-            if let Ok(Some((_, hits))) = refs::rewrite(&raw, &url_moves) {
-                out.refs.push(RefUpdate {
-                    source: page.source.clone(),
-                    hits,
-                });
-            }
-        }
+        out.refs = refs::preview_site(&paths.content, &url_moves)?.updated;
     }
     Ok(out)
 }
@@ -720,6 +780,47 @@ mod tests {
         assert!(read(&f, "notes/c.md").contains("没有引用"));
         // 搬走的那篇自己的 aliases 记的是旧地址，不能被改写掉
         assert!(read(&f, "notes/a.md").contains("/posts/a/"));
+    }
+
+    #[test]
+    fn changing_a_slug_adds_the_alias_and_rewrites_inbound_links() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n\n正文\n");
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\n+++\n\n见 [甲](/posts/a/)\n",
+        );
+
+        let out = change_slug(&f.paths, "posts/a.md", "新名字", true).unwrap();
+        assert_eq!(out.from_url, "/posts/a/");
+        assert_eq!(out.to_url, "/posts/新名字/");
+        assert!(out.alias_added, "改地址必须补旧地址，否则外链当场 404");
+        assert_eq!(out.refs_updated.len(), 1);
+        assert_eq!(out.refs_updated[0].hits, 1);
+
+        let a = read(&f, "posts/a.md");
+        assert!(a.contains("slug = \"新名字\""), "{a}");
+        assert!(a.contains("aliases = [\"/posts/a/\"]"), "{a}");
+        // 文件名不动：改的是地址，不是磁盘上的位置
+        assert!(read(&f, "posts/b.md").contains("[甲](/posts/新名字/)"));
+    }
+
+    #[test]
+    fn index_pages_have_no_slug_of_their_own() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        // 栏目索引页的地址就是栏目名，改它得走栏目改名
+        let err = change_slug(&f.paths, "posts/index.md", "x", true).unwrap_err();
+        assert!(err.to_string().contains("栏目"), "{err}");
+    }
+
+    #[test]
+    fn an_unchanged_slug_is_refused_instead_of_writing_a_useless_alias() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+        assert!(change_slug(&f.paths, "posts/a.md", "a", true).is_err());
+        assert!(change_slug(&f.paths, "posts/a.md", "  ", true).is_err());
     }
 
     #[test]

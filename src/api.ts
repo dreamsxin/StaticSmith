@@ -633,6 +633,23 @@ export const batchMove = (sources: string[], toSection: string, keepAliases: boo
     args: { sources, to_section: toSection, keep_aliases: keepAliases },
   })
 
+/** 改一篇的地址（slug）。默认补旧地址，并把站内指向它的链接改到新地址。 */
+export interface SlugChangeReport {
+  source: string
+  from_url: string
+  to_url: string
+  alias_added: boolean
+  refs_updated: RefUpdate[]
+  /** 引用没能改写的那几篇及原因（多半是 front matter 手改坏了） */
+  refs_failed: Array<{ source: string; reason: string }>
+  plan: BuildPlan
+}
+
+export const changeSlug = (source: string, slug: string, keepAlias = true) =>
+  invoke<SlugChangeReport>('change_slug', {
+    args: { source, slug, keep_alias: keepAlias },
+  })
+
 /** 批量删除内容。不可逆。 */
 export const batchDelete = (sources: string[]) =>
   invoke<BatchReport>('batch_delete', { sources })

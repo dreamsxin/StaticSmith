@@ -588,6 +588,48 @@ export const actions = {
     await this.afterBatch(report.moved.length, report.skipped, report.plan)
   },
 
+  /**
+   * 改一篇的地址（slug）。
+   *
+   * 三件事在 Rust 侧一次做完：写新 slug、把旧地址补进 `aliases`、
+   * 把站内指向它的链接改到新地址。这里只负责两件界面上的事：
+   *
+   * 1. **有未保存改动就先拒绝**。改地址要写这一篇的 front matter，
+   *    而编辑器里那份缓冲区随后一保存就会把它盖掉——让人先存盘比事后解释更省事。
+   * 2. 写完把磁盘内容读回编辑器（这一篇的 front matter 变了，
+   *    引用被改写的那一篇也可能正开着）。
+   */
+  async changeSlug(source: string, slug: string, keepAlias = true) {
+    if (source === state.currentSource && isDirty.value) {
+      notify('error', '先保存这一篇再改地址：改地址会写 front matter，未保存的改动会被顶掉')
+      return
+    }
+    const report = await run(() => api.changeSlug(source, slug, keepAlias))
+    if (!report) return
+
+    const open = state.currentSource
+    const touched =
+      open !== null && (open === report.source || report.refs_updated.some((r) => r.source === open))
+    if (touched) {
+      const raw = await run(() => api.readContent(open))
+      if (raw !== undefined) {
+        state.currentRaw = raw
+        state.savedRaw = raw
+        await this.loadFrontMatter()
+      }
+    }
+
+    // 引用没改成的必须报出来：地址已经改了，这几条链接还指着旧的
+    for (const failure of report.refs_failed) {
+      notify('error', `${failure.source} 里的链接没能改写：${failure.reason}`)
+    }
+
+    const alias = report.alias_added ? '，旧地址已保留（构建后是重定向页）' : ''
+    const hits = report.refs_updated.reduce((sum, item) => sum + item.hits, 0)
+    const refs = hits > 0 ? `，顺手改了 ${report.refs_updated.length} 篇里的 ${hits} 处链接` : ''
+    await this.afterBatch(1, [], report.plan, `地址改为 ${report.to_url}${alias}${refs}`)
+  },
+
   /** 批量删除。不可逆，调用方必须已经二次确认。 */
   async batchDelete(sources: string[]) {
     const report = await run(() => api.batchDelete(sources))

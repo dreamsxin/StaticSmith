@@ -61,7 +61,11 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
   `description.missing`。栏目的标题、简介、排序权重就是索引页的 front matter，
   之后改用 `patch_front_matter` 即可，不另开一个工具
 - `rename_section`：栏目改名。默认 `keep_aliases = true`，给每篇文章补旧地址，
-  构建后老链接经重定向页继续可用
+  构建后老链接经重定向页继续可用。返回里的 `refs_updated` 是站内被改写的引用
+  （整栏目换名等于一批地址同时变）
+- `change_slug`：改一篇内容的地址。默认补旧地址，并把站内指向它的链接改到新地址。
+  **不要用 `patch_front_matter` 改 `slug`**：那条路只改字段、不做这两件善后，
+  一次改名换来一批死链。栏目索引页的地址由栏目名决定，改它用 `rename_section`
 - `move_content`：把一篇内容搬到另一个栏目，默认补旧地址。`to_section` 传空串
   表示搬到内容根目录。栏目索引页不能搬；批量搬就逐篇调用。
   返回里的 `refs_updated` 是**站内其它文章里被改写的链接**（`{source, hits}`）：

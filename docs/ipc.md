@@ -195,7 +195,7 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `list_sections() -> Section[]`：栏目清单（含根目录）
 - `create_section(path, title, description?) -> { path, index_source }`：建目录并写索引页。
   `description` 一并写进索引页——留空的话新栏目一建出来就会被 SEO 体检记一条 `description.missing`
-- `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added }`
+- `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added, refs_updated, refs_failed }`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
 - `save_section_meta(args: { path, title, description, weight }) -> Section[]`：
   改栏目元信息，返回刷新后的清单
@@ -205,6 +205,13 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `batch_edit_tags(args: { sources, add, remove }) -> BatchReport`
 - `batch_set_draft(sources, draft) -> BatchReport`
 - `batch_move(args: { sources, to_section, keep_aliases }) -> BatchMoveReport`
+- `change_slug(args: { source, slug, keep_alias }) -> SlugChangeReport`：改一篇的地址。
+  写新 `slug` + 补旧地址 + 改写站内引用三件事在 core 里一次做完
+  （`batch::change_slug`）；`keep_alias` 省略时按 `true`。
+  返回 `{ source, from_url, to_url, alias_added, refs_updated, refs_failed, plan }`。
+  栏目索引页会被拒（它的地址就是栏目名，改它用 `rename_section`）。
+  前端在调用前会拦住「这一篇有未保存改动」的情况：这条命令要写它的 front matter，
+  缓冲区随后一保存就把结果盖掉
 - `batch_delete(sources) -> BatchReport`：**不可撤销**，界面必须先二次确认
 - `batch_preview(sources, action) -> BatchPreview`：干跑，不碰磁盘
 

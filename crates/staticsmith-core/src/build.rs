@@ -286,6 +286,18 @@ impl Builder {
         Ok(out)
     }
 
+    /// 改一篇的地址（slug），顺手补旧地址并改写站内引用。
+    pub fn change_slug(
+        &mut self,
+        source: &str,
+        slug: &str,
+        keep_alias: bool,
+    ) -> Result<batch::SlugChanged> {
+        let out = batch::change_slug(&self.paths, source, slug, keep_alias)?;
+        self.reload()?;
+        Ok(out)
+    }
+
     /// 批量删除内容文件。不可逆，界面必须先二次确认。
     pub fn batch_delete(&mut self, sources: &[String]) -> Result<batch::Outcome> {
         let out = batch::delete(&self.paths, sources)?;
