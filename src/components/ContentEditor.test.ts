@@ -38,7 +38,9 @@ const state = reactive({
       },
     ],
     recent_builds: [] as unknown[],
+    broken_sources: [] as Array<{ source: string; reason: string }>,
   },
+
   frontMatter: {
     title: '甲',
     date: null,
@@ -80,7 +82,14 @@ vi.mock('../store', () => ({
   store: state,
   actions,
   isDirty: computed(() => state.currentRaw !== state.savedRaw),
+  brokenReason: computed(
+    () =>
+      state.project?.broken_sources?.find(
+        (item: { source: string }) => item.source === state.currentSource,
+      )?.reason ?? null,
+  ),
 }))
+
 
 const ContentEditor = (await import('./ContentEditor.vue')).default
 
@@ -151,7 +160,26 @@ describe('ContentEditor 的改地址', () => {
     expect(actions.loadFrontMatter).toHaveBeenCalled()
   })
 
+  it('读不出来的那一篇：把原因与「修好会怎样」摆在编辑区里', async () => {
+    state.project.broken_sources = [
+      { source: 'posts/a.md', reason: 'front matter 缺少结束的 `+++`' },
+    ]
+    const wrapper = mount(ContentEditor)
+    await wrapper.vm.$nextTick()
+
+    const banner = wrapper.get('.editor__broken').text()
+    expect(banner).toContain('front matter 缺少结束的 `+++`')
+    // 属性面板此时是空的，不说明的话看起来像编辑器坏了
+    expect(banner).toContain('没有进内容清单')
+    expect(banner).toContain('保存')
+
+    state.project.broken_sources = []
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.editor__broken').exists()).toBe(false)
+  })
+
   it('换到另一篇时待确认行必须作废：确认它会把改动落到刚才那一篇上', async () => {
+
     const wrapper = mount(ContentEditor)
     await editSlug(wrapper)
     expect(wrapper.find('.editor__pending').exists()).toBe(true)

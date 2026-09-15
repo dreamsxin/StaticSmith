@@ -17,7 +17,8 @@ import LinkDialog from './LinkDialog.vue'
 import type { SlugPreview } from '../api'
 import { linkSnippet, type LinkTarget } from '../crossref'
 import { countWords, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
-import { actions, isDirty, store } from '../store'
+import { actions, brokenReason, isDirty, store } from '../store'
+
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
 import { parseList } from '../text'
 import { highlight } from '../source-highlight'
@@ -753,7 +754,17 @@ onBeforeUnmount(() => {
       <button type="button" @click="cancelSlug">取消</button>
     </p>
 
+    <!-- 读不出来的那一篇：说清「为什么」与「修好会怎样」。
+         属性面板此时是空的（front matter 解析不了），不说明的话看起来像编辑器坏了 -->
+    <p v-if="brokenReason" class="editor__broken">
+      <span>
+        这一篇的 front matter 读不出来：<strong>{{ brokenReason }}</strong
+        >。它没有进内容清单，生成也会被拦下。在下面按源码改好再保存，它就回到自己的栏目里。
+      </span>
+    </p>
+
     <p v-if="store.pendingPage" class="editor__pending">
+
       <span>当前文章有未保存改动，切换到「{{ store.pendingPage.title }}」前要怎么处理？</span>
       <button type="button" @click="actions.resolvePending('save')">保存并切换</button>
       <button type="button" @click="actions.resolvePending('discard')">放弃改动</button>

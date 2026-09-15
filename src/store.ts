@@ -44,7 +44,20 @@ export interface Toast {
   message: string
 }
 
+/**
+ * 打开一篇内容所需的最小信息。
+ *
+ * 不用 `PageSummary`：**读不出来的那几篇没有 PageSummary**（解析不了就没有标题、地址、
+ * 栏目），但它们照样要能点开修。`PageSummary` 结构上兼容这两个字段，调用方不必改。
+ */
+export interface OpenTarget {
+  source: string
+  /** 未保存确认里显示「切换到「X」前要怎么处理」，所以标题不能省；坏文件就用路径当标题 */
+  title: string
+}
+
 interface State {
+
   project: ProjectSummary | null
   /** 最近打开的站点，起始页用 */
   recent: RecentEntry[]
@@ -74,7 +87,8 @@ interface State {
   /** 当前源文的 front matter 字段，属性面板用 */
   frontMatter: FrontMatter | null
   /** 有未保存改动时被拦下的待打开页面 */
-  pendingPage: PageSummary | null
+  pendingPage: OpenTarget | null
+
   /** 当前编辑的模板名 */
   currentTemplate: string | null
   currentTemplateSource: string
@@ -176,6 +190,20 @@ const state = reactive<State>({
 export const isDirty = computed(
   () => state.currentSource !== null && state.currentRaw !== state.savedRaw,
 )
+
+/**
+ * 当前打开的这一篇「读不出来」的原因，正常时为 null。
+ *
+ * 由项目摘要推导而不是单独存一份状态：修好保存之后 `refresh()` 会把 `broken_sources`
+ * 更新，横幅自己就消失了——存一份状态就得有人记得清它。
+ */
+export const brokenReason = computed(() => {
+  const source = state.currentSource
+  if (source === null) return null
+  const item = state.project?.broken_sources?.find((entry) => entry.source === source)
+  return item?.reason ?? null
+})
+
 
 /**
  * 模板源码有未保存改动。
@@ -875,7 +903,8 @@ export const actions = {
   },
 
   /** 请求打开一篇内容。有未保存改动时先问，不直接丢弃。 */
-  async requestOpenContent(page: PageSummary) {
+  async requestOpenContent(page: OpenTarget) {
+
     if (page.source === state.currentSource) return
     if (isDirty.value) {
       state.pendingPage = page
@@ -884,7 +913,19 @@ export const actions = {
     await this.openContent(page)
   },
 
+  /**
+   * 打开一篇「读不出来」的源文件，当纯文本修。
+   *
+   * 这几篇没有 `PageSummary`（解析不了就没有标题与地址），以前界面里根本点不到它们：
+   * 打开项目时弹一条通知说「有 2 篇读不出来」，然后就没有下文——用户知道出了事，
+   * 却只能去文件管理器里找。走的仍是 `requestOpenContent`，所以未保存确认那道拦阻照旧。
+   */
+  async openBroken(source: string) {
+    await this.requestOpenContent({ source, title: source })
+  },
+
   /** 处理「未保存改动」的三种选择。 */
+
   async resolvePending(choice: 'save' | 'discard' | 'cancel') {
     const target = state.pendingPage
     state.pendingPage = null
@@ -896,7 +937,7 @@ export const actions = {
     await this.openContent(target)
   },
 
-  async openContent(page: PageSummary) {
+  async openContent(page: OpenTarget) {
     const raw = await run(() => api.readContent(page.source))
     if (raw !== undefined) {
       state.currentSource = page.source
@@ -906,9 +947,17 @@ export const actions = {
       // 打开文章即回到文章预览，否则预览还停在上次点开的标签页上。
       state.previewTarget = null
       await this.loadFrontMatter()
+      // 读不出来的那几篇不去渲染预览：渲染必然失败，而那句报错用户刚在列表里看过一遍，
+      // 打开文件是为了修它，不是为了再被数落一次。编辑器里有横幅说明（`brokenReason`）
+      if (state.project?.broken_sources?.some((item) => item.source === page.source)) {
+        state.previewHtml = ''
+        state.previewSkipped = 0
+        return
+      }
       await this.refreshPreview()
     }
   },
+
 
   /**
    * 读出当前缓冲区的 front matter，属性面板据此回填。

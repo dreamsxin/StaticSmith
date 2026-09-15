@@ -1673,6 +1673,26 @@ kbd {
   font-size: 0.8rem;
 }
 
+/* 读不出来的那一篇：与「未保存改动」同一条位置，但用错误色——
+   它不是待选择的分支，而是一个必须修掉的状态 */
+.editor__broken {
+  padding: 0.5rem;
+  margin: 0;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--danger);
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+/* 「读不出来」那一组：摆在栏目之前，用左边一条竖线与正常分组区分开 */
+.page-list__group--broken {
+  border-left: 3px solid var(--danger);
+  padding-left: 0.4rem;
+}
+
+
+
 .editor__toolbar {
   display: flex;
   gap: 0.3rem;

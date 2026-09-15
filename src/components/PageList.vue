@@ -11,7 +11,9 @@ import { computed, ref, watch } from 'vue'
 import SectionHeader from './SectionHeader.vue'
 import ReplacePanel from './ReplacePanel.vue'
 import CreatePanel from './CreatePanel.vue'
+import BrokenList from './BrokenList.vue'
 import BatchBar from './BatchBar.vue'
+
 
 import { openContextMenu, type MenuEntry } from '../commands'
 import { focusSelector } from '../focus'
@@ -510,7 +512,11 @@ async function copyText(text: string) {
     />
 
 
+    <!-- 读不出来的源文件摆在最前：生成会因为它被拦下，是要先处理的事 -->
+    <BrokenList :items="store.project?.broken_sources ?? []" />
+
     <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
+
       <SectionHeader
         :section="section"
         :count="pages.length"
