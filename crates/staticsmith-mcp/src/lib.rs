@@ -163,8 +163,7 @@ impl McpServer {
 
                 // 工具里的 panic 变成一条 JSON-RPC 错误。穿出去的话，HTTP 那侧会掀掉
                 // tiny_http 的工作线程、stdio 那侧会掀掉主循环，端点静默停止服务。
-                match catch_tool_panic(|| tools::call(&mut builder, self.permissions, name, &args))
-                {
+                match catch_panic(|| tools::call(&mut builder, self.permissions, name, &args)) {
                     Ok(result) => Ok(result),
                     Err(message) => {
                         tracing::error!("工具 {name} 内部 panic：{message}");
@@ -189,16 +188,18 @@ impl McpServer {
     }
 }
 
-/// 兜住工具执行里的 panic，`Err` 带回 panic 消息。
+/// 兜住 panic，`Err` 带回 panic 消息。
 ///
-/// 为什么必须有：HTTP 那侧每个请求跑在 tiny_http 的工作线程上，stdio 那侧就是主循环。
-/// 任何一处 panic 穿出去，端点就静默停止服务——界面上还写着「运行中」，
-/// Agent 那边只看到连接断了。翻译成一条 JSON-RPC 内部错误，Agent 能读到原因，
-/// 端点继续活着。
+/// 为什么必须有：HTTP 那侧每个请求跑在自己的线程上，stdio 那侧就是主循环。
+/// 任何一处 panic 穿出去，端点就静默停止服务（或者那一个请求永远不回话）——
+/// 界面上还写着「运行中」，Agent 那边只看到连接断了。翻译成一条错误，
+/// Agent 能读到原因，端点继续活着。
+///
+/// 工具调用（`tools::call`）与 HTTP 请求分派（`transport::route`）都用它。
 ///
 /// 与桌面端 `state::catch_panics` 同一套思路，各自实现是因为两边错误类型不同，
 /// 而这段逻辑只有五行——为它拉一个公共 crate 不值得。
-fn catch_tool_panic<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
+pub(crate) fn catch_panic<T>(f: impl FnOnce() -> T) -> std::result::Result<T, String> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).map_err(|payload| {
         if let Some(s) = payload.downcast_ref::<&str>() {
             (*s).to_string()
@@ -268,8 +269,8 @@ mod tests {
     /// 接线只有 `dispatch` 里那一行。
     #[test]
     fn a_panicking_call_becomes_an_error_not_a_dead_thread() {
-        assert_eq!(catch_tool_panic(|| 7), Ok(7));
-        let caught = catch_tool_panic(|| panic!("工具内部炸了"));
+        assert_eq!(catch_panic(|| 7), Ok(7));
+        let caught = catch_panic(|| panic!("工具内部炸了"));
         assert_eq!(caught, Err("工具内部炸了".to_string()));
     }
 

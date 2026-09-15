@@ -146,7 +146,16 @@ pub fn serve_http(server: Arc<McpServer>, port: u16) -> Result<McpHttpServer> {
                     let server = server.clone();
                     let sessions = sessions.clone();
                     // SSE 连接是长连接，必须离开接收循环，否则后续请求全被阻塞。
-                    std::thread::spawn(move || route(request, server, sessions));
+                    //
+                    // 外层再兜一次 panic：`route` 内部已经把分派兜住并回 500，
+                    // 这一层管的是它之后的部分（发响应、SSE 长流）。穿出去只会
+                    // 静默杀死这个线程，日志里什么也没有。
+                    std::thread::spawn(move || {
+                        if let Err(reason) = crate::catch_panic(|| route(request, server, sessions))
+                        {
+                            tracing::error!("MCP 请求线程 panic: {reason}");
+                        }
+                    });
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -182,16 +191,42 @@ fn route(mut request: Request, server: Arc<McpServer>, sessions: Sessions) {
         return;
     }
 
-    let outcome = match (method.as_str(), path.as_str()) {
+    // 分派本身兜住 panic：穿出去的话这个请求永远不回话，客户端只能等到超时，
+    // 日志里也没有线索。翻译成 500 + 原因，Agent 读得到，端点继续活着。
+    //
+    // 工具调用那一层（`catch_panic` in lib.rs）已经兜过一次；这里管的是它之外的部分：
+    // 路由判断、读请求体、拼 JSON-RPC、会话表查找。
+    let dispatched = crate::catch_panic(|| match (method.as_str(), path.as_str()) {
         ("POST", "/mcp") => handle_streamable(&mut request, &server),
         ("POST", "/messages") => handle_legacy_message(&mut request, &url, &server, &sessions),
-        ("GET", "/sse") => return handle_sse(request, &sessions),
+        ("GET", "/sse") => Ok(None),
         ("GET", "/mcp") => Err((
             405,
             "本服务端不在 /mcp 上提供 GET 流，请改用 POST /mcp 或 GET /sse".to_string(),
         )),
         ("GET", "/") => Ok(Some(usage_text(&server))),
+        // 只在测试里存在：用来证明「一个请求 panic 之后端点还活着」。
+        // 生产构建里这条分支不存在，落到下面的 404。
+        #[cfg(test)]
+        ("GET", "/panic") => panic!("测试用的 panic"),
         _ => Err((404, format!("未知路径: {path}"))),
+    });
+
+    // SSE 要占住这个线程写长流，所以分派阶段只做「认得这个路径」，真正的流在这里跑。
+    if method == "GET" && path == "/sse" && dispatched.is_ok() {
+        handle_sse(request, &sessions);
+        return;
+    }
+
+    let outcome = match dispatched {
+        Ok(outcome) => outcome,
+        Err(reason) => {
+            tracing::error!("MCP 请求分派 panic（{method} {path}）: {reason}");
+            Err((
+                500,
+                format!("服务端内部错误（已兜住，端点仍在运行）: {reason}"),
+            ))
+        }
     };
 
     let response = match outcome {
@@ -575,6 +610,32 @@ mod tests {
         );
         assert!(root.contains("POST /mcp"));
         assert!(root.contains("只读模式"));
+    }
+
+    /// 一个请求 panic 之后，端点必须还活着。
+    ///
+    /// 这是这个端点唯一一处 panic 会带走整个服务的地方（其余入口——stdio 循环、
+    /// 工具调用、桌面端的 with_session、预览服务器、文件监听——都各有兜底）。
+    /// 而它面向的正是外部客户端：静默停止服务时界面上还写着「运行中」，
+    /// Agent 那边只看到连接断了。
+    ///
+    /// `/panic` 只在测试构建里存在（`#[cfg(test)]`），生产构建里它落到 404。
+    #[test]
+    fn a_panicking_request_gets_500_and_the_endpoint_survives() {
+        let (_dir, http) = start();
+
+        let boom = request(
+            http.addr(),
+            "GET /panic HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(boom.starts_with("HTTP/1.1 500"), "{boom}");
+        // 要说清「已经兜住了」，否则读日志的人不知道服务还在不在
+        assert!(boom.contains("端点仍在运行"), "{boom}");
+        assert!(boom.contains("测试用的 panic"), "{boom}");
+
+        // 端点还在服务：下一个请求照常
+        let after = post(http.addr(), "/mcp", INITIALIZE);
+        assert!(after.starts_with("HTTP/1.1 200"), "{after}");
     }
 
     #[test]
