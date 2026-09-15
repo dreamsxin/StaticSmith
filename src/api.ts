@@ -156,7 +156,15 @@ export interface ProjectSummary {
   recent_builds: BuildRecord[]
   /** 合法但有代价的配置提醒（如源目录在项目根之外，不进快照）。空数组表示没有 */
   config_warnings: string[]
+  /**
+   * 读不出来的源文件及原因（多半是 front matter 手改坏了）。
+   *
+   * 这几篇不在 `pages` 里。项目照样打得开——编辑器就是用来修它的；
+   * 但生成会被拦下来，产物里静默少一页比报错难查得多。
+   */
+  broken_sources: Skipped[]
 }
+
 
 export interface BuildPlan {
   mode: BuildMode

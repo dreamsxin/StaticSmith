@@ -309,9 +309,82 @@ describe('store 的批量收尾汇总', () => {
 })
 
 /**
+ * 读不出来的源文件。
+ *
+ * front matter 手改坏了的那一篇不会出现在页面清单里。以前这种站根本打不开，
+ * 现在打得开——那就必须有人说出「少的那一篇去哪了」，否则用户只看到列表里凭空少一篇。
+ */
+describe('store 报出读不出来的文件', () => {
+  const summary = (broken: Array<{ source: string; reason: string }>) => ({
+    root: '/site',
+    config: { site: { title: '测试站点' } },
+
+    pages: [],
+    layouts: [],
+    components: [],
+    templates: [],
+    recent_builds: [],
+    config_warnings: [],
+    broken_sources: broken,
+  })
+
+  beforeEach(() => {
+    results.clear()
+    vi.clearAllMocks()
+    actions.clearNotices()
+  })
+
+  it('打开项目时按原因汇总报出来，明细里有每一篇', async () => {
+    results.set(
+      'openProject',
+      summary([
+        { source: 'posts/a.md', reason: 'front matter 缺少结束的 `+++`' },
+        { source: 'posts/b.md', reason: 'front matter 缺少结束的 `+++`' },
+      ]),
+    )
+
+    await actions.openProject('/site')
+
+    const notice = store.notices.find((n) => n.message.includes('读不出来'))!
+    expect(notice.level).toBe('error')
+    expect(notice.message).toContain('2 篇')
+    expect(notice.details).toEqual([
+      'posts/a.md：front matter 缺少结束的 `+++`',
+      'posts/b.md：front matter 缺少结束的 `+++`',
+    ])
+  })
+
+  it('同一批坏文件不反复报：每次刷新都弹一条会把通知区刷满', async () => {
+    const broken = [{ source: 'posts/a.md', reason: 'front matter 缺少结束的 `+++`' }]
+    results.set('openProject', summary(broken))
+    results.set('projectSummary', summary(broken))
+
+    await actions.openProject('/site')
+    await actions.refresh()
+    await actions.refresh()
+
+    expect(store.notices.filter((n) => n.message.includes('读不出来'))).toHaveLength(1)
+  })
+
+  it('修好了再坏一次要重新报：那是新的问题', async () => {
+    results.set('openProject', summary([{ source: 'posts/a.md', reason: '坏了' }]))
+    await actions.openProject('/site')
+
+    results.set('projectSummary', summary([]))
+    await actions.refresh()
+
+    results.set('projectSummary', summary([{ source: 'posts/a.md', reason: '坏了' }]))
+    await actions.refresh()
+
+    expect(store.notices.filter((n) => n.message.includes('读不出来'))).toHaveLength(2)
+  })
+})
+
+/**
  * 一行装不下的消息。
  *
  * 气泡里只放得下一行，所以这些出口都做了截断（「N 条生成警告：第一条 等」）。
+
  * 截断本身没问题，问题是**被截掉的部分以前没有任何落点**：用户读到「另有 3 篇同样没改成」
  * 之后无处可查，只能自己去 grep 全站。现在整份清单进通知历史的详情。
  */

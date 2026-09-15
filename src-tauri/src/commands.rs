@@ -60,6 +60,11 @@ pub struct ProjectSummary {
     /// 放进摘要而不是只写日志：这类提醒的典型后果是「快照静默不覆盖某个目录」，
     /// 只有当事人看到才有意义，而没人会去翻日志。
     pub config_warnings: Vec<String>,
+    /// 读不出来的源文件及原因（front matter 手改坏了是最常见的一种）。
+    ///
+    /// 打开项目不因此失败——编辑器就是用来修它的。但界面必须说出来：
+    /// 列表里少一篇而没有任何说明，比一句报错难查得多。生成那一步会拦下来。
+    pub broken_sources: Vec<staticsmith_core::skips::Skipped>,
 }
 
 /// 页面列表项（不含正文，避免一次性传输整站内容）。
@@ -234,6 +239,7 @@ pub fn project_summary(state: State<'_, AppState>) -> Result<ProjectSummary> {
             templates: builder.templates().infos().cloned().collect(),
             recent_builds: builder.index().recent_builds(10)?,
             config_warnings: builder.config.warnings(&session.root),
+            broken_sources: builder.broken().to_vec(),
         })
     })
 }

@@ -297,12 +297,34 @@ fn rename_setup(
         return Err(Error::Other(format!("{to_rel} 已存在，请换个名字")));
     }
 
-    // 移动前先记下这棵子树里的页面：移动之后旧地址就算不出来了
-    let pages: Vec<Page> = content::load_all(&paths.content, SourceFormat::default())?
-        .into_iter()
-        .filter(|page| {
-            page.section == from_rel || page.section.starts_with(&format!("{from_rel}/"))
+    // 移动前先记下这棵子树里的页面：移动之后旧地址就算不出来了。
+    // 宽容加载（一篇坏文件不该让改名整体失败），但**子树里有读不出来的就拒绝改名**：
+    // 那一篇会跟着目录一起搬走，而它的旧地址算不出来、补不上 alias——
+    // 静默丢一条重定向比拒绝一次难查得多。
+    let loaded = content::load_all_lenient(&paths.content, SourceFormat::default())?;
+    let in_subtree =
+        |section: &str| section == from_rel || section.starts_with(&format!("{from_rel}/"));
+    let broken: Vec<_> = loaded
+        .broken
+        .iter()
+        .filter(|item| {
+            let dir = item.source.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+            in_subtree(dir)
         })
+        .cloned()
+        .collect();
+    if !broken.is_empty() {
+        let summary = crate::skips::summarize(&broken);
+        return Err(Error::Other(format!(
+            "这个栏目里有文件读不出来，改名会让它的旧地址补不上，先修好：{}（{}）",
+            summary.line,
+            summary.details.join("；")
+        )));
+    }
+    let pages: Vec<Page> = loaded
+        .pages
+        .into_iter()
+        .filter(|page| in_subtree(&page.section))
         .collect();
 
     Ok((from_rel, to_rel, source_dir, target_dir, pages))

@@ -993,3 +993,46 @@ fn preview_server_serves_the_built_site() {
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     assert!(response.contains("site-header"), "预览应返回完整页面");
 }
+
+/// 一篇 front matter 坏掉的文件，不该让整个项目打不开。
+///
+/// 编辑器就是用来修它的，而以前 `Builder::open` 直接返回错误：界面停在起始页，
+/// 剩下几十篇一篇也编辑不了——一个手改坏的文件让半数功能罢工，而修它的工具正在罢工之列。
+///
+/// 但**生成仍然要停下来**：产物里静默少一页比报错难查得多，所以这两件事的答案不同。
+#[test]
+fn a_broken_file_does_not_stop_the_project_from_opening() {
+    let dir = new_project();
+    // 缺结束围栏
+    std::fs::write(
+        dir.path().join("content/posts/broken.md"),
+        "+++\ntitle = \"坏的\"\n\n正文\n",
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).expect("坏文件不该让项目打不开");
+    assert_eq!(builder.broken().len(), 1, "{:?}", builder.broken());
+    assert_eq!(builder.broken()[0].source, "posts/broken.md");
+    assert!(
+        builder.pages().iter().all(|p| p.source != "posts/broken.md"),
+        "读不出来的那篇不该出现在页面清单里"
+    );
+
+    // 生成要停下来，并且说清是哪一篇、为什么
+    let err = builder.build(BuildMode::Full).unwrap_err().to_string();
+    assert!(err.contains("posts/broken.md"), "{err}");
+    assert!(err.contains("+++"), "{err}");
+    // 计划照常算：它只是「会改什么」的只读信息，界面每次保存都要用，
+    // 让它跟着一起失败等于把「待生成」这一栏也废掉
+    assert!(builder.plan(BuildMode::Full).is_ok());
+
+    // 修好之后照常生成
+    std::fs::write(
+        dir.path().join("content/posts/broken.md"),
+        "+++\ntitle = \"修好了\"\n+++\n\n正文\n",
+    )
+    .unwrap();
+    builder.reload().unwrap();
+    assert!(builder.broken().is_empty());
+    assert!(builder.build(BuildMode::Full).is_ok());
+}

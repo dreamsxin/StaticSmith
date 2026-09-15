@@ -130,6 +130,8 @@ pub struct Builder {
     templates: TemplateSet,
     index: Index,
     pages: Vec<Page>,
+    /// 读不出来的那几篇（front matter 坏了等）。打开项目时不阻断，生成时拦下来。
+    broken: Vec<crate::skips::Skipped>,
 }
 
 impl Builder {
@@ -149,21 +151,52 @@ impl Builder {
         let paths = ProjectPaths::new(root, &config.build, &config.assets);
         let templates = TemplateSet::load(&paths.templates)?;
         let index = Index::open(&paths.index_db)?;
-        let pages = content::load_all(&paths.content, config.build.source_format)?;
+        // 宽容加载：一篇 front matter 坏掉不该让整个项目打不开——编辑器就是用来修它的。
+        // 生成那一步会单独拦（见 `refuse_if_broken`），产物里静默少一页比报错难查得多。
+        let loaded = content::load_all_lenient(&paths.content, config.build.source_format)?;
+        for item in &loaded.broken {
+            tracing::warn!("读不出来，已跳过：{} —— {}", item.source, item.reason);
+        }
         Ok(Self {
             config,
             paths,
             templates,
             index,
-            pages,
+            pages: loaded.pages,
+            broken: loaded.broken,
         })
     }
 
     /// 重新读取模板与内容。文件监听触发变更后调用。
     pub fn reload(&mut self) -> Result<()> {
         self.templates = TemplateSet::load(&self.paths.templates)?;
-        self.pages = content::load_all(&self.paths.content, self.config.build.source_format)?;
+        let loaded = content::load_all_lenient(&self.paths.content, self.config.build.source_format)?;
+        self.pages = loaded.pages;
+        self.broken = loaded.broken;
         Ok(())
+    }
+
+    /// 读不出来的那几篇及原因（front matter 手改坏了是最常见的一种）。
+    ///
+    /// 调用方**必须把它显示出来**：界面上少一篇而没有任何说明，比一句报错难查得多。
+    pub fn broken(&self) -> &[crate::skips::Skipped] {
+        &self.broken
+    }
+
+    /// 有文件读不出来时拒绝生成。
+    ///
+    /// 打开项目要宽容（否则没法修），生成必须严格：漏掉的那一页在产物里是「不存在」，
+    /// 而线上少一页没人会立刻发现。原因按种类汇总，措辞与界面、命令行同一句。
+    fn refuse_if_broken(&self) -> Result<()> {
+        if self.broken.is_empty() {
+            return Ok(());
+        }
+        let summary = crate::skips::summarize(&self.broken);
+        Err(Error::Other(format!(
+            "有文件读不出来，生成会漏页，先修好它们：{}（{}）",
+            summary.line,
+            summary.details.join("；")
+        )))
     }
 
     pub fn templates(&self) -> &TemplateSet {
@@ -539,6 +572,7 @@ impl Builder {
 
     /// 执行构建。渲染阶段使用 Rayon 多核并行。
     pub fn build(&mut self, mode: BuildMode) -> Result<BuildReport> {
+        self.refuse_if_broken()?;
         let started = Instant::now();
         let mut phases = BuildPhases::default();
         let plan = self.plan(mode)?;

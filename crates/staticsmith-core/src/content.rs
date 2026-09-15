@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::SourceFormat;
 use crate::error::{Error, Result};
+use crate::skips::Skipped;
 use crate::util;
 
 /// front matter 围栏标记（Zola 风格 TOML）。
@@ -301,6 +302,41 @@ pub fn load_all(content_root: &Path, format: SourceFormat) -> Result<Vec<Page>> 
     }
     pages.sort_by(|a, b| a.source.cmp(&b.source));
     Ok(pages)
+}
+
+/// 宽容读取的结果：读出来的页面，以及读不出来的那几篇及原因。
+pub struct Loaded {
+    pub pages: Vec<Page>,
+    pub broken: Vec<Skipped>,
+}
+
+/// 递归扫描并解析，但**坏的那篇只记下来，不让整次读取失败**。
+///
+/// 与 [`load_all`] 的分工：产物生成走严格版（宁可停下来，也不能悄悄漏页），
+/// 而「打开项目、批量动作、栏目改名」这些路走这一版——一个手改坏的文件不该让半数功能
+/// 罢工，何况修它的工具（编辑器本身）正在罢工之列。
+///
+/// 调用方**必须把 `broken` 报出去**：默默少一篇比报错更难查。
+pub fn load_all_lenient(content_root: &Path, format: SourceFormat) -> Result<Loaded> {
+    let mut out = Loaded {
+        pages: Vec::new(),
+        broken: Vec::new(),
+    };
+    for source in source_files(content_root)? {
+        let path = match resolve_source(content_root, &source) {
+            Ok(path) => path,
+            Err(err) => {
+                out.broken.push(Skipped::new(source, err.to_string()));
+                continue;
+            }
+        };
+        match Page::from_file(content_root, &path, format) {
+            Ok(page) => out.pages.push(page),
+            Err(err) => out.broken.push(Skipped::new(source, err.to_string())),
+        }
+    }
+    out.pages.sort_by(|a, b| a.source.cmp(&b.source));
+    Ok(out)
 }
 
 /// 只列出源文件，不解析。
@@ -639,6 +675,35 @@ fn toml_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 一篇坏文件不该让「读取整站」这件事整体失败。
+    ///
+    /// `load_all` 是严格的（生成产物时宁可停下来，也不能悄悄漏页），但打开项目、
+    /// 批量动作、栏目改名这些路要的是「其余的照常，坏的那篇单独报」——
+    /// 否则一个手改坏的文件能让半数功能罢工，而修它的工具正在罢工之列。
+    #[test]
+    fn lenient_load_reports_the_broken_file_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("posts")).unwrap();
+        std::fs::write(
+            root.join("posts/ok.md"),
+            "+++\ntitle = \"好的\"\n+++\n\n正文\n",
+        )
+        .unwrap();
+        // 缺结束围栏
+        std::fs::write(root.join("posts/broken.md"), "+++\ntitle = \"坏的\"\n\n正文\n").unwrap();
+
+        let loaded = load_all_lenient(root, SourceFormat::default()).unwrap();
+        assert_eq!(loaded.pages.len(), 1, "{:?}", loaded.broken);
+        assert_eq!(loaded.pages[0].source, "posts/ok.md");
+        assert_eq!(loaded.broken.len(), 1);
+        assert_eq!(loaded.broken[0].source, "posts/broken.md");
+        assert!(loaded.broken[0].reason.contains("+++"), "{:?}", loaded.broken);
+
+        // 严格版照旧：生成时不许悄悄漏页
+        assert!(load_all(root, SourceFormat::default()).is_err());
+    }
 
     /// 越界的 source 必须在拼路径这一步就被拒，而不是等调用方想起来查。
     ///

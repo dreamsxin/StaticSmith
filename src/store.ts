@@ -258,7 +258,38 @@ async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
  *
  * 新增复合动作时照这个套：只要函数体里出现两次以上 `run`/`await this.xxx`，就该包起来。
  */
+/**
+ * 上一次报过的坏文件签名。空串表示当前没有坏文件。
+ *
+ * 不报第二遍：`refresh()` 在每次保存、每次批量动作后都会跑，每次弹一条会把通知区刷满
+ * （违 ui.md 的「一条讲完」）。但**修好之后再坏一次要重新报**——那是新的问题，
+ * 所以记的是签名而不是布尔。
+ */
+let reportedBroken = ''
+
+/**
+ * 把「读不出来的那几篇」报出来。
+ *
+ * 这些文件不在页面清单里。以前这种站根本打不开（`Builder::open` 直接失败），
+ * 现在打得开——那就必须有人说出「少的那一篇去哪了」，否则用户只看到列表里凭空少一篇，
+ * 而按生成时又莫名其妙地被拦下。
+ */
+function announceBroken(summary: api.ProjectSummary) {
+  const broken = summary.broken_sources ?? []
+  const signature = broken.map((item) => `${item.source}\u0000${item.reason}`).join('\n')
+  if (signature === reportedBroken) return
+  reportedBroken = signature
+  if (!broken.length) return
+  const skips = summarizeSkips(broken)
+  notify(
+    'error',
+    `有 ${broken.length} 篇读不出来，没有列进内容清单，生成也会被拦下：${skips.message}`,
+    skips.details,
+  )
+}
+
 async function busySpan<T>(body: () => Promise<T>): Promise<T> {
+
   inflight += 1
   state.busy = true
   try {
@@ -410,6 +441,7 @@ export const actions = {
       if (!summary) return
       state.project = summary
       state.externalChange = false
+      announceBroken(summary)
       await this.recomputePlan()
       await this.loadOutputs()
       await this.loadSections()
@@ -417,6 +449,7 @@ export const actions = {
       notify('success', `已打开 ${summary.config.site.title}`)
     })
   },
+
 
   /** 刷新产物清单。标签页、分页页这些非内容页只在这里能看到。 */
   async loadOutputs() {
@@ -806,8 +839,10 @@ export const actions = {
     if (summary) {
       state.project = summary
       state.externalChange = false
+      announceBroken(summary)
     }
   },
+
 
   closeProject() {
     void api.closeProject()

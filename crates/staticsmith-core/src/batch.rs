@@ -29,8 +29,21 @@ use crate::util;
 /// 所以这里固定用默认格式，不必把站点的 `source_format` 一路传进来。
 /// 之所以安全：`load_all` 收哪些扩展名与格式无关，HTML 站点的 `.html` 文件同样在列，
 /// 不会出现「搬动或改名时漏掉一篇、它的旧地址没人补」。
-fn load_for_front_matter(content_root: &Path) -> Result<Vec<Page>> {
-    content::load_all(content_root, SourceFormat::default())
+fn load_for_front_matter(content_root: &Path) -> Result<content::Loaded> {
+    content::load_all_lenient(content_root, SourceFormat::default())
+}
+
+/// 这一篇为什么不在清单里：读不出来（说出原因）还是真的不存在。
+///
+/// 以前一律报「找不到这篇内容」，而它明明就在列表里点得到——那句话把人往
+/// 「路径写错了」的方向带，真正的原因（front matter 手改坏了）却没露面。
+fn missing_reason(loaded: &content::Loaded, source: &str) -> String {
+    loaded
+        .broken
+        .iter()
+        .find(|item| item.source == source)
+        .map(|item| item.reason.clone())
+        .unwrap_or_else(|| "找不到这篇内容".to_string())
 }
 
 /// 跳过的一篇，以及为什么。
@@ -148,7 +161,8 @@ pub fn move_to_section(
     keep_aliases: bool,
 ) -> Result<MoveOutcome> {
     let target = util::sanitize_relative_dir(to_section);
-    let pages = load_for_front_matter(&paths.content)?;
+    let loaded = load_for_front_matter(&paths.content)?;
+    let pages = &loaded.pages;
     let mut out = MoveOutcome::default();
     let mut url_moves: Vec<UrlMove> = Vec::new();
 
@@ -156,7 +170,7 @@ pub fn move_to_section(
         let Some(page) = pages.iter().find(|p| &p.source == source) else {
             out.skipped.push(Skipped {
                 source: source.clone(),
-                reason: "找不到这篇内容".to_string(),
+                reason: missing_reason(&loaded, source),
             });
             continue;
         };
@@ -274,7 +288,7 @@ fn slug_target(pages: &[Page], source: &str, slug: &str) -> Result<(String, Stri
 /// 改地址会写用户没有点名的文件（那些引用它的文章），所以这一步该先给人看一眼——
 /// 搬动一直有干跑，改地址以前直接落盘，两者不一致。
 pub fn preview_slug(paths: &ProjectPaths, source: &str, slug: &str) -> Result<SlugPreview> {
-    let pages = load_for_front_matter(&paths.content)?;
+    let pages = load_for_front_matter(&paths.content)?.pages;
     let (_, from_url, to_url) = slug_target(&pages, source, slug)?;
     let url_moves = [UrlMove {
         from: from_url.clone(),
@@ -305,7 +319,7 @@ pub fn change_slug(
     slug: &str,
     keep_alias: bool,
 ) -> Result<SlugChanged> {
-    let pages = load_for_front_matter(&paths.content)?;
+    let pages = load_for_front_matter(&paths.content)?.pages;
     let (slug, from_url, to_url) = slug_target(&pages, source, slug)?;
 
     let path = content::resolve_source(&paths.content, source)?;
@@ -488,7 +502,7 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
     let mut out = Preview::default();
     let mut url_moves: Vec<UrlMove> = Vec::new();
     let pages = match action {
-        Action::Move { .. } => load_for_front_matter(&paths.content)?,
+        Action::Move { .. } => load_for_front_matter(&paths.content)?.pages,
         _ => Vec::new(),
     };
     let tag_edit = match action {
