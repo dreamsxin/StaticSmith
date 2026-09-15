@@ -17,12 +17,14 @@ const movePreview = {
   ],
   affected: 1,
   refs: [{ source: 'notes/c.md', hits: 2 }],
+  refs_manual: [{ source: 'notes/d.md', hits: 1 }],
 }
 
 const deletePreview = {
   changes: [{ source: 'posts/a.md', changes: true, effect: '删除' }],
   affected: 1,
   refs: [],
+  refs_manual: [],
 }
 
 const state = reactive({ busy: false })
@@ -131,6 +133,9 @@ describe('BatchBar', () => {
     // 改到用户没勾的文件上这件事必须说出来
     expect(dry.text()).toContain('1 篇里的 2 处站内链接')
     expect(dry.text()).toContain('notes/c.md')
+    // 相对链接改写不到，得人工看一眼——以前只能等死链体检
+    expect(dry.text()).toContain('相对链接')
+    expect(dry.text()).toContain('notes/d.md')
   })
 
   it('确认移动才落盘，且把「保留旧地址」一起带上', async () => {

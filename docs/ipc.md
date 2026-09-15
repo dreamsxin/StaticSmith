@@ -196,7 +196,7 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `create_section(path, title, description?) -> { path, index_source }`：建目录并写索引页。
   `description` 一并写进索引页——留空的话新栏目一建出来就会被 SEO 体检记一条 `description.missing`
 - `rename_section(args: { from, to, keep_aliases }) -> { from, to, moved, aliases_added, refs_updated, refs_failed }`
-- `preview_rename_section(args: { from, to, keep_aliases }) -> { from, to, files, aliases, refs }`：
+- `preview_rename_section(args: { from, to, keep_aliases }) -> { from, to, files, aliases, refs, refs_manual }`：
   干跑一次栏目改名，不碰磁盘。五种拒绝理由（根目录、同名、搬进自己、栏目不存在、
   目标已存在）在这里就会报错，界面据此在落盘前挡住它们；判断与执行共用 `rename_setup()`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
@@ -209,7 +209,9 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `batch_set_draft(sources, draft) -> BatchReport`
 - `batch_move(args: { sources, to_section, keep_aliases }) -> BatchMoveReport`
 - `preview_slug(args: { source, slug }) -> SlugPreview`：干跑一次改地址，不碰磁盘。
-  返回 `{ source, from_url, to_url, refs }`；被拦下的三种情况（索引页、同名、空）
+  返回 `{ source, from_url, to_url, refs, refs_manual }`；`refs` 是会自动改好的引用，
+  `refs_manual` 是**相对链接**（`../a/`）——它按引用方所在目录解析，改写不到，
+  界面据此提醒「需要手工改」。被拦下的三种情况（索引页、同名、空）
   在这里就会报错，于是界面能在落盘前挡住它们。判断与执行共用 `slug_target()`
 - `change_slug(args: { source, slug, keep_alias }) -> SlugChangeReport`：改一篇的地址。
   写新 `slug` + 补旧地址 + 改写站内引用三件事在 core 里一次做完
@@ -223,8 +225,9 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 
 `action` 是带标签的枚举：`{ kind: "tags", add, remove }`、`{ kind: "draft", draft }`、
 `{ kind: "move", to_section }`、`{ kind: "delete" }`。`BatchPreview` 给
-`changes`（`{source, changes, effect}`）、`affected`（真会改动的篇数）与
-`refs`（`{source, hits}[]`，搬动会顺手改写的站内引用；其它动作为空），
+`changes`（`{source, changes, effect}`）、`affected`（真会改动的篇数）、
+`refs`（`{source, hits}[]`，搬动会顺手改写的站内引用）与
+`refs_manual`（同样形状，**相对链接**：改写不到，需要人工改），
 `effect` 是人能读的一句话（「搬到 notes/a.md，旧地址 /posts/a/」「已经是目标状态」）。
 判断与执行共用一份逻辑，所以预览说会改的，执行就会改。
 

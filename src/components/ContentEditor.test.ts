@@ -17,6 +17,7 @@ const slugPreview = {
   from_url: '/posts/a/',
   to_url: '/posts/新名字/',
   refs: [{ source: 'posts/b.md', hits: 2 }],
+  refs_manual: [{ source: 'posts/c.md', hits: 1 }],
 }
 
 const state = reactive({
@@ -118,6 +119,8 @@ describe('ContentEditor 的改地址', () => {
     expect(prompt).toContain('/posts/a/')
     expect(prompt).toContain('/posts/新名字/')
     expect(prompt).toContain('1 篇里的 2 处')
+    // 相对链接改写不到，这一句得在同一屏里说清楚
+    expect(prompt).toContain('相对链接')
   })
 
   it('确认之后才落盘', async () => {

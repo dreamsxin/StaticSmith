@@ -648,6 +648,8 @@ export interface SlugPreview {
   from_url: string
   to_url: string
   refs: RefUpdate[]
+  /** 改写改不到、得人工看一眼的相对链接 */
+  refs_manual: RefUpdate[]
 }
 
 export const previewSlug = (source: string, slug: string) =>
@@ -695,6 +697,12 @@ export interface BatchPreview {
   affected: number
   /** 搬动会顺手改写的站内引用：哪几篇、各几处。其它动作为空 */
   refs: RefUpdate[]
+  /**
+   * 改写改不到、得人工看一眼的相对链接。
+   *
+   * `../a/` 这类地址按**引用方**所在目录解析，而搬动改的是被引用方，两者对不上。
+   */
+  refs_manual: RefUpdate[]
 }
 
 /** 干跑：算出每篇会发生什么，不碰磁盘。判断与执行同源。 */
@@ -803,6 +811,8 @@ export interface SectionRenamePreview {
   files: number
   aliases: number
   refs: RefUpdate[]
+  /** 改写改不到、得人工看一眼的相对链接 */
+  refs_manual: RefUpdate[]
 }
 
 export const previewRenameSection = (from: string, to: string, keepAliases: boolean) =>

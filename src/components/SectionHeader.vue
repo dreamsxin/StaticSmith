@@ -64,6 +64,11 @@ const pendingHits = computed(() =>
   (pendingRename.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
 )
 
+/** 改写不到、要人工处理的相对链接总处数。 */
+const pendingManual = computed(() =>
+  (pendingRename.value?.preview.refs_manual ?? []).reduce((sum, item) => sum + item.hits, 0),
+)
+
 function startRename() {
   renaming.value = true
   renameTo.value = props.section
@@ -283,6 +288,13 @@ function menu(): MenuEntry[] {
       <p v-if="pendingHits" class="page-list__batch-note">
         另会把 {{ pendingRename.preview.refs.length }} 篇里的 {{ pendingHits }}
         处站内链接改到新地址：{{ pendingRename.preview.refs.map((r) => r.source).join('、') }}
+      </p>
+      <!-- 相对链接改写不到：它按引用方所在目录解析，而改名改的是被引用方 -->
+      <p v-if="pendingManual" class="page-list__batch-note">
+        另有 {{ pendingRename.preview.refs_manual.length }} 篇里的 {{ pendingManual }}
+        处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改：{{
+          pendingRename.preview.refs_manual.map((r) => r.source).join('、')
+        }}
       </p>
       <div class="page-list__batch-row">
         <button type="button" class="btn--primary" :disabled="store.busy" @click="confirmRename">

@@ -177,6 +177,163 @@ fn run(content_root: &Path, moves: &[UrlMove], write: bool) -> Result<Rewritten>
     Ok(out)
 }
 
+// ---------------------------------------------------------------- 相对链接
+
+/// 正文里、围栏之外的那些行。
+fn body_lines(raw: &str) -> Result<Vec<&str>> {
+    let start = frontmatter::body_start(raw)?;
+    let mut out = Vec::new();
+    let mut fence: Option<String> = None;
+    for line in raw[start..].split_inclusive('\n') {
+        match &fence {
+            Some(open) => {
+                if closes_fence(line, open) {
+                    fence = None;
+                }
+            }
+            None => match opens_fence(line) {
+                Some(open) => fence = Some(open),
+                None => out.push(line),
+            },
+        }
+    }
+    Ok(out)
+}
+
+/// 一行里出现的链接地址：Markdown 的 `](…)` 与 HTML 的 `href=` / `src=`。
+///
+/// 与改写那条路不同，这里必须真的把地址取出来（改写只需要拿已知地址去比对），
+/// 所以认标记而不是认分隔符。取到的是原样文本，是否相对由调用方判断。
+fn destinations(line: &str) -> Vec<&str> {
+    const MARKS: [(&str, char); 5] = [
+        ("](", ')'),
+        ("href=\"", '"'),
+        ("href='", '\''),
+        ("src=\"", '"'),
+        ("src='", '\''),
+    ];
+    let mut out = Vec::new();
+    let mut rest = line;
+    while !rest.is_empty() {
+        let Some((at, mark, end)) = MARKS
+            .iter()
+            .filter_map(|(mark, end)| rest.find(mark).map(|at| (at, *mark, *end)))
+            .min_by_key(|(at, _, _)| *at)
+        else {
+            break;
+        };
+        let after = &rest[at + mark.len()..];
+        let value = match after.find(end) {
+            Some(stop) => &after[..stop],
+            None => after,
+        };
+        // Markdown 允许 `](<地址> "标题")`：尖括号与标题都不是地址的一部分
+        let value = value.trim();
+        let value = value.trim_start_matches('<').trim_end_matches('>');
+        let value = value.split_whitespace().next().unwrap_or("");
+        if !value.is_empty() {
+            out.push(value);
+        }
+        rest = &after[value.len().min(after.len())..];
+    }
+    out
+}
+
+/// 这段地址是不是「相对」的——也就是要按引用方所在目录才能解析。
+fn is_relative(target: &str) -> bool {
+    if target.starts_with('/') || target.starts_with('#') || target.starts_with('?') {
+        return false;
+    }
+    // `https://`、`mailto:`、`data:`：第一个 `:` 出现在第一个 `/` 之前就是协议
+    match (target.find(':'), target.find('/')) {
+        (Some(colon), Some(slash)) => colon > slash,
+        (Some(_), None) => false,
+        _ => true,
+    }
+}
+
+/// 一段相对地址在引用方页面上解析成什么绝对地址。
+///
+/// 页面地址本身就是目录（pretty URL，恒以 `/` 结尾），所以 `../a/` 是「同栏目的 a」。
+/// 走出站点根返回 `None`：那不是站内链接，别猜。
+fn resolve_relative(base: &str, target: &str) -> Option<String> {
+    let trailing = target.ends_with('/');
+    let mut parts: Vec<&str> = base.split('/').filter(|s| !s.is_empty()).collect();
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            other => parts.push(other),
+        }
+    }
+    let joined = parts.join("/");
+    Some(if trailing {
+        format!("/{joined}/")
+    } else {
+        format!("/{joined}")
+    })
+}
+
+/// 这一篇里有几处**相对**链接指向即将改变的地址。
+///
+/// 这些是改写改不到的：相对地址要按引用方所在目录解析，而改地址改的是被引用方，
+/// 两者对不上。以前它们只会在「死链体检」里出现——那是**改完之后**。
+/// 干跑里报出来，用户才有机会在动手前决定怎么处理。
+pub fn relative_hits(raw: &str, base_url: &str, moves: &[UrlMove]) -> Result<usize> {
+    if moves.is_empty() {
+        return Ok(0);
+    }
+    let mut hits = 0;
+    for line in body_lines(raw)? {
+        for target in destinations(line) {
+            if !is_relative(target) {
+                continue;
+            }
+            let Some(resolved) = resolve_relative(base_url, target) else {
+                continue;
+            };
+            let normalized = resolved.trim_end_matches('/');
+            if moves
+                .iter()
+                .any(|item| item.from.trim_end_matches('/') == normalized)
+            {
+                hits += 1;
+            }
+        }
+    }
+    Ok(hits)
+}
+
+/// 全站扫一遍：哪几篇里有相对链接指向即将改变的地址，各几处。
+///
+/// 与 `preview_site` 并列使用：那份是「会自动改好的」，这份是「得你自己看一眼的」。
+pub fn manual_review(content_root: &Path, moves: &[UrlMove]) -> Result<Vec<RefUpdate>> {
+    if moves.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for page in content::load_all(content_root, SourceFormat::default())? {
+        let Ok(path) = content::resolve_source(content_root, &page.source) else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        // front matter 坏掉的文件这里不报错：这一步只是提醒，真正的写操作会单独报
+        if let Ok(hits) = relative_hits(&raw, &page.url, moves) {
+            if hits > 0 {
+                out.push(RefUpdate {
+                    source: page.source,
+                    hits,
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// 一行里的改写，命中数作为返回值。
 fn rewrite_line(line: &str, moves: &[UrlMove], out: &mut String) -> usize {
     let bytes = line.as_bytes();
@@ -392,5 +549,79 @@ mod tests {
     fn broken_front_matter_is_an_error_not_a_guess() {
         let raw = "+++\ntitle = \"甲\"\n\n[甲](/posts/a/)\n";
         assert!(rewrite(raw, &moves("/posts/a/", "/notes/a/")).is_err());
+    }
+
+    // ------------------------------------------------------------ 相对链接
+
+    #[test]
+    fn relative_targets_resolve_against_the_referring_page() {
+        // 页面地址本身就是目录（`/posts/b/`），所以 `../a/` 落在 /posts/a/
+        assert_eq!(
+            resolve_relative("/posts/b/", "../a/").as_deref(),
+            Some("/posts/a/")
+        );
+        assert_eq!(
+            resolve_relative("/posts/b/", "a/").as_deref(),
+            Some("/posts/b/a/")
+        );
+        assert_eq!(
+            resolve_relative("/posts/b/", "./a/").as_deref(),
+            Some("/posts/b/a/")
+        );
+        assert_eq!(
+            resolve_relative("/a/b/c/", "../../x/").as_deref(),
+            Some("/a/x/")
+        );
+        // 走出站点根就当它不是站内链接，别猜
+        assert_eq!(resolve_relative("/posts/b/", "../../../x/"), None);
+        // 不带尾斜杠的写法也要认，解析结果跟着不带
+        assert_eq!(
+            resolve_relative("/posts/b/", "../a").as_deref(),
+            Some("/posts/a")
+        );
+    }
+
+    #[test]
+    fn relative_links_pointing_at_the_moved_page_are_counted() {
+        let raw = concat!(
+            "+++\ntitle = \"乙\"\n+++\n\n",
+            "见 [甲](../a/) 与 <a href=\"../a\">甲</a>\n",
+            "同栏目的 [丙](./c/)\n",
+        );
+        // 从 /posts/b/ 看，../a/ 就是 /posts/a/
+        let hits = relative_hits(raw, "/posts/b/", &moves("/posts/a/", "/notes/a/")).unwrap();
+        assert_eq!(hits, 2, "两种写法都算，指向别处的 ./c/ 不算");
+    }
+
+    #[test]
+    fn absolute_and_external_and_anchors_are_not_relative_links() {
+        let raw = concat!(
+            "+++\n+++\n\n",
+            "[绝对](/posts/a/) [站外](https://example.com/posts/a/)\n",
+            "[锚点](#a) [邮件](mailto:a@example.com) [查询](?tag=a)\n",
+        );
+        assert_eq!(
+            relative_hits(raw, "/posts/b/", &moves("/posts/a/", "/notes/a/")).unwrap(),
+            0
+        );
+    }
+
+    #[test]
+    fn relative_links_inside_fenced_code_are_not_counted() {
+        let raw = "+++\n+++\n\n```md\n[甲](../a/)\n```\n\n[乙](../a/)\n";
+        assert_eq!(
+            relative_hits(raw, "/posts/b/", &moves("/posts/a/", "/notes/a/")).unwrap(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_page_can_point_at_the_moved_page_with_a_parent_hop() {
+        // 根目录的文章用 posts/a/ 指过去（不带 ./ 也不带 ../）
+        let raw = "+++\n+++\n\n[甲](posts/a/)\n";
+        assert_eq!(
+            relative_hits(raw, "/", &moves("/posts/a/", "/notes/a/")).unwrap(),
+            1
+        );
     }
 }

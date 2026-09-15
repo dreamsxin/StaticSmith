@@ -901,6 +901,19 @@ fn report_preview(preview: &staticsmith_core::batch::Preview, json: bool) -> Res
         let mark = if change.changes { "+" } else { "=" };
         println!("{mark} {} —— {}", change.source, change.effect);
     }
+    for update in &preview.refs {
+        println!(
+            "~ {} 里的 {} 处站内链接会改到新地址",
+            update.source, update.hits
+        );
+    }
+    // 相对链接改写不到，得人工看一眼：以前只能等死链体检
+    for manual in &preview.refs_manual {
+        println!(
+            "! {} 里的 {} 处相对链接指向它，改写不到，需要手工改",
+            manual.source, manual.hits
+        );
+    }
     Ok(())
 }
 
@@ -932,6 +945,13 @@ fn cmd_slug(
             println!(
                 "~ {} 里的 {} 处站内链接会改到新地址",
                 update.source, update.hits
+            );
+        }
+        // 相对链接改写不到，得人工看一眼：以前只能等死链体检
+        for manual in &preview.refs_manual {
+            println!(
+                "! {} 里的 {} 处相对链接指向它，改写不到，需要手工改",
+                manual.source, manual.hits
             );
         }
         return Ok(());

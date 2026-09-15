@@ -234,6 +234,8 @@ pub struct SlugPreview {
     pub to_url: String,
     /// 会被改写的站内引用：哪几篇、各几处。
     pub refs: Vec<RefUpdate>,
+    /// 改不到、得人工看一眼的相对链接：哪几篇、各几处。
+    pub refs_manual: Vec<RefUpdate>,
 }
 
 /// 算出「新地址是什么」。预览与执行共用，避免「预览说改成 A、实际改成 B」。
@@ -278,18 +280,17 @@ fn slug_target(pages: &[Page], source: &str, slug: &str) -> Result<(String, Stri
 pub fn preview_slug(paths: &ProjectPaths, source: &str, slug: &str) -> Result<SlugPreview> {
     let pages = load_for_front_matter(&paths.content)?;
     let (_, from_url, to_url) = slug_target(&pages, source, slug)?;
-    let rewritten = refs::preview_site(
-        &paths.content,
-        &[UrlMove {
-            from: from_url.clone(),
-            to: to_url.clone(),
-        }],
-    )?;
+    let url_moves = [UrlMove {
+        from: from_url.clone(),
+        to: to_url.clone(),
+    }];
+    let rewritten = refs::preview_site(&paths.content, &url_moves)?;
     Ok(SlugPreview {
         source: source.to_string(),
         from_url,
         to_url,
         refs: rewritten.updated,
+        refs_manual: refs::manual_review(&paths.content, &url_moves)?,
     })
 }
 
@@ -476,6 +477,11 @@ pub struct Preview {
     pub affected: usize,
     /// 搬动会顺手改写的站内引用：哪几篇、各几处。其它动作为空。
     pub refs: Vec<RefUpdate>,
+    /// 改不到、得人工看一眼的相对链接：哪几篇、各几处。
+    ///
+    /// 相对地址（`../a/`）要按引用方所在目录解析，而搬动改的是被引用方，两者对不上。
+    /// 以前这些只会在「死链体检」里出现——那是**改完之后**。
+    pub refs_manual: Vec<RefUpdate>,
 }
 
 /// 干跑：算出每篇会发生什么，不碰磁盘。
@@ -578,6 +584,7 @@ pub fn preview(paths: &ProjectPaths, sources: &[String], action: &Action) -> Res
     // 真正搬的时候那一篇会作为「引用未改写」被单独报出来。
     if !url_moves.is_empty() {
         out.refs = refs::preview_site(&paths.content, &url_moves)?.updated;
+        out.refs_manual = refs::manual_review(&paths.content, &url_moves)?;
     }
     Ok(out)
 }
@@ -905,6 +912,33 @@ mod tests {
         write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
         assert!(change_slug(&f.paths, "posts/a.md", "a", true).is_err());
         assert!(change_slug(&f.paths, "posts/a.md", "  ", true).is_err());
+    }
+
+    #[test]
+    fn preview_reports_relative_links_it_cannot_fix() {
+        let f = fixture();
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n\n正文\n");
+        // 绝对地址会被自动改写，相对地址改不到——两者要分开报
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\n+++\n\n[绝对](/posts/a/) 与 [相对](../a/)\n",
+        );
+
+        let dry = preview(
+            &f.paths,
+            &["posts/a.md".to_string()],
+            &Action::Move {
+                to_section: "notes".to_string(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(dry.refs.len(), 1, "绝对地址那一处会自动改好");
+        assert_eq!(dry.refs[0].hits, 1);
+        assert_eq!(dry.refs_manual.len(), 1, "相对地址那一处得人工看");
+        assert_eq!(dry.refs_manual[0].source, "posts/b.md");
+        assert_eq!(dry.refs_manual[0].hits, 1);
     }
 
     #[test]

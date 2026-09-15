@@ -18,6 +18,7 @@ const preview = {
   files: 3,
   aliases: 2,
   refs: [{ source: 'notes/b.md', hits: 2 }],
+  refs_manual: [{ source: 'notes/c.md', hits: 1 }],
 }
 
 const state = reactive({ busy: false })
@@ -158,6 +159,9 @@ describe('SectionHeader', () => {
     expect(text).toContain('给 2 篇补旧地址')
     expect(text).toContain('1 篇里的 2 处')
     expect(text).toContain('notes/b.md')
+    // 相对链接改写不到，得人工看一眼
+    expect(text).toContain('相对链接')
+    expect(text).toContain('notes/c.md')
   })
 
   it('确认之后才改名', async () => {

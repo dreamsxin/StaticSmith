@@ -141,6 +141,11 @@ const pendingSlugHits = computed(() =>
   (pendingSlug.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
 )
 
+/** 改写不到、要人工处理的相对链接总处数。 */
+const pendingSlugManual = computed(() =>
+  (pendingSlug.value?.preview.refs_manual ?? []).reduce((sum, item) => sum + item.hits, 0),
+)
+
 async function confirmSlug() {
   const pending = pendingSlug.value
   const source = store.currentSource
@@ -739,7 +744,10 @@ onBeforeUnmount(() => {
           v-if="pendingSlugHits"
           >，另会改写 {{ pendingSlug.preview.refs.length }} 篇里的 {{ pendingSlugHits }}
           处站内链接</template
-        >。
+        >。<template v-if="pendingSlugManual"
+          >另有 {{ pendingSlug.preview.refs_manual.length }} 篇里的 {{ pendingSlugManual }}
+          处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改。</template
+        >
       </span>
       <button type="button" :disabled="store.busy" @click="confirmSlug">确认改地址</button>
       <button type="button" @click="cancelSlug">取消</button>

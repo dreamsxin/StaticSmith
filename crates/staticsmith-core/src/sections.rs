@@ -258,6 +258,10 @@ pub struct RenamePreview {
     pub aliases: usize,
     /// 会被改写站内引用的篇目与条数。
     pub refs: Vec<refs::RefUpdate>,
+    /// 改不到、得人工看一眼的相对链接：哪几篇、各几处。
+    ///
+    /// 相对地址（`../a/`）要按引用方所在目录解析，而改名改的是被引用方，两者对不上。
+    pub refs_manual: Vec<refs::RefUpdate>,
 }
 
 /// 改名前的校验与准备，预览与执行共用。
@@ -355,6 +359,7 @@ pub fn preview_rename(
         files,
         aliases,
         refs: refs::preview_site(&paths.content, &url_moves)?.updated,
+        refs_manual: refs::manual_review(&paths.content, &url_moves)?,
     })
 }
 
