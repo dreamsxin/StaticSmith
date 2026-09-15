@@ -10,6 +10,8 @@ import { computed, ref, watch } from 'vue'
 import type { DeployPlan } from '../api'
 import { ftpOverwriteLabel } from '../labels'
 import { store, actions } from '../store'
+import { formatBytes } from '../text'
+
 
 /**
  * 确认清单里最多列几个文件名。
@@ -38,12 +40,12 @@ async function confirmDeploy() {
   await actions.deploy()
 }
 
-/** 字节数给人看的写法。发布量在慢链路上是决策依据，不该只报文件个数。 */
-function sizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
+/**
+ * 字节数给人看的写法。发布量在慢链路上是决策依据，不该只报文件个数。
+ * 措辞与别的面板共用一处（`text.ts`）：同一个数字两种说法会被当成两件事。
+ */
+const sizeLabel = formatBytes
+
 
 
 const secret = ref('')

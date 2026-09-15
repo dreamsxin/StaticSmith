@@ -882,7 +882,22 @@ export const SNAPSHOT_LIMIT = 200
 export const listSnapshots = (limit?: number) => invoke<Snapshot[]>('list_snapshots', { limit })
 
 
+/**
+ * 快照历史占了多少地方。
+ *
+ * 它是唯一随使用无声长大的东西：每次不可逆操作留一份，换一张大图就多存一份那张图的
+ * 完整副本（静态资源在跟踪范围里）。看不到就永远不会想起清理。
+ */
+export interface SnapshotUsage {
+  bytes: number
+  snapshots: number
+}
+
+/** 历史占用与份数。只读磁盘，不动仓库。 */
+export const snapshotUsage = () => invoke<SnapshotUsage>('snapshot_usage')
+
 /** 回退会把某个文件怎么样。 */
+
 export type RestoreChangeKind = 'overwrite' | 'delete' | 'recover'
 
 export interface RestoreChange {

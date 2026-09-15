@@ -15,10 +15,15 @@ const state = reactive({
     { id: 'aaaaaaaaaa', message: 'batch_delete', at: '2026-09-15T02:00:00Z' },
     { id: 'bbbbbbbbbb', message: 'replace_text', at: '2026-09-14T02:00:00Z' },
   ],
+  snapshotUsage: { bytes: 3 * 1024 * 1024, snapshots: 2 } as {
+    bytes: number
+    snapshots: number
+  } | null,
   busy: false,
   currentRaw: '一样',
   savedRaw: '一样',
 })
+
 
 const preview = {
   restored_to: 'aaaaaaaaaa',
@@ -73,7 +78,9 @@ describe('SnapshotDialog', () => {
     state.busy = false
     state.currentRaw = '一样'
     state.savedRaw = '一样'
+    state.snapshotUsage = { bytes: 3 * 1024 * 1024, snapshots: 2 }
   })
+
 
   it('关着的时候什么也不渲染', () => {
     const wrapper = mountDialog()
@@ -171,7 +178,42 @@ describe('SnapshotDialog', () => {
     expect(button(wrapper, '换一份').attributes('disabled')).toBeUndefined()
   })
 
+  it('历史占用常驻一行：它是唯一随使用无声长大的东西', async () => {
+    const wrapper = mountDialog()
+    await wrapper.setProps({ open: true })
+    await tick()
+
+    const line = wrapper.get('.snapshot__usage').text()
+    expect(line).toContain('3.0 MB')
+    expect(line).toContain('2 份')
+    // 没到量级时不摆清理命令：那句话会把「常驻信息」变成「常驻警告」
+    expect(line).not.toContain('git gc')
+  })
+
+  it('占用大了才给清理办法，并说清代价', async () => {
+    state.snapshotUsage = { bytes: 400 * 1024 * 1024, snapshots: 300 }
+    const wrapper = mountDialog()
+    await wrapper.setProps({ open: true })
+    await tick()
+
+    const line = wrapper.get('.snapshot__usage').text()
+    expect(line).toContain('400.0 MB')
+    expect(line).toContain('git gc')
+    expect(line).toContain('无法找回')
+  })
+
+  it('问不出占用就不显示那一行，不打断回退', async () => {
+    state.snapshotUsage = null
+    const wrapper = mountDialog()
+    await wrapper.setProps({ open: true })
+    await tick()
+
+    expect(wrapper.find('.snapshot__usage').exists()).toBe(false)
+    expect(wrapper.findAll('.snapshot')).toHaveLength(2)
+  })
+
   it('Esc 关闭', async () => {
+
     const wrapper = mountDialog()
     await wrapper.setProps({ open: true })
     await tick()

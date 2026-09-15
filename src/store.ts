@@ -32,7 +32,9 @@ import type {
   SeoReport,
   SiteConfig,
   Snapshot,
+  SnapshotUsage,
   TemplateInfo,
+
 
 } from './api'
 
@@ -77,6 +79,14 @@ interface State {
    * 走一遍 commit 对象，没必要挂在打开项目的关键路径上。
    */
   snapshots: Snapshot[]
+  /**
+   * 历史占了多少地方。`null` 表示还没问过或问不出来。
+   *
+   * 只在打开「回退内容」时问一次：它是唯一随使用无声长大的东西，而那个对话框
+   * 是用户唯一会想起它的地方。
+   */
+  snapshotUsage: SnapshotUsage | null
+
 
 
   /** 当前编辑的内容源路径 */
@@ -152,6 +162,8 @@ const state = reactive<State>({
   recent: [],
   presets: [],
   snapshots: [],
+  snapshotUsage: null,
+
 
 
   currentSource: null,
@@ -393,7 +405,12 @@ export const actions = {
   async loadSnapshots() {
     const list = await run(() => api.listSnapshots(api.SNAPSHOT_LIMIT))
     if (list) state.snapshots = list
+    // 顺带问一下历史占了多少：它是唯一随使用无声长大的东西，
+    // 而这个对话框是用户唯一会想起它的地方。读不出来就不显示那一行，不打断回退
+    const usage = await run(() => api.snapshotUsage())
+    state.snapshotUsage = usage ?? null
   },
+
 
 
   /**

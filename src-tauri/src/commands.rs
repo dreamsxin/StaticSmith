@@ -10,7 +10,9 @@ use staticsmith_core::batch::{
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
-use staticsmith_core::history::{RestorePreview, Restored, Snapshot, Snapshots};
+use staticsmith_core::history::{
+    RestorePreview, Restored, Snapshot, Snapshots, Usage as SnapshotUsage,
+};
 use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportReport};
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
@@ -1368,6 +1370,16 @@ fn page_summaries(builder: &staticsmith_core::Builder) -> Vec<PageSummary> {
 pub fn list_snapshots(state: State<'_, AppState>, limit: Option<usize>) -> Result<Vec<Snapshot>> {
     let limit = limit.unwrap_or(50).clamp(1, 200);
     state.with_session(|session| Ok(Snapshots::open(&session.builder.paths)?.list(limit)?))
+}
+
+/// 快照历史占了多少地方、一共几份。
+///
+/// 界面在「回退内容」里显示一行。它是唯一**随使用无声长大**的东西：每次不可逆操作留一份，
+/// 换一张大图就多存一份那张图的完整副本（静态资源在跟踪范围里）。只读磁盘，不动仓库——
+/// 真要回收空间得 `git gc`，命令写在文档里。
+#[tauri::command]
+pub fn snapshot_usage(state: State<'_, AppState>) -> Result<SnapshotUsage> {
+    state.with_session(|session| Ok(Snapshots::open(&session.builder.paths)?.usage()?))
 }
 
 /// 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘、不留快照。

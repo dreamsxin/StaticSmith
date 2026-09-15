@@ -92,6 +92,7 @@ pub fn run() {
             commands::delete_secret,
             commands::deploy_account,
             commands::list_snapshots,
+            commands::snapshot_usage,
             commands::preview_restore,
             commands::restore_snapshot,
         ])

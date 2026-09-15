@@ -52,6 +52,19 @@ pub struct Snapshot {
     pub at: String,
 }
 
+/// 快照历史占了多少地方。
+///
+/// 这是唯一一个**随使用无声长大**的东西：每次不可逆操作都留一份，换一张大图就多存一份
+/// 那张图的完整副本（静态资源目录在跟踪范围里）。用户看不到它，就永远不会想起清理，
+/// 直到某天发现项目目录莫名其妙有几个 G。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Usage {
+    /// `.staticsmith/history.git` 整个目录的字节数。
+    pub bytes: u64,
+    /// 一共几份快照。
+    pub snapshots: usize,
+}
+
 /// 回滚会把某个文件怎么样。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -194,6 +207,40 @@ impl Snapshots {
             out.push(self.describe(&commit));
         }
         Ok(out)
+    }
+
+    /// 历史占了多少地方、一共几份。
+    ///
+    /// 界面拿它显示一行「历史占用 X（N 份）」。**只读磁盘，不动仓库**——
+    /// 真要回收空间得 `git gc`，而 libgit2 没有这个 API，所以这里只负责如实说出来，
+    /// 清理的命令写在文档里（见 `docs/mcp.md` 的快照一节）。
+    pub fn usage(&self) -> Result<Usage> {
+        let dir = git_dir(&self.root);
+        let mut bytes = 0u64;
+        for entry in walkdir::WalkDir::new(&dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if entry.file_type().is_file() {
+                if let Ok(meta) = entry.metadata() {
+                    bytes += meta.len();
+                }
+            }
+        }
+        Ok(Usage {
+            bytes,
+            snapshots: self.count()?,
+        })
+    }
+
+    /// 一共几份快照。`list` 会读出每条的消息与时间，只要个数时不必付那份钱。
+    fn count(&self) -> Result<usize> {
+        let Some(head) = self.head_commit() else {
+            return Ok(0);
+        };
+        let mut walk = self.repo.revwalk()?;
+        walk.push(head.id())?;
+        Ok(walk.count())
     }
 
     /// 干跑一次回滚：这次回滚会覆盖、删掉、找回哪些文件。**不碰磁盘、不留快照**。
@@ -473,6 +520,33 @@ mod tests {
 
     fn read(root: &Path, relative: &str) -> String {
         std::fs::read_to_string(root.join(relative)).unwrap()
+    }
+
+    /// 历史占了多少地方要说得出来：它是唯一随使用无声长大的东西。
+    ///
+    /// 每次不可逆操作留一份，换一张大图就多存一份那张图的完整副本（静态资源在跟踪范围里）。
+    /// 看不到就永远不会想起清理，直到某天发现项目目录莫名其妙有几个 G。
+    #[test]
+    fn usage_reports_size_and_count() {
+        let dir = project();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+
+        let empty = snapshots.usage().unwrap();
+        assert_eq!(empty.snapshots, 0, "还没留过快照");
+        assert!(empty.bytes > 0, "仓库本身也占地方");
+
+        snapshots.snapshot("起点").unwrap();
+        std::fs::write(dir.path().join("content/posts/a.md"), "改过 A\n").unwrap();
+        snapshots.snapshot("write_content").unwrap();
+
+        let after = snapshots.usage().unwrap();
+        assert_eq!(after.snapshots, 2);
+        assert!(
+            after.bytes > empty.bytes,
+            "存了两份内容，占用只会变大：{} → {}",
+            empty.bytes,
+            after.bytes
+        );
     }
 
     /// 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘。

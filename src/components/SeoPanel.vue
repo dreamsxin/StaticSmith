@@ -9,6 +9,8 @@
 import { computed, onMounted, ref } from 'vue'
 
 import { actions, store } from '../store'
+import { formatBytes } from '../text'
+
 import type { PageSummary, SeoIssue, SeoSeverity } from '../api'
 
 /** 点问题条目要跳到对应文章，预览面板只在内容标签页里。 */
@@ -85,11 +87,9 @@ async function removeSelected() {
   await actions.removeMedia(paths)
 }
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
+/** 字节数给人看的写法。措辞与别的面板共用一处（`text.ts`）。 */
+const formatSize = formatBytes
+
 
 // ---------------------------------------------------------------- 站内链接
 

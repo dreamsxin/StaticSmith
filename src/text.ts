@@ -58,3 +58,19 @@ export function snapshotLabel(message: string): string {
   return OPERATIONS[message] ?? message
 }
 
+/**
+ * 字节数变成人话。
+ *
+ * 原先这段在 `BuildPanel`、`DeployPanel`、`SeoPanel` 里各写了一份一模一样的——
+ * 同一个数字在三个面板里说法一旦分叉，用户会以为是两件事。
+ *
+ * 保留一位小数：`1.5 MB` 与 `1.53 MB` 对「要不要传」这个决定没有区别，
+ * 而多一位就多一分读的成本。
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+

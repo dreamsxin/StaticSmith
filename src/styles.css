@@ -398,7 +398,13 @@ h3 {
   color: var(--warn);
 }
 
+/* 历史占用：常驻信息，不是警告——所以用弱化色，超标那句话自己会说重。 */
+.snapshot__usage {
+  color: var(--fg-muted);
+}
+
 /* 干跑清单：每行一个文件加一个「会被怎么样」的标签。
+
    删掉用危险色、找回用正常色——同一份清单里两种方向不该看起来一样。 */
 .snapshot__changes {
   max-height: 11rem;

@@ -3,6 +3,8 @@
 import { computed } from 'vue'
 
 import { actions, store } from '../store'
+import { formatBytes } from '../text'
+
 import { outputKindLabel } from '../labels'
 import type { OutputFile, OutputKind } from '../api'
 
@@ -47,11 +49,9 @@ const outputGroups = computed(() => {
   return [...map.entries()]
 })
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-}
+/** 字节数给人看的写法。措辞与别的面板共用一处（`text.ts`），免得同一个数字两种说法。 */
+const formatSize = formatBytes
+
 
 async function openOutput(url: string) {
   await actions.previewOutput(url)

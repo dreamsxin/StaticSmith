@@ -130,7 +130,12 @@ JSON-RPC 错误，端点继续活着。
 ## 内容快照
 
 - `list_snapshots(limit?) -> Snapshot[]`：最新在前，`limit` 省略给 50、上限 200
+- `snapshot_usage() -> {bytes, snapshots}`：历史占了多少地方、一共几份。只读磁盘，
+  不动仓库——它是唯一**随使用无声长大**的东西（换一张大图就多存一份完整副本，
+  静态资源在跟踪范围里），界面因此常驻显示一行。清理要 `git gc`，libgit2 没有这个 API，
+  所以我们只如实报出来、把命令写在界面上
 - `preview_restore(id) -> RestorePreview`：干跑一次回退，不碰磁盘、不留快照
+
 - `restore_snapshot(id) -> Restored`：回退到某一份
 
 

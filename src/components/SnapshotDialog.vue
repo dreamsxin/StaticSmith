@@ -21,7 +21,8 @@ import { computed, nextTick, ref, watch } from 'vue'
 import * as api from '../api'
 import { trapTab } from '../focus'
 import { actions, isDirty, isTemplateDirty, store } from '../store'
-import { snapshotLabel } from '../text'
+import { snapshotLabel, formatBytes } from '../text'
+
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -52,6 +53,19 @@ const target = computed(() => store.snapshots.find((item) => item.id === picked.
 
 /** 清单被上限截断了：更早的快照还在仓库里，但这里看不到。 */
 const truncated = computed(() => store.snapshots.length >= api.SNAPSHOT_LIMIT)
+
+/**
+ * 历史占了多少地方。
+ *
+ * 这是唯一**随使用无声长大**的东西：每次不可逆操作留一份，换一张大图就多存一份那张图的
+ * 完整副本（静态资源在跟踪范围里）。看不到就永远不会想起清理，直到某天发现项目目录
+ * 莫名其妙多了几个 G。所以这一行常驻，不是只在超标时才出现。
+ */
+const usage = computed(() => store.snapshotUsage)
+
+/** 超过这个数就多给一句清理办法。取 200 MB：普通站点的历史远到不了这个量级。 */
+const LARGE = 200 * 1024 * 1024
+
 
 /** 当前高亮项的 DOM id，给 `aria-activedescendant` 用：读屏器据此念出选中的那一条。 */
 const activeId = computed(() => {
@@ -251,6 +265,17 @@ async function confirm() {
             <code>.staticsmith/history.git</code> 里，可以用 git 取。
           </template>
         </p>
+
+        <!-- 历史占用常驻一行：它是唯一随使用无声长大的东西，看不到就没人会想起清理 -->
+        <p v-if="usage" class="dialog__desc snapshot__usage">
+          历史占用 {{ formatBytes(usage.bytes) }}（{{ usage.snapshots }} 份）。
+          <template v-if="usage.bytes >= LARGE">
+            已经不小了：这里不提供清理（回收空间要 <code>git gc</code>，删掉的历史无法找回），
+            要清请在项目目录执行
+            <code>git --git-dir=.staticsmith/history.git gc --prune=now --aggressive</code>。
+          </template>
+        </p>
+
 
         <!-- 关闭不受忙态影响：后台在生成时也得关得掉这层浮层（见 ui.md「忙态」） -->
         <button type="button" class="dialog__cancel" @click="emit('close')">关闭</button>
