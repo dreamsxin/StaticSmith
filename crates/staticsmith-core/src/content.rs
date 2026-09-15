@@ -303,6 +303,43 @@ pub fn load_all(content_root: &Path, format: SourceFormat) -> Result<Vec<Page>> 
     Ok(pages)
 }
 
+/// 只列出源文件，不解析。
+///
+/// [`load_all`] 一遇到坏的 front matter 就整体失败，那对「按篇处理、坏的单独报」的
+/// 调用方是致命的：跨文件替换与链接改写恰恰是用来批量修东西的，而「站里有一篇手改坏了」
+/// 正是要修的那种情况——以前那时连干跑都做不了，用户只看到一句「front matter 无效」。
+///
+/// 收哪些扩展名与 [`load_all`] 一致（`.md` / `.markdown` / `.html` / `.htm`），
+/// 顺序也一样按 `source` 排，两条路走出来的清单才对得上。
+pub fn source_files(content_root: &Path) -> Result<Vec<String>> {
+    if !content_root.exists() {
+        return Err(Error::InvalidProject(format!(
+            "内容目录不存在: {}",
+            content_root.display()
+        )));
+    }
+    let mut sources = Vec::new();
+    for entry in walkdir::WalkDir::new(content_root)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let accepted = matches!(
+            path.extension().and_then(|e| e.to_str()),
+            Some("md") | Some("markdown") | Some("html") | Some("htm")
+        );
+        if accepted {
+            let rel = path.strip_prefix(content_root).unwrap_or(path);
+            sources.push(util::to_slash(rel));
+        }
+    }
+    sources.sort();
+    Ok(sources)
+}
+
 /// 拆分 front matter 与正文。没有围栏时整体视为正文。
 fn split_front_matter(path: &Path, raw: &str) -> Result<(FrontMatter, String)> {
     let trimmed = raw.trim_start_matches('\u{feff}');

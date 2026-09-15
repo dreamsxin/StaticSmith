@@ -135,12 +135,14 @@ fn run(content_root: &Path, moves: &[UrlMove], write: bool) -> Result<Rewritten>
     if moves.is_empty() {
         return Ok(out);
     }
-    for page in content::load_all(content_root, SourceFormat::default())? {
-        let path = match content::resolve_source(content_root, &page.source) {
+    // 只列文件、不解析 front matter：改写只看源文本身，用不着解析结果，
+    // 而 `load_all` 会因为一篇坏文件让整次改写（连干跑）都做不了
+    for source in content::source_files(content_root)? {
+        let path = match content::resolve_source(content_root, &source) {
             Ok(path) => path,
             Err(err) => {
                 out.failed.push(Failure {
-                    source: page.source,
+                    source,
                     reason: err.to_string(),
                 });
                 continue;
@@ -157,19 +159,16 @@ fn run(content_root: &Path, moves: &[UrlMove], write: bool) -> Result<Rewritten>
                         std::fs::write(&path, updated).map_err(|e| Error::io(&path, e))
                     {
                         out.failed.push(Failure {
-                            source: page.source,
+                            source,
                             reason: err.to_string(),
                         });
                         continue;
                     }
                 }
-                out.updated.push(RefUpdate {
-                    source: page.source,
-                    hits,
-                });
+                out.updated.push(RefUpdate { source, hits });
             }
             Err(err) => out.failed.push(Failure {
-                source: page.source,
+                source,
                 reason: err.to_string(),
             }),
         }
@@ -314,20 +313,22 @@ pub fn manual_review(content_root: &Path, moves: &[UrlMove]) -> Result<Vec<RefUp
         return Ok(Vec::new());
     }
     let mut out = Vec::new();
-    for page in content::load_all(content_root, SourceFormat::default())? {
-        let Ok(path) = content::resolve_source(content_root, &page.source) else {
+    // 逐篇解析而不是 `load_all`：这一步只是提醒，不该因为站里有一篇坏文件就整体失败
+    // （那时用户正要靠这份提醒决定动不动手）。坏的那篇跳过，真正的写操作会单独报它
+    for source in content::source_files(content_root)? {
+        let Ok(path) = content::resolve_source(content_root, &source) else {
+            continue;
+        };
+        let Ok(page) = content::Page::from_file(content_root, &path, SourceFormat::default())
+        else {
             continue;
         };
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
-        // front matter 坏掉的文件这里不报错：这一步只是提醒，真正的写操作会单独报
         if let Ok(hits) = relative_hits(&raw, &page.url, moves) {
             if hits > 0 {
-                out.push(RefUpdate {
-                    source: page.source,
-                    hits,
-                });
+                out.push(RefUpdate { source, hits });
             }
         }
     }
@@ -422,6 +423,39 @@ mod tests {
 
     fn rewritten(raw: &str, moves: &[UrlMove]) -> (String, usize) {
         rewrite(raw, moves).unwrap().expect("应当有命中")
+    }
+
+    /// 一篇坏文件不该让整次链接改写失败。
+    ///
+    /// 搬动、改 slug、栏目改名三条路都要先算「哪几篇里的链接会改」。以前这一步走
+    /// `load_all`，站里有一篇 front matter 手改坏了，整个搬动连干跑都做不了——
+    /// 而这时用户最需要的恰恰是「其余的照改，这一篇单独报出来」。
+    #[test]
+    fn a_broken_file_is_reported_not_fatal() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("posts")).unwrap();
+        std::fs::write(
+            root.join("posts/ok.md"),
+            "+++\ntitle = \"好的\"\n+++\n\n见 [甲](/posts/a/)。\n",
+        )
+        .unwrap();
+        // 缺结束围栏
+        std::fs::write(
+            root.join("posts/broken.md"),
+            "+++\ntitle = \"坏的\"\n\n见 [甲](/posts/a/)。\n",
+        )
+        .unwrap();
+
+        let out = rewrite_site(root, &moves("/posts/a/", "/notes/a/")).unwrap();
+        assert_eq!(out.updated.len(), 1, "{out:?}");
+        assert_eq!(out.updated[0].source, "posts/ok.md");
+        assert_eq!(out.failed.len(), 1, "{out:?}");
+        assert_eq!(out.failed[0].source, "posts/broken.md");
+        assert!(out.failed[0].reason.contains("+++"), "{out:?}");
+        // 坏的那篇一个字节都没动
+        let raw = std::fs::read_to_string(root.join("posts/broken.md")).unwrap();
+        assert!(raw.contains("/posts/a/"), "{raw}");
     }
 
     #[test]

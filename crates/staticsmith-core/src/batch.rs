@@ -36,12 +36,8 @@ fn load_for_front_matter(content_root: &Path) -> Result<Vec<Page>> {
 /// 跳过的一篇，以及为什么。
 ///
 /// 「为什么」必须回传：批量动作最怕的是「点了没反应」，用户需要知道是自己选错了
-/// 还是程序没做。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Skipped {
-    pub source: String,
-    pub reason: String,
-}
+/// 还是程序没做。结构本身与汇总逻辑一起放在 [`crate::skips`]，三个模块共用一份。
+pub use crate::skips::Skipped;
 
 /// 批量改 front matter 的结果。
 #[derive(Debug, Clone, Default, Serialize)]

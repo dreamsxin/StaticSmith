@@ -50,11 +50,8 @@ pub struct Report {
     pub warnings: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Skipped {
-    pub source: String,
-    pub reason: String,
-}
+/// 跳过的一篇，以及为什么。与批量、替换共用一份（见 [`crate::skips`]）。
+pub use crate::skips::Skipped;
 
 /// 扫描一个目录，给出每篇会变成什么样。只读。
 ///

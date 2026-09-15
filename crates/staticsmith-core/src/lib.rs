@@ -49,6 +49,8 @@ pub mod scaffold;
 pub mod search;
 pub mod sections;
 pub mod seo;
+pub mod skips;
+
 pub mod taxonomy;
 pub mod templates;
 pub mod theme;

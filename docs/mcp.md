@@ -74,7 +74,11 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 - `replace_text`：跨文件替换**正文**里的一段文字（改称呼、统一术语）。
   front matter 一个字节都不碰——改字段用 `patch_front_matter`；纯文本，不支持正则。
   **默认 `dry_run = true`**：先回传哪几篇、共几处、每处前后对照，
-  确认后再带 `dry_run: false` 落盘。默认值取那个「说错了也没损失」的方向
+  确认后再带 `dry_run: false` 落盘。默认值取那个「说错了也没损失」的方向。
+  `skipped` 之外还有一句 `skip_summary`（「跳过 3 篇：2 篇「A」、1 篇「B」」），
+  与界面、命令行是同一句话（`staticsmith_core::skips`）：Agent 读到的那一句决定它接下来怎么做，
+  让它自己去归纳数组里的原因，等于每个客户端各归纳一遍、各归纳错一遍
+
 - `delete_content`：删除内容（标记为 destructive）
 - `write_template`：写模板，返回级联影响范围
 - `build_site`：生成产物

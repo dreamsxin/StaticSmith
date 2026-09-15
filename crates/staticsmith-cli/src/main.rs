@@ -730,17 +730,11 @@ fn cmd_import(
         println!("{}", serde_json::to_string_pretty(&report)?);
         return Ok(());
     }
-    println!(
-        "导入 {} 篇，跳过 {} 篇",
-        report.imported.len(),
-        report.skipped.len()
-    );
+    println!("导入 {} 篇", report.imported.len());
     for source in &report.imported {
         println!("+ {source}");
     }
-    for skipped in &report.skipped {
-        println!("! {}：{}", skipped.source, skipped.reason);
-    }
+    report_skips(&report.skipped);
     if !report.warnings.is_empty() {
         println!("需要人看一下（{} 条）：", report.warnings.len());
         for warning in &report.warnings {
@@ -753,24 +747,39 @@ fn cmd_import(
 
 // ---------------------------------------------------------------- 批量动作
 
+/// 跳过清单的统一出口。
+///
+/// 汇总那一行由 `staticsmith_core::skips::summarize` 生成，界面与 MCP 用的是同一句话：
+/// 同一个动作在三个入口说法不同，用户就得在三处各学一遍。
+/// 命令行比气泡宽裕，所以汇总之后把每一篇都列出来（`! 源文件：原因`）。
+fn report_skips(skipped: &[staticsmith_core::skips::Skipped]) {
+    if skipped.is_empty() {
+        return;
+    }
+    let summary = staticsmith_core::skips::summarize(skipped);
+    println!("{}", summary.line);
+    // 跳过的一定要说原因：不说的话，用户分不清「本来就这样」与「程序没做」
+    for line in &summary.details {
+        println!("! {line}");
+    }
+}
+
 /// 打印一份 `Outcome`（加去标签、切草稿、删除都用它）。
 fn report_outcome(outcome: &staticsmith_core::batch::Outcome, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(outcome)?);
         return Ok(());
     }
-    println!(
-        "改了 {} 篇，跳过 {} 篇",
-        outcome.changed.len(),
-        outcome.skipped.len()
-    );
+    if outcome.changed.is_empty() && outcome.skipped.is_empty() {
+        // 「改了 0 篇」看起来像做完了，没人会去查为什么（同界面的措辞）
+        println!("没有需要改的，什么都没动");
+        return Ok(());
+    }
+    println!("改了 {} 篇", outcome.changed.len());
     for source in &outcome.changed {
         println!("+ {source}");
     }
-    // 跳过的一定要说原因：不说的话，用户分不清「本来就这样」与「程序没做」
-    for skipped in &outcome.skipped {
-        println!("! {} —— {}", skipped.source, skipped.reason);
-    }
+    report_skips(&outcome.skipped);
     Ok(())
 }
 
@@ -836,11 +845,7 @@ fn cmd_batch_move(
         println!("{}", serde_json::to_string_pretty(&outcome)?);
         return Ok(());
     }
-    println!(
-        "搬了 {} 篇，跳过 {} 篇",
-        outcome.moved.len(),
-        outcome.skipped.len()
-    );
+    println!("搬了 {} 篇", outcome.moved.len());
     for moved in &outcome.moved {
         let alias = if moved.alias_added {
             "（已补旧地址）"
@@ -856,9 +861,7 @@ fn cmd_batch_move(
             update.source, update.hits
         );
     }
-    for skipped in &outcome.skipped {
-        println!("! {} —— {}", skipped.source, skipped.reason);
-    }
+    report_skips(&outcome.skipped);
     Ok(())
 }
 
@@ -1033,9 +1036,7 @@ fn cmd_replace(
             println!("    …… 另有 {} 处未列出", file.hits - file.lines.len());
         }
     }
-    for skipped in &report.skipped {
-        println!("! {} —— {}", skipped.source, skipped.reason);
-    }
+    report_skips(&report.skipped);
     if !yes {
         println!("以上只是干跑，确认无误后加 --yes 才会写盘。");
     }

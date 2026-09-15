@@ -17,8 +17,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{ProjectPaths, SourceFormat};
-use crate::content::{self, Page};
+use crate::config::ProjectPaths;
+use crate::content;
 use crate::error::{Error, Result};
 use crate::frontmatter;
 
@@ -68,12 +68,8 @@ pub struct FileChange {
     pub lines: Vec<LineHit>,
 }
 
-/// 跳过的一篇，以及为什么。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Skipped {
-    pub source: String,
-    pub reason: String,
-}
+/// 跳过的一篇，以及为什么。与批量、导入共用一份（见 [`crate::skips`]）。
+pub use crate::skips::Skipped;
 
 /// 干跑或执行的结果。
 ///
@@ -262,10 +258,9 @@ fn lower(text: &str) -> String {
 fn sources_in(paths: &ProjectPaths, scope: &Scope) -> Result<Vec<String>> {
     match scope {
         Scope::Only(sources) => Ok(sources.clone()),
-        Scope::All => Ok(content::load_all(&paths.content, SourceFormat::default())?
-            .into_iter()
-            .map(|page: Page| page.source)
-            .collect()),
+        // 只列文件、不解析：一篇 front matter 坏掉不该让整站替换（连干跑）都做不了，
+        // 那一篇会走下面的逐篇流程被报成「跳过」
+        Scope::All => content::source_files(&paths.content),
     }
 }
 
@@ -417,6 +412,25 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("不会有任何变化"));
+    }
+
+    /// 全站替换不能因为一篇坏文件整体失败。
+    ///
+    /// 跨文件替换恰恰是用来批量修东西的，而「站里有一篇 front matter 手改坏了」
+    /// 正是要修的那种情况。以前 `Scope::All` 走 `load_all`，一篇解析不了就直接返回错误——
+    /// 连干跑都做不了，用户只看到一句「front matter 无效」，不知道其余的还能改。
+    #[test]
+    fn a_broken_file_does_not_block_replacing_the_whole_site() {
+        let f = fixture();
+        write(&f, "posts/ok.md", "+++\ntitle = \"好的\"\n+++\n\n旧名\n");
+        write(&f, "posts/broken.md", "+++\ntitle = \"坏的\"\n\n旧名\n");
+
+        let out = preview(&f.paths, &Scope::All, &rule("旧名", "新名")).unwrap();
+        assert_eq!(out.files.len(), 1, "{out:?}");
+        assert_eq!(out.files[0].source, "posts/ok.md");
+        assert_eq!(out.skipped.len(), 1, "{out:?}");
+        assert_eq!(out.skipped[0].source, "posts/broken.md");
+        assert!(out.skipped[0].reason.contains("+++"), "{out:?}");
     }
 
     #[test]

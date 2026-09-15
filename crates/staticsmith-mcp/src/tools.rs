@@ -792,11 +792,15 @@ fn replace_text(builder: &mut Builder, args: &Value) -> Result<String, String> {
     }
     .map_err(err)?;
 
+    // 跳过的那几篇给一句人话汇总（与界面、命令行同一句）：Agent 读到的第一行
+    // 决定它接下来怎么做，而一份原始 JSON 数组要它自己去归纳原因
+    let skips = staticsmith_core::skips::summarize(&report.skipped);
     pretty(&json!({
         "dry_run": dry_run,
         "hits": report.hits,
         "files": report.files,
         "skipped": report.skipped,
+        "skip_summary": skips.line,
         "next": if dry_run {
             "确认无误后带 dry_run: false 再调一次；每篇最多列 5 行示例，hits 是全量处数"
         } else {
@@ -1643,6 +1647,42 @@ mod tests {
         assert!(
             raw.contains("title = \"旧名\""),
             "front matter 不能被动：{raw}"
+        );
+    }
+
+    /// 跳过的那几篇要有一句人话，而不是让 Agent 自己去归纳一份数组。
+    /// 措辞由 `staticsmith_core::skips` 统一，界面与命令行说的是同一句。
+    #[test]
+    fn replace_text_hands_back_one_sentence_about_what_it_skipped() {
+        let (_dir, mut builder) = project();
+        let perms = Permissions {
+            write: true,
+            deploy: false,
+        };
+        // 缺结束围栏：这一篇读不出来，要被跳过而不是让整次替换失败
+        std::fs::write(
+            builder.paths.content.join("broken.md"),
+            "+++\ntitle = \"坏的\"\n\n旧名\n",
+        )
+        .unwrap();
+
+        let dry = call(
+            &mut builder,
+            perms,
+            "replace_text",
+            &json!({ "find": "旧名", "replace": "新名" }),
+        );
+        let report: Value = serde_json::from_str(dry["content"][0]["text"].as_str().unwrap())
+            .unwrap_or_else(|_| {
+                panic!("这次调用没回 JSON：{dry}");
+            });
+
+        assert!(
+            report["skip_summary"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("跳过 1 篇：broken.md"),
+            "{report}"
         );
     }
 
