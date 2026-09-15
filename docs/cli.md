@@ -196,9 +196,15 @@ staticsmith theme import ../minimal.zip --overwrite   # 替换自己改过的模
 
 ```bash
 staticsmith history list                  # 最近 20 条，最新在前
-staticsmith history restore <id>          # 只说会做什么
+staticsmith history restore <id>          # 干跑：列出会动哪些文件
 staticsmith history restore <id> --yes    # 真的回退
 ```
+
+不带 `--yes` 时列出**会动哪些文件**（与桌面端、MCP 同一份清单）：
+`~` 换回旧版、`-` 删掉（快照之后新建的）、`+` 找回（快照之后被删的），
+头一行给「会动 N 个文件」与三类各几个。回退一次动的是整个内容目录，
+光凭一句「这之后的改动会被撤销」没人敢按。`--json` 直接给 `RestorePreview`。
+
 
 - 快照与桌面端、Agent 共用同一份历史（`.staticsmith/history.git`，独立于你自己的 git 仓库）
 - 只含**源**：内容、模板、主题、静态资源与 `staticsmith.toml`；`dist/` 不进快照，

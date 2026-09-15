@@ -12,8 +12,9 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use staticsmith_core::batch::TagEdit;
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
-use staticsmith_core::history::Snapshots;
+use staticsmith_core::history::{ChangeKind, RestorePreview, Snapshots};
 use staticsmith_core::scaffold::Preset;
+use staticsmith_core::skips::Skipped;
 use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
 use staticsmith_deploy::{DeployReport, Progress};
 use staticsmith_mcp::{McpServer, Permissions};
@@ -747,20 +748,29 @@ fn cmd_import(
 
 // ---------------------------------------------------------------- 批量动作
 
+/// 跳过清单要打印的几行。
+///
+/// 与 `report_skips` 分开是为了**测得到**：`println!` 只有编译器看着，
+/// 而这几行的措辞（尤其汇总那一行）是三个入口共用的约定。
+fn skip_lines(skipped: &[Skipped]) -> Vec<String> {
+    if skipped.is_empty() {
+        return Vec::new();
+    }
+    let summary = staticsmith_core::skips::summarize(skipped);
+    let mut lines = vec![summary.line];
+    // 跳过的一定要说原因：不说的话，用户分不清「本来就这样」与「程序没做」
+    lines.extend(summary.details.into_iter().map(|item| format!("! {item}")));
+    lines
+}
+
 /// 跳过清单的统一出口。
 ///
 /// 汇总那一行由 `staticsmith_core::skips::summarize` 生成，界面与 MCP 用的是同一句话：
 /// 同一个动作在三个入口说法不同，用户就得在三处各学一遍。
 /// 命令行比气泡宽裕，所以汇总之后把每一篇都列出来（`! 源文件：原因`）。
-fn report_skips(skipped: &[staticsmith_core::skips::Skipped]) {
-    if skipped.is_empty() {
-        return;
-    }
-    let summary = staticsmith_core::skips::summarize(skipped);
-    println!("{}", summary.line);
-    // 跳过的一定要说原因：不说的话，用户分不清「本来就这样」与「程序没做」
-    for line in &summary.details {
-        println!("! {line}");
+fn report_skips(skipped: &[Skipped]) {
+    for line in skip_lines(skipped) {
+        println!("{line}");
     }
 }
 
@@ -1506,18 +1516,65 @@ fn cmd_history_list(project: &PathBuf, limit: usize, json: bool) -> Result<()> {
     Ok(())
 }
 
+/// 干跑一次回退要打印的几行。
+///
+/// 与界面、MCP 同一份清单（`staticsmith_core::history::preview_restore`），
+/// 只是命令行不设行数上限：终端会滚，`| head` 也在手边，而截断反而要人再跑一次。
+///
+/// 标记与别处一致：`~` 改写、`-` 删掉、`+` 新增。
+fn restore_preview_lines(preview: &RestorePreview) -> Vec<String> {
+    if preview.changes.is_empty() {
+        return vec![format!(
+            "回退到 {} 不会改动任何文件——磁盘上就是那一份了。",
+            preview.restored_to
+        )];
+    }
+
+    let count = |kind: ChangeKind| preview.changes.iter().filter(|c| c.kind == kind).count();
+    let mut lines = vec![format!(
+        "将把源文件回退到 {}（{}，{}），会动 {} 个文件：换回旧版 {} 个、删掉 {} 个、找回 {} 个",
+        preview.restored_to,
+        preview.at,
+        preview.message,
+        preview.changes.len(),
+        count(ChangeKind::Overwrite),
+        count(ChangeKind::Delete),
+        count(ChangeKind::Recover),
+    )];
+    for change in &preview.changes {
+        // 「删掉」最容易被读成「删的是快照里那份」，所以这一行把方向写明
+        let (mark, what) = match change.kind {
+            ChangeKind::Overwrite => ('~', "换回旧版"),
+            ChangeKind::Delete => ('-', "删掉（快照之后新建的）"),
+            ChangeKind::Recover => ('+', "找回（快照之后被删的）"),
+        };
+        lines.push(format!("{mark} {} —— {what}", change.path));
+    }
+    lines.push("产物 dist/ 不动，回退后需要重新生成一次。".to_string());
+    lines.push("确认无误后加 --yes 才会真的回退。".to_string());
+    lines
+}
+
 /// 回退到某份快照。
 ///
 /// 与批量删除同一条纪律：默认只说会做什么，真动手要 `--yes`。回退**前**的状态
 /// 也会先存一份，所以退错了还能再退回来。
+///
+/// 不带 `--yes` 时列出**会动哪些文件**（干跑），而不是只说一句「这之后的改动会被撤销」：
+/// 回退一次动的是整个内容目录，光凭一句话没人敢按。
 fn cmd_history_restore(project: &PathBuf, id: &str, yes: bool, json: bool) -> Result<()> {
     let builder = open(project)?;
     let snapshots = Snapshots::open(&builder.paths).context("打开快照历史失败")?;
 
     if !yes {
-        println!("将把源文件（内容、模板、主题、静态资源与 staticsmith.toml）回退到 {id}。");
-        println!("产物 dist/ 不动，回退后需要重新生成一次。");
-        println!("确认无误后加 --yes 才会真的回退。");
+        let preview = snapshots.preview_restore(id).context("干跑回退失败")?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&preview)?);
+            return Ok(());
+        }
+        for line in restore_preview_lines(&preview) {
+            println!("{line}");
+        }
         return Ok(());
     }
 
@@ -1545,6 +1602,84 @@ fn credentials_from_env(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use staticsmith_core::history::RestoreChange;
+
+    /// 命令行的**输出**此前一条都没测过——所有打印都直接 `println!`，
+    /// 只有编译器看着。要测就得先把「拼出哪几行」与「打印」分开，
+    /// 于是有了 `restore_preview_lines` / `skip_lines` 这两个纯函数。
+    fn change(path: &str, kind: ChangeKind) -> RestoreChange {
+        RestoreChange {
+            path: path.to_string(),
+            kind,
+        }
+    }
+
+    fn preview(changes: Vec<RestoreChange>) -> RestorePreview {
+        RestorePreview {
+            restored_to: "abc1234567".into(),
+            message: "batch_delete".into(),
+            at: "2026-09-15T02:00:00+00:00".into(),
+            changes,
+        }
+    }
+
+    #[test]
+    fn restore_dry_run_lists_every_file_and_what_happens_to_it() {
+        let lines = restore_preview_lines(&preview(vec![
+            change("content/posts/a.md", ChangeKind::Overwrite),
+            change("content/posts/new.md", ChangeKind::Delete),
+            change("content/posts/gone.md", ChangeKind::Recover),
+        ]));
+        let text = lines.join("\n");
+
+        // 头一行说清回到哪一份、共动几个、三类各几个
+        assert!(text.contains("abc1234567"), "{text}");
+        assert!(text.contains("会动 3 个文件"), "{text}");
+        assert!(text.contains("换回旧版 1 个"), "{text}");
+        assert!(text.contains("删掉 1 个"), "{text}");
+        assert!(text.contains("找回 1 个"), "{text}");
+
+        // 每个文件一行，标记与别处一致：~ 改写、- 删掉、+ 新增
+        assert!(text.contains("~ content/posts/a.md"), "{text}");
+        assert!(text.contains("- content/posts/new.md"), "{text}");
+        assert!(text.contains("+ content/posts/gone.md"), "{text}");
+        // 「删掉」最容易被误读成「删的是快照里的」，要点明是快照之后新建的
+        assert!(text.contains("快照之后新建"), "{text}");
+
+        // 干跑必须说出怎样才会真做，否则用户以为已经回退了
+        assert!(text.contains("--yes"), "{text}");
+        assert!(text.contains("dist/"), "产物不动这件事要说：{text}");
+    }
+
+    #[test]
+    fn restore_dry_run_says_when_nothing_would_change() {
+        let lines = restore_preview_lines(&preview(Vec::new()));
+        let text = lines.join("\n");
+        assert!(text.contains("不会改动任何文件"), "{text}");
+        // 什么都不会改时不该再劝人加 --yes：那一下点了也没有任何结果
+        assert!(!text.contains("--yes"), "{text}");
+    }
+
+    #[test]
+    fn skip_lines_lead_with_the_grouped_summary() {
+        let lines = skip_lines(&[
+            Skipped::new("posts/a.md", "目标已存在"),
+            Skipped::new("posts/b.md", "front matter 读不出来"),
+            Skipped::new("posts/c.md", "front matter 读不出来"),
+        ]);
+
+        assert_eq!(
+            lines[0],
+            "跳过 3 篇：2 篇「front matter 读不出来」、1 篇「目标已存在」"
+        );
+        assert_eq!(lines[1], "! posts/a.md：目标已存在");
+        assert_eq!(lines.len(), 4, "{lines:?}");
+    }
+
+    #[test]
+    fn nothing_skipped_prints_nothing() {
+        assert!(skip_lines(&[]).is_empty());
+    }
 
     #[test]
     fn build_defaults_to_incremental_in_current_dir() {

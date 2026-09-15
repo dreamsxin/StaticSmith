@@ -91,7 +91,13 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   抽出来顺手抓到过 bug：三张互斥表单原先是三个布尔量，「点『新建』时收起『新建栏目』」
   那一笔漏了——合成一个 `panel` 状态之后，互斥成了结构上的事实。
 
+- **命令行的输出也测了两处**（`crates/staticsmith-cli/src/main.rs` 的 `mod tests`）：
+  跳过汇总（`skip_lines`）与回退干跑清单（`restore_preview_lines`）。
+  能测是因为把「拼出哪几行」与「打印」分开了——`println!` 只有编译器看着，
+  而这几行的措辞是三个入口共用的约定，改错一个字没人拦得住。
+  新增打印时照这个套：先拼 `Vec<String>`，再由一个只负责 `println!` 的函数吐出去。
 - 组件测试里把 `../store` 整个 `vi.mock` 掉：真 store 一路连到 Tauri 的 `invoke`，
+
   而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
   焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
 
