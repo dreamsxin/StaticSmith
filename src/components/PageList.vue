@@ -12,12 +12,15 @@ import SectionHeader from './SectionHeader.vue'
 import ReplacePanel from './ReplacePanel.vue'
 import CreatePanel from './CreatePanel.vue'
 import BrokenList from './BrokenList.vue'
+import PageRow from './PageRow.vue'
 import BatchBar from './BatchBar.vue'
+
 
 
 import { openContextMenu, type MenuEntry } from '../commands'
 import { focusSelector } from '../focus'
-import { actions, isDirty, store } from '../store'
+import { actions, store } from '../store'
+
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
@@ -526,91 +529,24 @@ async function copyText(text: string) {
 
       <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
-        <li
+        <!-- 行内的样子在 PageRow.vue 里；哪一行处于确认态、菜单里放什么留在这里 -->
+        <PageRow
           v-for="page in pages"
           :key="page.source"
-          @contextmenu="openContextMenu($event, pageMenu(page as PageSummary))"
-        >
-          <input
-            v-if="selecting"
-            type="checkbox"
-            class="page-list__pick"
-            :checked="selected.has(page.source)"
-            :aria-label="`选择 ${page.title}`"
-            @change="toggleOne(page.source)"
-          />
-          <button
-            type="button"
-            :class="{ active: store.currentSource === page.source }"
-            :title="page.source"
-            @click="actions.requestOpenContent(page)"
-          >
-            <span class="page-list__title">{{ page.title }}</span>
-            <span
-              v-if="store.currentSource === page.source && isDirty"
-              class="badge badge--unsaved"
-              title="有未保存改动"
-              >●</span
-            >
-            <span v-else-if="page.draft" class="badge badge--draft">草稿</span>
-            <span
-              v-else-if="page.scheduled"
-              class="badge badge--draft"
-              :title="`${page.date ?? ''} 到点后才进产物（站点开了定时发布）`"
-              >定时</span
-            >
-            <!-- 栏目页要标出来：它在这份列表里长得跟文章一样，但日历不收它、
-                 「没写日期」清单也不列它。不标的话，用户只会得出「界面漏了一篇」 -->
-            <span
-              v-if="page.is_index"
-              class="badge badge--section"
-              title="栏目列表页：这个栏目的门面，不算「发出去的一篇」，不参与发布节奏与排期"
-              >栏目页</span
-            >
-            <span
-              v-if="seoBySource.get(page.source)"
-              class="badge"
-              :class="`badge--seo-${seoBySource.get(page.source)!.severity}`"
-              :title="seoBySource.get(page.source)!.messages.join('\n')"
-              >SEO</span
-            >
-            <span
-              v-if="dirtyPages.has(page.source)"
-              class="badge badge--dirty"
-              title="待重新生成"
-              >●</span
-            >
-          </button>
-          <template v-if="confirmingDelete === page.source">
-            <button
-              type="button"
-              class="page-list__danger"
-              :disabled="store.busy"
-              title="删除源文件，产物在下次生成时清理"
-              @click="remove(page)"
-            >
-              删除
-            </button>
-            <button
-              type="button"
-              class="page-list__icon page-list__confirm-cancel"
-              @click="confirmingDelete = null"
-            >
-              取消
-            </button>
-          </template>
-          <button
-            v-else
-            type="button"
-            class="page-list__icon"
-            title="更多动作（也可在这一行上右键）"
-            aria-label="更多动作"
-            @click="openContextMenu($event, pageMenu(page as PageSummary))"
-          >
-            ⋯
-          </button>
-        </li>
+          :page="page"
+          :selecting="selecting"
+          :checked="selected.has(page.source)"
+          :dirty="dirtyPages.has(page.source)"
+          :seo="seoBySource.get(page.source) ?? null"
+          :confirming="confirmingDelete === page.source"
+          @open="actions.requestOpenContent(page)"
+          @toggle="toggleOne(page.source)"
+          @menu="openContextMenu($event, pageMenu(page as PageSummary))"
+          @remove="remove(page as PageSummary)"
+          @cancel="confirmingDelete = null"
+        />
       </ul>
+
     </div>
 
     <!-- 没有产物时不整组隐藏（见 ui-design.md 6.9）：隐藏让人以为没有这个功能。

@@ -68,7 +68,7 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 - **组件测试用 `@vue/test-utils` + jsdom**，但**默认环境仍是 node**：要 DOM 的文件
   自己在顶部写 `// @vitest-environment jsdom`，谁用谁付。目前覆盖两个浮层
   （大纲、站内链接）、编辑器的「改地址」、发布面板的「发布确认」、侧栏的「栏目头」
-  「跨文件替换」「批量动作条」「新建内容 / 新建栏目」「消息中心」「读不出来那一组」「回退内容」与「新建站点」。挑这几处是因为它们是「焦点归还、Esc、方向键、
+  「跨文件替换」「批量动作条」「新建内容 / 新建栏目」「消息中心」「读不出来那一组」「回退内容」「新建站点」与「文章行」。挑这几处是因为它们是「焦点归还、Esc、方向键、
 
 
   就地确认后剩什么状态、没确认不许写」的落地处，而这几条约定（docs/ui.md）以前
@@ -82,14 +82,17 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   测法：`vi.mock('./api')` 按真模块的键批量换成假实现（不手写清单，加新 api 不会漏），
   改行为只改「这次返回什么」的映射表——**不要替换映射表里的函数**，
   `store` 在导入时就抓住了那几个引用，换掉它看不见。
-- **测不动往往是拆分的信号**：栏目管理、跨文件替换、批量动作条与两张新建表单原先埋在
-  `PageList.vue`（1298 行）里，为了给它们写测试才抽成 `SectionHeader.vue`、
-  `ReplacePanel.vue`、`BatchBar.vue`、`CreatePanel.vue`（现在 673 行）。
+- **测不动往往是拆分的信号**：栏目管理、跨文件替换、批量动作条、两张新建表单与文章行
+  原先埋在 `PageList.vue`（1298 行）里，为了给它们写测试才抽成 `SectionHeader.vue`、
+  `ReplacePanel.vue`、`BatchBar.vue`、`CreatePanel.vue`、`PageRow.vue`（现在 615 行）。
   拆的边界按「与其余部分有没有共享状态」来选，而不是按行数：
   勾选框长在文章列表每一行上，所以**选择态留在 `PageList`**，
-  动作条只收 `selected` 并在做完后 emit `clear`。
+  动作条只收 `selected` 并在做完后 emit `clear`；文章行同理——行内的**样子**归它，
+  「哪一行在确认删除、右键菜单里放什么」归上层（菜单项要调 `actions` 也要读筛选态，
+  搬进去只是把耦合换个地方藏）。
   抽出来顺手抓到过 bug：三张互斥表单原先是三个布尔量，「点『新建』时收起『新建栏目』」
   那一笔漏了——合成一个 `panel` 状态之后，互斥成了结构上的事实。
+
 
 - **命令行的输出也测了两处**（`crates/staticsmith-cli/src/main.rs` 的 `mod tests`）：
   跳过汇总（`skip_lines`）与回退干跑清单（`restore_preview_lines`）。
@@ -101,8 +104,9 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
   焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
 
-前端还没测到的部分：`useSplit` 的夹取、文章列表栏本身（`PageList.vue` 里剩下的
-筛选分组、搜索、右键菜单与行内删除确认——它们与选择态、筛选态耦合，要测得先拆）。
+前端还没测到的部分：`useSplit` 的夹取、`PageList.vue` 里剩下的筛选分组与搜索
+（它们与关键词、筛选态互相耦合，要测得再拆一刀）。
+
 
 依赖已经装齐，剩下的只是没写。
 
