@@ -140,3 +140,96 @@ describe('store 的忙态计数器', () => {
     expect(seen).toEqual([true, false])
   })
 })
+
+/**
+ * 未保存改动的确认流。
+ *
+ * 这是用户最容易丢东西的路径：切文章时缓冲区里还有没存的字。三种选择
+ * （保存 / 放弃 / 取消）各有一条出口，其中「保存失败要留在原处」最容易漏——
+ * 漏了就是「以为存上了，其实换了文章，改动没了」。
+ */
+describe('store 的未保存确认流', () => {
+  const page = (source: string) => ({ source, title: source }) as never
+
+  beforeEach(async () => {
+    results.clear()
+    vi.clearAllMocks()
+    // 先干净地打开一篇：readContent 决定缓冲区内容
+    results.set('readContent', '原始内容')
+    await actions.openContent(page('posts/a.md'))
+  })
+
+  it('没有未保存改动时直接切过去', async () => {
+    results.set('readContent', '乙的内容')
+    await actions.requestOpenContent(page('posts/b.md'))
+
+    expect(store.pendingPage).toBe(null)
+    expect(store.currentSource).toBe('posts/b.md')
+    expect(store.currentRaw).toBe('乙的内容')
+  })
+
+  it('有未保存改动时先挂起，不动缓冲区', async () => {
+    actions.setRaw('改了一句')
+    results.set('readContent', '乙的内容')
+
+    await actions.requestOpenContent(page('posts/b.md'))
+
+    expect(store.pendingPage).toMatchObject({ source: 'posts/b.md' })
+    expect(store.currentSource).toBe('posts/a.md')
+    expect(store.currentRaw).toBe('改了一句')
+  })
+
+  it('选「取消」留在原处，改动还在', async () => {
+    actions.setRaw('改了一句')
+    await actions.requestOpenContent(page('posts/b.md'))
+
+    await actions.resolvePending('cancel')
+
+    expect(store.pendingPage).toBe(null)
+    expect(store.currentSource).toBe('posts/a.md')
+    expect(store.currentRaw).toBe('改了一句')
+  })
+
+  it('选「放弃」才真的丢掉改动', async () => {
+    actions.setRaw('改了一句')
+    await actions.requestOpenContent(page('posts/b.md'))
+    results.set('readContent', '乙的内容')
+
+    await actions.resolvePending('discard')
+
+    expect(store.currentSource).toBe('posts/b.md')
+    expect(store.currentRaw).toBe('乙的内容')
+    expect(calls.get('saveContent')).not.toHaveBeenCalled()
+  })
+
+  it('选「保存」先存再切', async () => {
+    actions.setRaw('改了一句')
+    await actions.requestOpenContent(page('posts/b.md'))
+    results.set('saveContent', { pages: [], reason: '内容已改' })
+    results.set('readContent', '乙的内容')
+
+    await actions.resolvePending('save')
+
+    expect(calls.get('saveContent')).toHaveBeenCalledWith('posts/a.md', '改了一句')
+    expect(store.currentSource).toBe('posts/b.md')
+  })
+
+  it('保存失败就留在原处：切过去等于把没存上的改动丢掉', async () => {
+    actions.setRaw('改了一句')
+    await actions.requestOpenContent(page('posts/b.md'))
+    results.set('saveContent', new Error('磁盘满了'))
+
+    await actions.resolvePending('save')
+
+    expect(store.currentSource).toBe('posts/a.md')
+    expect(store.currentRaw).toBe('改了一句')
+    expect(store.error).toBe('磁盘满了')
+  })
+
+  it('点已经打开的那一篇不触发确认', async () => {
+    actions.setRaw('改了一句')
+    await actions.requestOpenContent(page('posts/a.md'))
+    expect(store.pendingPage).toBe(null)
+  })
+})
+

@@ -10,19 +10,14 @@ import { computed, ref, watch } from 'vue'
 
 import SectionHeader from './SectionHeader.vue'
 import ReplacePanel from './ReplacePanel.vue'
+import BatchBar from './BatchBar.vue'
 import { openContextMenu, type MenuEntry } from '../commands'
 import { focusSelector } from '../focus'
 import { actions, isDirty, store } from '../store'
-import { parseList } from '../text'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import type {
-  BatchPreview,
-  PageSummary,
-  SearchHit,
-  SeoSeverity,
-} from '../api'
+import type { PageSummary, SearchHit, SeoSeverity } from '../api'
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
@@ -331,66 +326,10 @@ const knownTags = computed(() =>
   ),
 )
 
-
-const batchTags = ref('')
-const batchSection = ref('')
-const batchKeepAliases = ref(true)
-
-/**
- * 待确认的动作及其干跑结果。
- *
- * 搬动会改地址、删除不可逆，这两件事先看一眼「哪几篇会怎么变」再落盘；
- * 加标签、切草稿反手就能改回来，不值得多一次点击。
- */
-const pending = ref<{ kind: 'move' | 'delete'; preview: BatchPreview } | null>(null)
-
-
 /** 每次批量动作后清空选择：文件可能已经改名、搬走或删掉，旧的选中集没有意义。 */
 function clearSelection() {
   selected.value = new Set()
-  pending.value = null
 }
-
-async function applyTags(mode: 'add' | 'remove') {
-  const tags = parseList(batchTags.value)
-  if (!tags.length) return
-  const [add, remove] = mode === 'add' ? [tags, []] : [[], tags]
-  await actions.batchEditTags(selectedList.value, add, remove)
-  batchTags.value = ''
-  clearSelection()
-}
-
-async function setDraft(draft: boolean) {
-  await actions.batchSetDraft(selectedList.value, draft)
-  clearSelection()
-}
-
-/** 先干跑：让用户看清「哪几篇会搬到哪、旧地址是什么」再决定。 */
-async function previewMove() {
-  const preview = await actions.batchPreview(selectedList.value, {
-    kind: 'move',
-    to_section: batchSection.value.trim(),
-  })
-  if (preview) pending.value = { kind: 'move', preview }
-}
-
-async function previewDelete() {
-  const preview = await actions.batchPreview(selectedList.value, { kind: 'delete' })
-  if (preview) pending.value = { kind: 'delete', preview }
-}
-
-async function confirmPending() {
-  const kind = pending.value?.kind
-  pending.value = null
-  if (kind === 'move') {
-    await actions.batchMove(selectedList.value, batchSection.value.trim(), batchKeepAliases.value)
-    batchSection.value = ''
-  } else if (kind === 'delete') {
-    await actions.batchDelete(selectedList.value)
-  }
-  clearSelection()
-}
-
 
 // ---------------------------------------------------------------- 栏目管理
 
@@ -603,113 +542,16 @@ async function copyText(text: string) {
     <datalist id="known-sections">
       <option v-for="section in sections" :key="section" :value="section" />
     </datalist>
-    <datalist id="batch-known-tags">
-      <option v-for="tag in knownTags" :key="tag" :value="tag" />
-    </datalist>
 
-    <div v-if="selecting" class="page-list__batch">
-      <p class="page-list__batch-head">
-        已选 {{ selected.size }} 篇
-        <span class="page-list__spacer" />
-        <button type="button" class="page-list__icon" @click="selectVisible">全选当前</button>
-        <button type="button" class="page-list__icon" @click="clearSelection">清空</button>
-      </p>
 
-      <template v-if="selected.size">
-        <div class="page-list__batch-row">
-          <input
-            v-model="batchTags"
-            type="text"
-            list="batch-known-tags"
-            placeholder="标签，逗号分隔"
-            aria-label="批量标签"
-          />
-          <button
-            type="button"
-            :disabled="store.busy || !batchTags.trim()"
-            title="加到每篇（原有标签保留）"
-            @click="applyTags('add')"
-          >
-            加
-          </button>
-          <button
-            type="button"
-            :disabled="store.busy || !batchTags.trim()"
-            title="从每篇去掉"
-            @click="applyTags('remove')"
-          >
-            去
-          </button>
-        </div>
+    <BatchBar
+      v-if="selecting"
+      :selected="selectedList"
+      :known-tags="knownTags"
+      @select-visible="selectVisible"
+      @clear="clearSelection"
+    />
 
-        <div class="page-list__batch-row">
-          <input
-            v-model="batchSection"
-            type="text"
-            list="known-sections"
-            placeholder="移动到栏目（留空为根目录）"
-            aria-label="目标栏目"
-          />
-          <button type="button" :disabled="store.busy" @click="previewMove">移动…</button>
-        </div>
-        <label class="page-list__keep">
-          <input v-model="batchKeepAliases" type="checkbox" />
-          移动后保留旧地址（生成重定向页）
-        </label>
-
-        <div class="page-list__batch-row">
-          <button type="button" :disabled="store.busy" @click="setDraft(false)">发布</button>
-          <button type="button" :disabled="store.busy" @click="setDraft(true)">设为草稿</button>
-          <span class="page-list__spacer" />
-          <button
-            type="button"
-            class="page-list__icon"
-            title="删除选中的内容，不可撤销"
-            @click="previewDelete"
-          >
-            删除…
-          </button>
-        </div>
-
-        <!-- 干跑结果：搬动与删除先看清「哪几篇会怎么变」再落盘 -->
-        <div v-if="pending" class="page-list__dry">
-          <p class="page-list__batch-head">
-            {{ pending.kind === 'move' ? '将搬动' : '将删除' }}
-            {{ pending.preview.affected }} / {{ pending.preview.changes.length }} 篇
-          </p>
-          <ul class="page-list__dry-list">
-            <li
-              v-for="change in pending.preview.changes"
-              :key="change.source"
-              :class="{ skip: !change.changes }"
-            >
-              <code>{{ change.source }}</code>
-              <span>{{ change.effect }}</span>
-            </li>
-          </ul>
-          <!-- 搬动会写到用户没勾的文件上（改它们里面的链接），必须先说清楚：
-               背着人改东西比不改更糟 -->
-          <p v-if="pending.preview.refs.length" class="page-list__batch-note">
-            另会把 {{ pending.preview.refs.length }} 篇里的
-            {{ pending.preview.refs.reduce((sum, item) => sum + item.hits, 0) }}
-            处站内链接改到新地址：{{ pending.preview.refs.map((item) => item.source).join('、') }}
-          </p>
-          <div class="page-list__batch-row">
-            <button
-              type="button"
-              :class="pending.kind === 'delete' ? 'page-list__danger' : 'btn--primary'"
-              :disabled="store.busy || pending.preview.affected === 0"
-              @click="confirmPending"
-            >
-              {{ pending.kind === 'move' ? '确认移动' : '确认删除' }}
-              {{ pending.preview.affected }} 篇
-            </button>
-            <button type="button" @click="pending = null">取消</button>
-          </div>
-        </div>
-      </template>
-      <p v-else class="page-list__hint">勾选左侧条目，或点「全选当前」。</p>
-    </div>
 
     <!-- 跨文件替换：只改正文，先干跑再落盘（表单在 ReplacePanel.vue 里） -->
     <ReplacePanel :open="replacing" :selected="selectedList" @close="replacing = false" />
