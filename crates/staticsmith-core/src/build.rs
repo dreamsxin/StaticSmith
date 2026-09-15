@@ -170,7 +170,8 @@ impl Builder {
     /// 重新读取模板与内容。文件监听触发变更后调用。
     pub fn reload(&mut self) -> Result<()> {
         self.templates = TemplateSet::load(&self.paths.templates)?;
-        let loaded = content::load_all_lenient(&self.paths.content, self.config.build.source_format)?;
+        let loaded =
+            content::load_all_lenient(&self.paths.content, self.config.build.source_format)?;
         self.pages = loaded.pages;
         self.broken = loaded.broken;
         Ok(())
@@ -259,7 +260,7 @@ impl Builder {
     /// 只看内存里已解析的页面，不读产物、不写盘，因此保存后立刻可用；
     /// AI Agent 也用同一份规则（MCP 的 `audit_seo`），界面与自动化不会给出两套结论。
     pub fn audit_seo(&self) -> seo::Report {
-        seo::audit(&self.pages, &self.config)
+        seo::audit(&self.pages, &self.broken, &self.config)
     }
 
     /// 媒体资源体检：没人引用的文件与引用了却不存在的地址。

@@ -1014,9 +1014,22 @@ fn a_broken_file_does_not_stop_the_project_from_opening() {
     assert_eq!(builder.broken().len(), 1, "{:?}", builder.broken());
     assert_eq!(builder.broken()[0].source, "posts/broken.md");
     assert!(
-        builder.pages().iter().all(|p| p.source != "posts/broken.md"),
+        builder
+            .pages()
+            .iter()
+            .all(|p| p.source != "posts/broken.md"),
         "读不出来的那篇不该出现在页面清单里"
     );
+
+    // 体检要把它报出来：体检是「告诉你哪几篇有问题」的那个功能，
+    // 漏掉这一篇等于诊断工具遇到病人装作无事发生
+    let seo = builder.audit_seo();
+    let issue = seo
+        .issues
+        .iter()
+        .find(|i| i.code == "content.unreadable")
+        .expect("体检里应当有这一条");
+    assert_eq!(issue.source, "posts/broken.md");
 
     // 生成要停下来，并且说清是哪一篇、为什么
     let err = builder.build(BuildMode::Full).unwrap_err().to_string();

@@ -308,7 +308,11 @@ fn rename_setup(
         .broken
         .iter()
         .filter(|item| {
-            let dir = item.source.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+            let dir = item
+                .source
+                .rsplit_once('/')
+                .map(|(dir, _)| dir)
+                .unwrap_or("");
             in_subtree(dir)
         })
         .cloned()

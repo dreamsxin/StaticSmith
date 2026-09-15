@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::config::SiteConfig;
 use crate::content::Page;
+use crate::skips::Skipped;
 
 /// 问题严重程度。界面按此排序与配色，运营先处理 error。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -81,18 +82,43 @@ impl Default for Thresholds {
 }
 
 /// 用默认阈值体检。
-pub fn audit(pages: &[Page], config: &SiteConfig) -> Report {
-    audit_with(pages, config, Thresholds::default())
+pub fn audit(pages: &[Page], broken: &[Skipped], config: &SiteConfig) -> Report {
+    audit_with(pages, broken, config, Thresholds::default())
 }
 
 /// 体检。草稿与未到发布时间的文章被跳过：它们不进产物，报了只会淹没真正要改的条目。
-pub fn audit_with(pages: &[Page], config: &SiteConfig, limits: Thresholds) -> Report {
+///
+/// `broken` 是**读不出来的源文件**（front matter 手改坏了等）。它们没有 `Page`，
+/// 所以必须单独传进来：体检是「告诉你哪几篇有问题」的那个功能，漏掉这几篇等于
+/// 一个诊断工具遇到病人装作无事发生。
+pub fn audit_with(
+    pages: &[Page],
+    broken: &[Skipped],
+    config: &SiteConfig,
+    limits: Thresholds,
+) -> Report {
     let now = chrono::Utc::now();
     let published: Vec<&Page> = pages
         .iter()
         .filter(|p| p.is_publishable() && p.is_released_at(now, config.build.publish_future))
         .collect();
     let mut issues = Vec::new();
+
+    // 读不出来的排在最前：它比任何 SEO 细节都严重——这一篇根本不会进产物，
+    // 而生成会被整体拦下。用 error 级，因为它不是「可以再优化」，是「必须先修」
+    for item in broken {
+        issues.push(Issue {
+            source: item.source.clone(),
+            url: String::new(),
+            title: item.source.clone(),
+            severity: Severity::Error,
+            code: "content.unreadable".into(),
+            message: format!(
+                "这篇读不出来：{}。它不在内容清单里、不会进产物，生成也会被拦下——先修好它",
+                item.reason
+            ),
+        });
+    }
 
     if config.site.base_url.trim().is_empty() {
         issues.push(Issue {
@@ -316,6 +342,7 @@ mod tests {
 
     use super::*;
     use crate::config::SiteConfig;
+    use crate::skips::Skipped;
 
     fn config() -> SiteConfig {
         let mut config = SiteConfig::default();
@@ -349,6 +376,31 @@ mod tests {
         report.issues.iter().map(|i| i.code.as_str()).collect()
     }
 
+    /// 读不出来的文件要进体检清单，而不是让体检自己崩掉。
+    ///
+    /// 体检是「告诉你哪几篇有问题」的那个功能。以前它拿到的页面清单里根本没有这几篇
+    /// （解析不了就没有 Page），于是站里有一篇坏文件时，体检既不报它、也不知道它存在——
+    /// 一个诊断工具在遇到病人时装作无事发生。现在它是一条 error 级问题，
+    /// 与「缺描述」「标题过长」并列，点开就是那个文件。
+    #[test]
+    fn unreadable_files_are_reported_as_errors() {
+        let broken = [Skipped::new(
+            "posts/broken.md",
+            "front matter 缺少结束的 `+++`",
+        )];
+        let report = audit(&[], &broken, &config());
+
+        assert_eq!(codes(&report), vec!["content.unreadable"]);
+        let issue = &report.issues[0];
+        assert_eq!(issue.severity, Severity::Error);
+        assert_eq!(issue.source, "posts/broken.md");
+        // 标题栏位显示路径：它没有标题可显示，而空白一行没人知道是哪篇
+        assert_eq!(issue.title, "posts/broken.md");
+        assert!(issue.message.contains("front matter 缺少结束的 `+++`"));
+        // 后果要说出来：不进产物、也拦生成
+        assert!(issue.message.contains("生成"), "{}", issue.message);
+    }
+
     #[test]
     fn a_complete_page_has_no_issues() {
         let page = page(
@@ -360,7 +412,7 @@ mod tests {
             &long_body(),
         );
 
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         assert!(report.issues.is_empty(), "{:?}", report.issues);
         assert_eq!(report.score, 100);
         assert_eq!(report.checked, 1);
@@ -369,7 +421,7 @@ mod tests {
     #[test]
     fn missing_description_and_keywords_are_reported() {
         let page = page("posts/a.md", "title = \"标题\"", &long_body());
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         assert!(codes(&report).contains(&"description.missing"));
         assert!(codes(&report).contains(&"keywords.missing"));
         assert!(report.score < 100);
@@ -385,7 +437,7 @@ mod tests {
             ),
             &long_body(),
         );
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         assert!(!codes(&report).contains(&"keywords.missing"));
     }
 
@@ -400,7 +452,7 @@ mod tests {
             ),
             &long_body(),
         );
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         let codes = codes(&report);
         assert!(codes.contains(&"title.too_long"));
         assert!(codes.contains(&"description.too_long"));
@@ -409,7 +461,7 @@ mod tests {
     #[test]
     fn drafts_are_skipped() {
         let page = page("posts/a.md", "draft = true", "短");
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         assert_eq!(report.checked, 0);
         assert!(report.issues.is_empty());
     }
@@ -432,7 +484,7 @@ mod tests {
             ),
             &long_body(),
         );
-        let report = audit(&[a, b], &config());
+        let report = audit(&[a, b], &[], &config());
         let dup: Vec<&Issue> = report
             .issues
             .iter()
@@ -444,7 +496,7 @@ mod tests {
 
     #[test]
     fn site_level_issues_come_first() {
-        let report = audit(&[], &SiteConfig::default());
+        let report = audit(&[], &[], &SiteConfig::default());
         let codes = codes(&report);
         assert_eq!(codes.first(), Some(&"site.base_url_missing"));
         assert!(codes.contains(&"site.description_missing"));
@@ -461,7 +513,7 @@ mod tests {
             ),
             "只有一句话。",
         );
-        let report = audit(&[page], &config());
+        let report = audit(&[page], &[], &config());
         assert_eq!(codes(&report), vec!["content.too_short"]);
         assert_eq!(report.errors, 0);
     }

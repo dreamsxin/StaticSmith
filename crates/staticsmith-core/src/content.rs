@@ -692,14 +692,22 @@ mod tests {
         )
         .unwrap();
         // 缺结束围栏
-        std::fs::write(root.join("posts/broken.md"), "+++\ntitle = \"坏的\"\n\n正文\n").unwrap();
+        std::fs::write(
+            root.join("posts/broken.md"),
+            "+++\ntitle = \"坏的\"\n\n正文\n",
+        )
+        .unwrap();
 
         let loaded = load_all_lenient(root, SourceFormat::default()).unwrap();
         assert_eq!(loaded.pages.len(), 1, "{:?}", loaded.broken);
         assert_eq!(loaded.pages[0].source, "posts/ok.md");
         assert_eq!(loaded.broken.len(), 1);
         assert_eq!(loaded.broken[0].source, "posts/broken.md");
-        assert!(loaded.broken[0].reason.contains("+++"), "{:?}", loaded.broken);
+        assert!(
+            loaded.broken[0].reason.contains("+++"),
+            "{:?}",
+            loaded.broken
+        );
 
         // 严格版照旧：生成时不许悄悄漏页
         assert!(load_all(root, SourceFormat::default()).is_err());

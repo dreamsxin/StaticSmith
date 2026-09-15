@@ -48,6 +48,12 @@ Twitter Card、订阅源声明。`site.base_url` 为空时**跳过所有绝对�
 桌面端的「体检」标签页、MCP 的 `audit_seo` 用的是同一份规则
 （`crates/staticsmith-core/src/seo.rs`）。草稿不参与——它们不会发布。
 
+**读不出来的文件也是一条问题**（`content.unreadable`，error 级）：front matter 手改坏了的
+那几篇没有 `Page`，以前体检拿到的清单里根本没有它们，于是站里有坏文件时体检既不报、
+也不知道它存在——一个诊断工具遇到病人装作无事发生。现在它与「缺描述」并列，
+点开就是那个文件（属性面板此时用不了，按源码改）。
+
+
 规则与阈值：
 
 - `title.missing`（必须修）：标题为空，正文里也没有一级标题

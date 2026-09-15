@@ -40,10 +40,17 @@ const missingDescription = computed(
 async function openIssue(issue: SeoIssue) {
   if (!issue.source) return // 站点级问题去「设置」改，不属于某一篇
   const page = store.project?.pages.find((p) => p.source === issue.source)
-  if (!page) return
+  if (!page) {
+    // 不在页面清单里，只有一种情况：这一篇读不出来（`content.unreadable`）。
+    // 以前这里直接 return——点了没反应，而这条问题恰恰是最该马上修的那一条
+    await actions.openBroken(issue.source)
+    emit('open')
+    return
+  }
   await actions.requestOpenContent(page as PageSummary)
   emit('open')
 }
+
 
 // ---------------------------------------------------------------- 媒体资源
 
