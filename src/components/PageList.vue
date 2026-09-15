@@ -10,7 +10,9 @@ import { computed, ref, watch } from 'vue'
 
 import SectionHeader from './SectionHeader.vue'
 import ReplacePanel from './ReplacePanel.vue'
+import CreatePanel from './CreatePanel.vue'
 import BatchBar from './BatchBar.vue'
+
 import { openContextMenu, type MenuEntry } from '../commands'
 import { focusSelector } from '../focus'
 import { actions, isDirty, store } from '../store'
@@ -206,18 +208,38 @@ async function openHit(hit: SearchHit) {
 
 // ---------------------------------------------------------------- 新建
 
-const creating = ref(false)
-const newTitle = ref('')
-const newSection = ref('posts')
 /**
- * 手写源文件路径。
+ * 三块可展开的表单（新建内容、新建栏目、跨文件替换）共用侧栏顶部这一块位置，
+ * 所以共用一个状态：互斥成了结构上的事实。
  *
- * 留空走「栏目 + 标题」推导，够日常用；但归档结构（`posts/2026/09/hello.md`）
- * 推导不出来，只能让人直接写。写了就以它为准，栏目退到一边——两个都参与推导
- * 会出现「栏目填 posts、路径填 notes/x.md」这种自相矛盾的输入。
+ * 之前是三个布尔量各自 `false` 来 `false` 去，而「点『新建』时收起『新建栏目』」那一笔
+ * 恰好漏了——两张表单会叠在一起，还同时绑同一份 datalist。
  */
-const newPath = ref('')
-const titleBox = ref<HTMLInputElement | null>(null)
+type Panel = 'content' | 'section' | 'replace'
+const panel = ref<Panel | null>(null)
+const createPanel = ref<{ focusFirst: () => Promise<void> } | null>(null)
+
+/** 新建内容时预填的栏目：栏目头的「在此栏目新建文章…」把意图递到这里。 */
+const newContentSection = ref('posts')
+
+function openPanel(next: Panel) {
+  // 已经展开着又被叫一次（菜单里的「新建文章…」、Ctrl+N）：至少把光标送回第一格，
+  // 否则按下去界面毫无反应，看起来像坏了
+  if (panel.value === next) void createPanel.value?.focusFirst()
+  panel.value = next
+}
+
+/**
+ * 栏目头的「在此栏目新建文章…」：新建表单在 `CreatePanel` 里，栏目组件只把意图递过来。
+ *
+ * 把栏目那一块抽成组件之后，这是两者之间唯一的一条线——其余（改名、元信息、删除）
+ * 组件自己调 actions 就够了。
+ */
+function startNewContentIn(section: string) {
+  newContentSection.value = section
+  openPanel('content')
+}
+
 
 
 /** 已有栏目做候选，避免同一个栏目写出 post / posts 两种。 */
@@ -226,32 +248,6 @@ const sections = computed(() => {
   for (const page of store.project?.pages ?? []) if (page.section) set.add(page.section)
   return [...set].sort()
 })
-
-function openCreate() {
-  creating.value = true
-  replacing.value = false
-  // 展开即聚焦到标题，少一次点击
-  requestAnimationFrame(() => titleBox.value?.focus())
-}
-
-/**
- * 栏目头的「在此栏目新建文章…」：新建表单在这里，栏目组件只把意图递过来。
- *
- * 把栏目那一块抽成组件之后，这是两者之间唯一的一条线——其余（改名、元信息、删除）
- * 组件自己调 actions 就够了。
- */
-function startNewContentIn(section: string) {
-  newSection.value = section
-  openCreate()
-}
-
-async function create() {
-  if (!newTitle.value.trim()) return
-  await actions.createContent(newTitle.value.trim(), newSection.value.trim(), newPath.value.trim())
-  newTitle.value = ''
-  newPath.value = ''
-  creating.value = false
-}
 
 /**
  * 响应菜单栏的请求。
@@ -264,7 +260,27 @@ watch(
   (asked) => {
     if (!asked) return
     ui.requestNewContent = false
-    openCreate()
+    openPanel('content')
+  },
+  { immediate: true },
+)
+
+watch(
+  () => ui.requestNewSection,
+  (asked) => {
+    if (!asked) return
+    ui.requestNewSection = false
+    openPanel('section')
+  },
+  { immediate: true },
+)
+
+watch(
+  () => ui.requestReplace,
+  (asked) => {
+    if (!asked) return
+    ui.requestReplace = false
+    openPanel('replace')
   },
   { immediate: true },
 )
@@ -283,8 +299,6 @@ watch(
   { immediate: true },
 )
 
-// 「新建栏目」的同类 watch 放在 openCreateSection 定义之后：
-// immediate 的回调在 setup 阶段就会跑，引用后面才声明的 ref 会踩 TDZ
 
 // ---------------------------------------------------------------- 多选与批量
 
@@ -331,78 +345,8 @@ function clearSelection() {
   selected.value = new Set()
 }
 
-// ---------------------------------------------------------------- 栏目管理
-
-
-/**
- * 栏目就是 `content/` 下的一层目录，此前只能去文件管理器里建/改/删，
- * 而改名之后老链接会全部 404。这里把三件事收进界面，并默认保留旧地址。
- */
-const creatingSection = ref(false)
-const newSectionPath = ref('')
-const newSectionTitle = ref('')
-/** 栏目简介。当场填掉，否则新栏目一建出来体检面板就多一条「缺描述」。 */
-const newSectionDescription = ref('')
-const sectionBox = ref<HTMLInputElement | null>(null)
-
-function openCreateSection() {
-  creatingSection.value = true
-  creating.value = false
-  replacing.value = false
-  requestAnimationFrame(() => sectionBox.value?.focus())
-}
-
-async function createSection() {
-  const path = newSectionPath.value.trim()
-  if (!path) return
-  await actions.createSection(
-    path,
-    newSectionTitle.value.trim(),
-    newSectionDescription.value.trim(),
-  )
-  newSectionPath.value = ''
-  newSectionTitle.value = ''
-  newSectionDescription.value = ''
-  creatingSection.value = false
-}
-
-watch(
-  () => ui.requestNewSection,
-  (asked) => {
-    if (!asked) return
-    ui.requestNewSection = false
-    openCreateSection()
-  },
-  { immediate: true },
-)
-
-// ---------------------------------------------------------------- 跨文件替换
-
-/**
- * 展开状态留在这里：它与「新建内容」「新建栏目」三者互斥，而互斥要有人裁判。
- * 表单本身、干跑与确认都在 `ReplacePanel.vue` 里。
- */
-const replacing = ref(false)
-
-function openReplace() {
-  replacing.value = true
-  creating.value = false
-  creatingSection.value = false
-}
-
-watch(
-  () => ui.requestReplace,
-  (asked) => {
-    if (!asked) return
-    ui.requestReplace = false
-    openReplace()
-  },
-  { immediate: true },
-)
-
-
-
 // ---------------------------------------------------------------- 删除文章
+
 
 /**
  * 待确认删除的源路径。
@@ -490,12 +434,13 @@ async function copyText(text: string) {
       >
         多选
       </button>
-      <button type="button" :disabled="store.busy" title="新建栏目（content/ 下的一层目录）" @click="openCreateSection">
+      <button type="button" :disabled="store.busy" title="新建栏目（content/ 下的一层目录）" @click="openPanel('section')">
         栏目
       </button>
-      <button type="button" class="btn--primary" :disabled="store.busy" @click="openCreate">
+      <button type="button" class="btn--primary" :disabled="store.busy" @click="openPanel('content')">
         新建
       </button>
+
     </header>
 
     <div class="page-list__search">
@@ -554,73 +499,16 @@ async function copyText(text: string) {
 
 
     <!-- 跨文件替换：只改正文，先干跑再落盘（表单在 ReplacePanel.vue 里） -->
-    <ReplacePanel :open="replacing" :selected="selectedList" @close="replacing = false" />
+    <ReplacePanel :open="panel === 'replace'" :selected="selectedList" @close="panel = null" />
 
+    <!-- 新建内容 / 新建栏目：两张表单在 CreatePanel.vue 里，互斥由 panel 一个状态表达 -->
+    <CreatePanel
+      ref="createPanel"
+      :mode="panel === 'content' || panel === 'section' ? panel : null"
+      :default-section="newContentSection"
+      @close="panel = null"
+    />
 
-
-    <form v-if="creatingSection" class="page-list__new" @submit.prevent="createSection">
-      <h3>新建栏目</h3>
-      <label>
-        目录名
-        <input
-          ref="sectionBox"
-          v-model="newSectionPath"
-          type="text"
-          list="known-sections"
-          placeholder="notes 或 posts/2026"
-        />
-      </label>
-      <label>
-        栏目标题
-        <input v-model="newSectionTitle" type="text" placeholder="留空则用目录名" />
-      </label>
-      <label>
-        栏目简介
-        <input v-model="newSectionDescription" type="text" placeholder="一句话说明这个栏目写什么" />
-      </label>
-      <p class="page-list__hint">
-        会同时生成索引页（index.md）——没有它，栏目列表页打不开。简介留空的话，体检面板会立刻记一条「缺描述」。
-      </p>
-      <div class="page-list__new-actions">
-        <button type="submit" class="btn--primary" :disabled="store.busy || !newSectionPath.trim()">
-          创建栏目
-        </button>
-        <button type="button" @click="creatingSection = false">取消</button>
-      </div>
-    </form>
-
-    <form v-if="creating" class="page-list__new" @submit.prevent="create">
-      <h3>新建内容</h3>
-      <label>
-        标题
-        <input ref="titleBox" v-model="newTitle" type="text" placeholder="文章标题" />
-      </label>
-      <label>
-        栏目
-        <input
-          v-model="newSection"
-          type="text"
-          list="known-sections"
-          placeholder="posts（留空为根目录）"
-          :disabled="newPath.trim() !== ''"
-        />
-      </label>
-      <label>
-        路径（可选）
-        <input v-model="newPath" type="text" placeholder="posts/2026/hello.md" />
-      </label>
-      <p class="page-list__new-hint">
-        留空则按「栏目 + 标题」生成文件名。填了就完全按它落盘，栏目由路径本身决定；省略
-        <code>.md</code> 会自动补上。
-      </p>
-
-      <div class="page-list__new-actions">
-        <button type="submit" class="btn--primary" :disabled="store.busy || !newTitle.trim()">
-          创建草稿
-        </button>
-        <button type="button" @click="creating = false">取消</button>
-      </div>
-    </form>
 
     <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
       <SectionHeader

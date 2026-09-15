@@ -68,7 +68,8 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 - **组件测试用 `@vue/test-utils` + jsdom**，但**默认环境仍是 node**：要 DOM 的文件
   自己在顶部写 `// @vitest-environment jsdom`，谁用谁付。目前覆盖两个浮层
   （大纲、站内链接）、编辑器的「改地址」、发布面板的「发布确认」、侧栏的「栏目头」
-  「跨文件替换」与「批量动作条」。挑这几处是因为它们是「焦点归还、Esc、方向键、
+  「跨文件替换」「批量动作条」与「新建内容 / 新建栏目」。挑这几处是因为它们是「焦点归还、Esc、方向键、
+
   就地确认后剩什么状态、没确认不许写」的落地处，而这几条约定（docs/ui.md）以前
   只能靠人工推理——第一次跑就抓到一个真 bug：换文章后待确认的改地址没有作废。
 - **`store.ts` 测到了两处地基**（`src/store.test.ts`）：
@@ -78,12 +79,15 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   测法：`vi.mock('./api')` 按真模块的键批量换成假实现（不手写清单，加新 api 不会漏），
   改行为只改「这次返回什么」的映射表——**不要替换映射表里的函数**，
   `store` 在导入时就抓住了那几个引用，换掉它看不见。
-- **测不动往往是拆分的信号**：栏目管理、跨文件替换与批量动作条原先埋在
+- **测不动往往是拆分的信号**：栏目管理、跨文件替换、批量动作条与两张新建表单原先埋在
   `PageList.vue`（1298 行）里，为了给它们写测试才抽成 `SectionHeader.vue`、
-  `ReplacePanel.vue`、`BatchBar.vue`（现在 704 行）。
+  `ReplacePanel.vue`、`BatchBar.vue`、`CreatePanel.vue`（现在 673 行）。
   拆的边界按「与其余部分有没有共享状态」来选，而不是按行数：
   勾选框长在文章列表每一行上，所以**选择态留在 `PageList`**，
   动作条只收 `selected` 并在做完后 emit `clear`。
+  抽出来顺手抓到过 bug：三张互斥表单原先是三个布尔量，「点『新建』时收起『新建栏目』」
+  那一笔漏了——合成一个 `panel` 状态之后，互斥成了结构上的事实。
+
 - 组件测试里把 `../store` 整个 `vi.mock` 掉：真 store 一路连到 Tauri 的 `invoke`，
   而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
   焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
