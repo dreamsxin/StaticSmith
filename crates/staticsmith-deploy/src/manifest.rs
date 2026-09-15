@@ -35,15 +35,13 @@ pub struct RemoteEntry {
 pub struct SyncPlan {
     /// 需要上传（新增或变更）的文件。
     pub upload: Vec<String>,
-    /// 远端多余、需要删除的文件。
-    pub delete: Vec<String>,
     /// 内容一致因而跳过的文件数。
     pub skipped: usize,
 }
 
 impl SyncPlan {
     pub fn is_empty(&self) -> bool {
-        self.upload.is_empty() && self.delete.is_empty()
+        self.upload.is_empty()
     }
 }
 
@@ -91,10 +89,15 @@ pub fn scan(dist_dir: &Path) -> Result<Vec<LocalEntry>> {
 /// 才比时间——服务器不支持 `MDTM` 时，「本地更新」这个问题根本无法回答，
 /// 此时 `size_or_newer` 与 `newer` 都只能判定为「不确定 → 不传」，
 /// 真要传得上去只有 `always`。这一条写进了 docs/deploy.md。
+///
+/// **不处理「远端有、本地没有」的文件**：`remote` 这份清单本身只含「本地也有的那些」
+/// ——`ftp::compute` 是逐个 `stat` 本地文件问出来的，从不列远端目录（`RemoteFs` 没有
+/// 列目录这个能力，FTP 的 `LIST` 各家格式还不一致）。所以这里连「有没有陈旧文件」
+/// 都无从知道，更谈不上删。原先有个 `delete_extra: bool` 参数装作能做这件事，
+/// 而生产代码里没有一处传过 `true`——删掉它，免得下一个人以为这条路是通的。
 pub fn plan_sync(
     local: &[LocalEntry],
     remote: &[RemoteEntry],
-    delete_extra: bool,
     overwrite: FtpOverwrite,
 ) -> SyncPlan {
     let mut plan = SyncPlan::default();
@@ -112,16 +115,7 @@ pub fn plan_sync(
         }
     }
 
-    if delete_extra {
-        for r in remote {
-            if !local.iter().any(|l| l.path == r.path) {
-                plan.delete.push(r.path.clone());
-            }
-        }
-    }
-
     plan.upload.sort();
-    plan.delete.sort();
     plan
 }
 
@@ -205,10 +199,9 @@ mod tests {
             remote("about/index.html", 40, Some(1000)), // 大小不同 → 上传
         ];
 
-        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::default());
+        let plan = plan_sync(&local_files, &remote_files, FtpOverwrite::default());
         assert_eq!(plan.upload, vec!["about/index.html", "css/main.css"]);
         assert_eq!(plan.skipped, 1);
-        assert!(plan.delete.is_empty());
     }
 
     #[test]
@@ -216,7 +209,6 @@ mod tests {
         let plan = plan_sync(
             &[local("a.html", 10, Some(2_000))],
             &[remote("a.html", 10, Some(1_000))],
-            false,
             FtpOverwrite::default(),
         );
         assert_eq!(plan.upload, vec!["a.html"]);
@@ -227,7 +219,6 @@ mod tests {
         let plan = plan_sync(
             &[local("a.html", 10, Some(1_002))],
             &[remote("a.html", 10, Some(1_000))],
-            false,
             FtpOverwrite::default(),
         );
         assert!(plan.upload.is_empty());
@@ -239,7 +230,6 @@ mod tests {
         let plan = plan_sync(
             &[local("a.html", 10, None)],
             &[remote("a.html", 10, None)],
-            false,
             FtpOverwrite::default(),
         );
         assert!(plan.upload.is_empty());
@@ -257,16 +247,11 @@ mod tests {
         let remote_files = [remote("a.html", 10, Some(4_600))];
 
         // 默认规则：跳过——这就是那个陷阱，行为保持不变但现在有出路。
-        let default_plan = plan_sync(
-            &local_files,
-            &remote_files,
-            false,
-            FtpOverwrite::SizeOrNewer,
-        );
+        let default_plan = plan_sync(&local_files, &remote_files, FtpOverwrite::SizeOrNewer);
         assert!(default_plan.upload.is_empty());
 
         // 「总是上传」：不比对，一定传。
-        let always = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Always);
+        let always = plan_sync(&local_files, &remote_files, FtpOverwrite::Always);
         assert_eq!(always.upload, vec!["a.html"]);
         assert_eq!(always.skipped, 0);
     }
@@ -283,12 +268,13 @@ mod tests {
             FtpOverwrite::Newer,
             FtpOverwrite::Skip,
         ] {
-            let plan = plan_sync(&local_files, &remote_files, false, rule);
+            let plan = plan_sync(&local_files, &remote_files, rule);
             assert!(plan.upload.is_empty(), "{rule:?} 不该判定为要上传");
+
             assert_eq!(plan.skipped, 1, "{rule:?}");
         }
 
-        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Always);
+        let plan = plan_sync(&local_files, &remote_files, FtpOverwrite::Always);
         assert_eq!(plan.upload, vec!["a.html"]);
     }
 
@@ -300,26 +286,24 @@ mod tests {
 
         // 只看大小：大小不同就传，远端时间更新也不影响。
         assert_eq!(
-            plan_sync(&bigger, &older_remote, false, FtpOverwrite::Size).upload,
+            plan_sync(&bigger, &older_remote, FtpOverwrite::Size).upload,
             vec!["a.html"]
         );
         // 只看时间：远端更新 → 跳过，哪怕大小不同。
-        assert!(
-            plan_sync(&bigger, &older_remote, false, FtpOverwrite::Newer)
-                .upload
-                .is_empty()
-        );
+        assert!(plan_sync(&bigger, &older_remote, FtpOverwrite::Newer)
+            .upload
+            .is_empty());
 
         let newer_local = [local("a.html", 10, Some(3_000))];
         let remote_same_size = [remote("a.html", 10, Some(1_000))];
         // 只看大小：大小一样就跳过，哪怕本地更新。
         assert!(
-            plan_sync(&newer_local, &remote_same_size, false, FtpOverwrite::Size)
+            plan_sync(&newer_local, &remote_same_size, FtpOverwrite::Size)
                 .upload
                 .is_empty()
         );
         assert_eq!(
-            plan_sync(&newer_local, &remote_same_size, false, FtpOverwrite::Newer).upload,
+            plan_sync(&newer_local, &remote_same_size, FtpOverwrite::Newer).upload,
             vec!["a.html"]
         );
     }
@@ -335,7 +319,8 @@ mod tests {
             FtpOverwrite::Size,
             FtpOverwrite::Skip,
         ] {
-            let plan = plan_sync(&local_files, &[], false, rule);
+            let plan = plan_sync(&local_files, &[], rule);
+
             assert_eq!(plan.upload, vec!["new.html"], "{rule:?}");
         }
     }
@@ -349,25 +334,30 @@ mod tests {
         ];
         let remote_files = [remote("a.html", 10, Some(1_000))];
 
-        let plan = plan_sync(&local_files, &remote_files, false, FtpOverwrite::Skip);
+        let plan = plan_sync(&local_files, &remote_files, FtpOverwrite::Skip);
         assert_eq!(plan.upload, vec!["new.html"]);
         assert_eq!(plan.skipped, 1);
     }
 
+    /// 「远端有、本地没有」的文件根本进不到这一层，所以计划里也不该凭空多出个删除清单。
+    ///
+    /// `remote` 这份清单是 `ftp::compute` 逐个 `stat` 本地文件问出来的，从不列远端目录
+    /// ——`RemoteFs` 没有列目录这个能力。原先这里有个 `delete_extra: bool` 参数装作能
+    /// 做「镜像式清理」，而生产代码里没有一处传过 `true`：既不删，也从不知道有什么可删。
+    /// 这条测试钉住「不装」：多出来的远端条目一律不影响上传判定。
     #[test]
-    fn delete_extra_is_opt_in() {
+    fn remote_only_entries_never_turn_into_work() {
         let local_files = vec![local("a.html", 1, None)];
-        let remote_files = vec![remote("a.html", 1, None), remote("stale.html", 1, None)];
+        let remote_files = vec![
+            remote("a.html", 1, None),
+            remote("stale.html", 1, None),
+            remote("old/index.html", 1, None),
+        ];
 
-        assert!(
-            plan_sync(&local_files, &remote_files, false, FtpOverwrite::default())
-                .delete
-                .is_empty()
-        );
-        assert_eq!(
-            plan_sync(&local_files, &remote_files, true, FtpOverwrite::default()).delete,
-            vec!["stale.html"]
-        );
+        let plan = plan_sync(&local_files, &remote_files, FtpOverwrite::default());
+        assert!(plan.upload.is_empty(), "{plan:?}");
+        assert_eq!(plan.skipped, 1);
+        assert!(plan.is_empty(), "没有要传的东西就是空计划");
     }
 
     #[test]

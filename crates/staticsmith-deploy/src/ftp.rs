@@ -62,7 +62,7 @@ fn compute(
         }
     }
 
-    let plan = manifest::plan_sync(&local, &remote, false, overwrite);
+    let plan = manifest::plan_sync(&local, &remote, overwrite);
     Ok((local, plan))
 }
 
@@ -84,9 +84,13 @@ pub fn plan(
     } else {
         "已逐个查询远端文件的大小与时间（只读），没有写入任何内容".to_string()
     }];
-    // 远端多余文件一律不删，这一条要在预览里说清：否则「上传 3 个」看起来像
-    // 「线上就只剩这 3 个」。
-    warnings.push("远端多余的文件不会被删除".to_string());
+    // 远端多余的文件既不删、也**没有去查**：`compute` 是逐个 stat 本地文件问出来的，
+    // 从不列远端目录（`RemoteFs` 没有列目录这个能力）。所以这里只能说到这个程度——
+    // 说成「远端多余的文件不会被删除」会让人以为我们知道有哪些，那是我们不知道的事。
+    warnings.push(format!(
+        "只逐个查了本地这 {} 个文件对应的远端状态；远端另外还有什么文件、要不要清，这里查不到也不会动",
+        local.len()
+    ));
 
     Ok(DeployPlan {
         target: target.to_string(),
@@ -579,9 +583,49 @@ mod tests {
             planned.warnings
         );
         assert!(
-            planned.warnings.iter().any(|w| w.contains("不会被删除")),
-            "远端多余文件不删这一条必须说明，否则「上传 3 个」看起来像线上只剩 3 个"
+            planned
+                .warnings
+                .iter()
+                .any(|w| w.contains("查不到也不会动")),
+            "{:?}",
+            planned.warnings
         );
+    }
+
+    /// 干跑要说清「查了什么、没查什么」。
+    ///
+    /// 原先那句是「远端多余的文件不会被删除」——听起来像我们知道有哪些多余文件，
+    /// 而这一层根本查不到：`compute` 只逐个 stat 本地文件对应的远端状态，从不列远端目录。
+    /// 说得比知道的多，是这套东西里最不该有的毛病。
+    #[test]
+    fn plan_says_what_it_did_not_look_at() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        for path in ["old/index.html", "gone.html"] {
+            remote.files.insert(path.into(), (10, None));
+        }
+
+        let planned = plan(
+            &mut remote,
+            dir.path(),
+            "ftp://example.test/www",
+            FtpOverwrite::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+
+        let notice = planned
+            .warnings
+            .iter()
+            .find(|w| w.contains("查不到"))
+            .unwrap_or_else(|| panic!("{:?}", planned.warnings));
+        // 查了几个说得出来（本地 3 个），没查的部分不许假装知道
+        assert!(notice.contains("3 个"), "{notice}");
+        assert!(!notice.contains("gone.html"), "{notice}");
+
+        // 干跑一个字节都不写，远端那几个旧文件也还在
+        assert!(remote.uploads.is_empty());
+        assert!(remote.files.contains_key("gone.html"));
     }
 
     #[test]

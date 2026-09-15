@@ -309,6 +309,45 @@ describe('store 的批量收尾汇总', () => {
 })
 
 /**
+ * 版式清单读不出来时不许只写进控制台。
+ *
+ * 原先这里是 `console.warn`：用户看到的是一个**空的版式列表**，而空列表看起来像
+ * 「这个版本没有版式」，不像「读取失败了」。控制台在打包好的桌面应用里没人开着。
+ */
+describe('store 读版式清单', () => {
+  beforeEach(() => {
+    results.clear()
+    vi.clearAllMocks()
+    actions.clearNotices()
+  })
+
+  it('读得出来就填进状态', async () => {
+    results.set('listPresets', [{ id: 'blog', title: '博客' }])
+    await actions.loadPresets()
+    expect(store.presets).toHaveLength(1)
+  })
+
+  it('读不出来要说一句，并且不把上一次的清单留在界面上', async () => {
+    results.set('listPresets', [{ id: 'blog', title: '博客' }])
+    await actions.loadPresets()
+
+    results.set('listPresets', new Error('版式目录读不出来'))
+    await actions.loadPresets()
+
+    expect(store.presets).toHaveLength(0)
+    const notice = store.notices.find((n) => n.message.includes('版式'))!
+    expect(notice.message).toContain('默认版式')
+    expect(notice.message).toContain('版式目录读不出来')
+  })
+
+  it('读不出版式不算致命错误：新建站点还能用默认版式建', async () => {
+    results.set('listPresets', new Error('炸了'))
+    await actions.loadPresets()
+    expect(store.notices[0].level).not.toBe('error')
+  })
+})
+
+/**
  * 读不出来的源文件。
  *
  * front matter 手改坏了的那一篇不会出现在页面清单里。以前这种站根本打不开，
