@@ -24,7 +24,10 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import type { PageSummary, SearchHit, SeoSeverity } from '../api'
+import { groupBySection, worstSeoBySource } from '../grouping'
+import type { Criteria, Filter } from '../grouping'
+import type { PageSummary, SearchHit } from '../api'
+
 
 const keyword = ref('')
 const searchBox = ref<HTMLInputElement | null>(null)
@@ -34,74 +37,33 @@ const searchBox = ref<HTMLInputElement | null>(null)
  *
  * 体检面板能告诉你「有 12 篇缺描述」，但补的时候还是要回到列表里一篇篇找。
  * 这一排筛选把体检结论接回工作列表：选「待补 SEO」就只剩要动的那些。
+ *
+ * 筛选、分组、排序那套判断在 `src/grouping.ts` 里（纯逻辑，单独测）：
+ * 一篇文章因为条件写错而不出现在列表里，界面不会报任何错，用户只会以为它丢了。
  */
-type Filter = 'all' | 'draft' | 'dirty' | 'seo' | 'scheduled'
 const filter = ref<Filter>('all')
 
 const normalized = computed(() => keyword.value.trim().toLowerCase())
 
 /** 每篇文章最严重的那条 SEO 问题。站点级问题没有 source，自然被排除。 */
-const seoBySource = computed(() => {
-  const worst = new Map<string, { severity: SeoSeverity; messages: string[] }>()
-  const rank: Record<SeoSeverity, number> = { error: 0, warn: 1, hint: 2 }
-  for (const issue of store.seo?.issues ?? []) {
-    if (!issue.source) continue
-    const current = worst.get(issue.source)
-    if (!current) {
-      worst.set(issue.source, { severity: issue.severity, messages: [issue.message] })
-      continue
-    }
-    current.messages.push(issue.message)
-    if (rank[issue.severity] < rank[current.severity]) current.severity = issue.severity
-  }
-  return worst
-})
+const seoBySource = computed(() => worstSeoBySource(store.seo?.issues ?? []))
 
 const dirtyPages = computed(() => new Set(store.plan?.pages ?? []))
 
-function matchesFilter(page: PageSummary): boolean {
-  switch (filter.value) {
-    case 'draft':
-      return page.draft
-    case 'dirty':
-      return dirtyPages.value.has(page.source)
-    case 'seo':
-      return seoBySource.value.has(page.source)
-    case 'scheduled':
-      return page.scheduled
-    default:
-      return true
-  }
-}
+const criteria = computed<Criteria>(() => ({
+  keyword: keyword.value,
+  filter: filter.value,
+  dirty: dirtyPages.value,
+  seo: new Set(seoBySource.value.keys()),
+}))
 
-const groups = computed(() => {
-  const map = new Map<string, PageSummary[]>()
-  // 先把已知栏目摆上：空栏目也要看得见，否则新建完就「消失」了。
-  // 搜索或筛选时不补空栏目——那时用户要的是命中项，不是完整结构。
-  if (!normalized.value && filter.value === 'all') {
-    for (const section of store.sections) map.set(section.path, [])
-  }
-  for (const page of store.project?.pages ?? []) {
-    if (normalized.value && !`${page.title}\n${page.source}`.toLowerCase().includes(normalized.value))
-      continue
-    if (!matchesFilter(page as PageSummary)) continue
-    const list = map.get(page.section) ?? []
-    list.push(page as PageSummary)
-    map.set(page.section, list)
-  }
-  // 栏目顺序跟着索引页的 weight 走，与站点上列出的顺序一致；
-  // 没排过序的（weight 0）按路径，免得顺序看起来随机
-  return [...map.entries()].sort(
-    ([a], [b]) => weightOf(a) - weightOf(b) || a.localeCompare(b),
-  )
-})
-
-function weightOf(path: string): number {
-  return sectionOf.value.get(path)?.weight ?? 0
-}
+const groups = computed(() =>
+  groupBySection(store.project?.pages ?? [], store.sections, criteria.value),
+)
 
 /** 栏目元信息（有没有索引页、直属篇数）按路径取用。 */
 const sectionOf = computed(() => new Map(store.sections.map((s) => [s.path, s])))
+
 
 
 

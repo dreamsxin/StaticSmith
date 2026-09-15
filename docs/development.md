@@ -82,7 +82,13 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   测法：`vi.mock('./api')` 按真模块的键批量换成假实现（不手写清单，加新 api 不会漏），
   改行为只改「这次返回什么」的映射表——**不要替换映射表里的函数**，
   `store` 在导入时就抓住了那几个引用，换掉它看不见。
+- **不需要 DOM 的判断就别待在组件里**：内容列表的筛选、分组、排序搬进了
+  `src/grouping.ts`（`groupBySection` / `matchesFilter` / `worstSeoBySource`），
+  由 `src/grouping.test.ts` 直接测。这一块最容易出**静默错误**——一篇文章因为条件写错
+  而不出现在列表里，界面不报任何错，用户只会以为它丢了。同类的还有
+  `skips.ts`、`text.ts`、`notices.ts`、`crossref.ts`：**规则**放纯模块，**接线**留在组件。
 - **测不动往往是拆分的信号**：栏目管理、跨文件替换、批量动作条、两张新建表单与文章行
+
   原先埋在 `PageList.vue`（1298 行）里，为了给它们写测试才抽成 `SectionHeader.vue`、
   `ReplacePanel.vue`、`BatchBar.vue`、`CreatePanel.vue`、`PageRow.vue`（现在 615 行）。
   拆的边界按「与其余部分有没有共享状态」来选，而不是按行数：
@@ -104,8 +110,9 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
   焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
 
-前端还没测到的部分：`useSplit` 的夹取、`PageList.vue` 里剩下的筛选分组与搜索
-（它们与关键词、筛选态互相耦合，要测得再拆一刀）。
+前端还没测到的部分：`useSplit` 的夹取、`PageList.vue` 里剩下的搜索输入与筛选按钮
+（判断本身已经搬进 `src/grouping.ts` 并单独测了，剩下的是把它们连起来的那几行）。
+
 
 
 依赖已经装齐，剩下的只是没写。
