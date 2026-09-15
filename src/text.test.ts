@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import { parseList, snapshotLabel } from './text'
+import { formatBytes, parseList, snapshotLabel } from './text'
+
 
 
 describe('parseList', () => {
@@ -29,7 +30,33 @@ describe('parseList', () => {
   })
 })
 
+/**
+ * 字节数的说法只该有一份。
+ *
+ * 这段原先在 `BuildPanel`、`DeployPanel`、`SeoPanel` 里各写了一遍，收进 `text.ts`
+ * 之后调用方变成四处（还多了快照占用），措辞改错一个字没人拦得住——所以钉住换挡点。
+ */
+describe('formatBytes', () => {
+  it('1 KB 以下给字节：小文件报「0.1 KB」等于没说', () => {
+    expect(formatBytes(0)).toBe('0 B')
+    expect(formatBytes(1023)).toBe('1023 B')
+  })
+
+  it('KB 与 MB 各留一位小数', () => {
+    expect(formatBytes(1024)).toBe('1.0 KB')
+    expect(formatBytes(1536)).toBe('1.5 KB')
+    expect(formatBytes(3 * 1024 * 1024)).toBe('3.0 MB')
+  })
+
+  it('换挡点在 1024 而不是 1000', () => {
+    expect(formatBytes(1000)).toBe('1000 B')
+    expect(formatBytes(1024 * 1024 - 1)).toContain('KB')
+    expect(formatBytes(1024 * 1024)).toBe('1.0 MB')
+  })
+})
+
 describe('snapshotLabel', () => {
+
   it('界面与 Agent 的操作各有说法', () => {
     expect(snapshotLabel('batch_delete')).toBe('批量删除之前')
     expect(snapshotLabel('write_content')).toBe('Agent 改文章之前')

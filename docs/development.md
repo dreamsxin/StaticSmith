@@ -68,7 +68,7 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
 - **组件测试用 `@vue/test-utils` + jsdom**，但**默认环境仍是 node**：要 DOM 的文件
   自己在顶部写 `// @vitest-environment jsdom`，谁用谁付。目前覆盖两个浮层
   （大纲、站内链接）、编辑器的「改地址」、发布面板的「发布确认」、侧栏的「栏目头」
-  「跨文件替换」「批量动作条」「新建内容 / 新建栏目」「消息中心」「读不出来那一组」与「回退内容」。挑这几处是因为它们是「焦点归还、Esc、方向键、
+  「跨文件替换」「批量动作条」「新建内容 / 新建栏目」「消息中心」「读不出来那一组」「回退内容」与「新建站点」。挑这几处是因为它们是「焦点归还、Esc、方向键、
 
 
   就地确认后剩什么状态、没确认不许写」的落地处，而这几条约定（docs/ui.md）以前
@@ -101,7 +101,9 @@ cargo run -p staticsmith-cli -- mcp --sse --port 0 --project ./site
   而要验的是「组件在给定回答下怎么走」。IPC 通不通由 Rust 侧的测试与 docs/ipc.md 管。
   焦点相关的断言必须 `attachTo: document.body`——游离节点上 `activeElement` 永远是 body。
 
-前端还没测到的部分：`useSplit` 的夹取、其余组件（新建站点、回退内容、列表栏本身）。
+前端还没测到的部分：`useSplit` 的夹取、文章列表栏本身（`PageList.vue` 里剩下的
+筛选分组、搜索、右键菜单与行内删除确认——它们与选择态、筛选态耦合，要测得先拆）。
+
 依赖已经装齐，剩下的只是没写。
 
 
