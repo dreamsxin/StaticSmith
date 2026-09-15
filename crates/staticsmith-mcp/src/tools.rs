@@ -427,13 +427,14 @@ pub fn all() -> Vec<ToolDef> {
         ToolDef {
             name: "restore_snapshot",
             title: "回退到某个快照",
-            description: "把内容、模板、主题、静态资源恢复成某个快照的样子（产物目录不动）。回退前的状态也会自动存一份，所以回退错了还能再回来。",
+            description: "把内容、模板、主题、静态资源恢复成某个快照的样子（产物目录不动）。回退前的状态也会自动存一份，所以回退错了还能再回来。**默认 dry_run = true**：先回传会覆盖、删掉、找回哪些文件，确认之后再带 dry_run: false 真回退。回退一次动的东西比任何别的写操作都多——整个内容目录。",
             access: Access::Write,
             schema: || {
                 json!({
                     "type": "object",
                     "properties": {
-                        "id": { "type": "string", "description": "快照 id，取自 list_snapshots" }
+                        "id": { "type": "string", "description": "快照 id，取自 list_snapshots" },
+                        "dry_run": { "type": "boolean", "description": "默认 true，只回传会动哪些文件，不写盘" }
                     },
                     "required": ["id"],
                     "additionalProperties": false
@@ -1204,10 +1205,30 @@ fn restore_snapshot(builder: &mut Builder, args: &Value) -> Result<String, Strin
     let id = require_str(args, "id")?.to_string();
     let root = builder.paths.root.clone();
     let snapshots = Snapshots::open(&builder.paths).map_err(err)?;
+
+    // 默认干跑（同 deploy_site）：回退一次动的是整个内容目录，
+    // 「说错了也没损失」的方向是先看清单
+    let dry_run = args.get("dry_run").and_then(Value::as_bool).unwrap_or(true);
+    if dry_run {
+        let preview = snapshots.preview_restore(&id).map_err(err)?;
+        return pretty(&json!({
+            "dry_run": true,
+            "restored_to": preview.restored_to,
+            "at": preview.at,
+            "changes": preview.changes,
+            "next": if preview.changes.is_empty() {
+                "这次回退不会改动任何文件，磁盘上就是那一份了"
+            } else {
+                "确认无误后带 dry_run: false 再调一次；kind 里 delete 是「快照之后新建的会被删掉」"
+            }
+        }));
+    }
+
     let restored = snapshots.restore(&id).map_err(err)?;
     *builder = Builder::open(&root).map_err(err)?;
 
     pretty(&json!({
+        "dry_run": false,
         "restored_to": restored.restored_to,
         "previous": restored.previous,
         "next": "产物还是旧的，跑 build_site 让 dist/ 跟上；不想要这次回退就 restore_snapshot 到 previous.id"
@@ -1305,12 +1326,12 @@ mod tests {
         assert_eq!(list.len(), 1, "{list:?}");
         assert_eq!(list[0].message, "write_content");
 
-        // 而且它真的能把内容还回去
+        // 而且它真的能把内容还回去（默认是干跑，真回退要显式说）
         call(
             &mut builder,
             writer(),
             "restore_snapshot",
-            &json!({ "id": list[0].id }),
+            &json!({ "id": list[0].id, "dry_run": false }),
         );
         assert_eq!(
             std::fs::read_to_string(dir.path().join("content").join(source)).unwrap(),
@@ -1395,7 +1416,7 @@ mod tests {
             &mut builder,
             writer(),
             "restore_snapshot",
-            &json!({ "id": list[0].id }),
+            &json!({ "id": list[0].id, "dry_run": false }),
         );
         assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
         assert_eq!(
@@ -1403,6 +1424,49 @@ mod tests {
             pages_before - 1,
             "回退掉了新建的那篇，内存里的页面列表也得跟着少一篇"
         );
+    }
+
+    /// 回退默认只干跑：它一次动的是整个内容目录，「说错了也没损失」的方向是先看清单。
+    ///
+    /// 与 `deploy_site` 同一条约定。Agent 少写一个参数就把整站内容换掉，
+    /// 是这套工具里代价最大的一种手滑。
+    #[test]
+    fn restoring_is_a_dry_run_unless_told_otherwise() {
+        let (dir, mut builder) = project();
+        let source = builder.pages()[0].source.clone();
+        let path = dir.path().join("content").join(&source);
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        call(
+            &mut builder,
+            writer(),
+            "write_content",
+            &json!({ "source": source, "raw": "+++\ntitle = \"改过\"\n+++\n\n改过的正文\n" }),
+        );
+        let snapshots = Snapshots::open(&builder.paths).unwrap();
+        let list = snapshots.list(10).unwrap();
+
+        let result = call(
+            &mut builder,
+            writer(),
+            "restore_snapshot",
+            &json!({ "id": list[0].id }),
+        );
+        assert_eq!(result["isError"], false, "{}", result["content"][0]["text"]);
+        let report: Value =
+            serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+        assert_eq!(report["dry_run"], true, "{report}");
+        assert!(
+            report["changes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c["path"].as_str().unwrap().contains(&source)),
+            "{report}"
+        );
+
+        // 磁盘上还是改过的那份：干跑不许写盘
+        assert_ne!(std::fs::read_to_string(&path).unwrap(), before);
     }
 
     /// `mode` 拼错要报错，而不是静默按增量跑。

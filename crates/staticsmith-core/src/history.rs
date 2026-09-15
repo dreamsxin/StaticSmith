@@ -25,8 +25,8 @@
 use std::path::{Path, PathBuf};
 
 use git2::{
-    build::CheckoutBuilder, Commit, IndexAddOption, Repository, RepositoryInitOptions, Signature,
-    Sort, Tree,
+    build::CheckoutBuilder, Commit, Delta, DiffOptions, IndexAddOption, Repository,
+    RepositoryInitOptions, Signature, Sort, Tree,
 };
 use serde::Serialize;
 
@@ -50,6 +50,38 @@ pub struct Snapshot {
     pub message: String,
     /// RFC3339 时间戳。
     pub at: String,
+}
+
+/// 回滚会把某个文件怎么样。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChangeKind {
+    /// 内容不一样，会被换成快照里那一版
+    Overwrite,
+    /// 快照之后新建的，会被删掉
+    Delete,
+    /// 快照之后删掉的，会被找回来
+    Recover,
+}
+
+/// 回滚会动的一个文件。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RestoreChange {
+    /// 相对项目根的路径，正斜杠。
+    pub path: String,
+    pub kind: ChangeKind,
+}
+
+/// 干跑一次回滚的结果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RestorePreview {
+    /// 要回到的那个快照。
+    pub restored_to: String,
+    /// 那个快照的操作标识与时间，界面据此说「回到 X 时的那一份」。
+    pub message: String,
+    pub at: String,
+    /// 会动的文件。空数组表示这次回滚什么也不会改。
+    pub changes: Vec<RestoreChange>,
 }
 
 /// 回滚结果。
@@ -162,6 +194,59 @@ impl Snapshots {
             out.push(self.describe(&commit));
         }
         Ok(out)
+    }
+
+    /// 干跑一次回滚：这次回滚会覆盖、删掉、找回哪些文件。**不碰磁盘、不留快照**。
+    ///
+    /// 回滚是这个项目里动得最多的写操作（整个内容目录、模板、配置），却曾是唯一没有
+    /// 干跑的那个——别的写操作都要先给人看一眼「会改哪些」。
+    ///
+    /// 比的是「目标快照 ↔ 当前工作区」，范围与 [`Self::restore`] 的 pathspec 完全一致
+    /// （两者都走 `checkout_paths`），所以清单里不会出现 `dist/` 这类根本不受影响的东西。
+    pub fn preview_restore(&self, id: &str) -> Result<RestorePreview> {
+        let object = self.repo.revparse_single(id)?;
+        let commit = object.peel_to_commit()?;
+        let tree = commit.tree()?;
+
+        let mut options = DiffOptions::new();
+        // 未跟踪的文件也要算：它们正是「快照之后新建的」，回滚会连它们一起清掉
+        options.include_untracked(true);
+        options.recurse_untracked_dirs(true);
+        for path in self.checkout_paths(&tree) {
+            options.pathspec(path);
+        }
+        let diff = self
+            .repo
+            .diff_tree_to_workdir(Some(&tree), Some(&mut options))?;
+
+        let mut changes = Vec::new();
+        for delta in diff.deltas() {
+            // 方向是「快照 → 现在」，所以现在多出来的是 Added、现在没有的是 Deleted，
+            // 而回滚要做的恰好相反：Added 会被删掉，Deleted 会被找回
+            let kind = match delta.status() {
+                Delta::Added | Delta::Untracked => ChangeKind::Delete,
+                Delta::Deleted => ChangeKind::Recover,
+                _ => ChangeKind::Overwrite,
+            };
+            let path = delta
+                .new_file()
+                .path()
+                .or_else(|| delta.old_file().path())
+                .map(util::to_slash);
+            if let Some(path) = path {
+                changes.push(RestoreChange { path, kind });
+            }
+        }
+        changes.sort_by(|a, b| a.path.cmp(&b.path));
+        changes.dedup();
+
+        let described = self.describe(&commit);
+        Ok(RestorePreview {
+            restored_to: described.id,
+            message: described.message,
+            at: described.at,
+            changes,
+        })
     }
 
     /// 回滚到某个快照。
@@ -388,6 +473,75 @@ mod tests {
 
     fn read(root: &Path, relative: &str) -> String {
         std::fs::read_to_string(root.join(relative)).unwrap()
+    }
+
+    /// 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘。
+    ///
+    /// 回退是这个项目里**唯一还没有干跑的写操作**，而它一次动的东西最多——
+    /// 整个内容目录、模板、配置。别的写操作（搬动、删除、替换、改地址、发布）
+    /// 早就要先给人看一眼，偏偏影响最大的这一个只有一句「这之后的改动会被撤销」。
+    #[test]
+    fn preview_lists_what_a_restore_would_change() {
+        let dir = project();
+        std::fs::write(dir.path().join("content/posts/gone.md"), "会被删掉的\n").unwrap();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+        let first = snapshots.snapshot("起点").unwrap().unwrap();
+
+        // 改一篇、删一篇、加一篇
+        std::fs::write(dir.path().join("content/posts/a.md"), "改过的 A\n").unwrap();
+        std::fs::remove_file(dir.path().join("content/posts/gone.md")).unwrap();
+        std::fs::write(dir.path().join("content/posts/new.md"), "新加的\n").unwrap();
+
+        let preview = snapshots.preview_restore(&first.id).unwrap();
+        assert_eq!(preview.restored_to, first.id);
+
+        let mut kinds: Vec<(&str, ChangeKind)> = preview
+            .changes
+            .iter()
+            .map(|c| (c.path.as_str(), c.kind))
+            .collect();
+        kinds.sort();
+        assert_eq!(
+            kinds,
+            vec![
+                ("content/posts/a.md", ChangeKind::Overwrite),
+                ("content/posts/gone.md", ChangeKind::Recover),
+                ("content/posts/new.md", ChangeKind::Delete),
+            ],
+            "{:?}",
+            preview.changes
+        );
+
+        // 干跑不许碰磁盘，也不许留快照
+        assert_eq!(read(dir.path(), "content/posts/a.md"), "改过的 A\n");
+        assert!(dir.path().join("content/posts/new.md").exists());
+        assert!(!dir.path().join("content/posts/gone.md").exists());
+        assert_eq!(snapshots.list(10).unwrap().len(), 1);
+    }
+
+    /// 回退到「就是现在这一份」时清单是空的：那次回退什么也不会改。
+    #[test]
+    fn previewing_the_current_state_changes_nothing() {
+        let dir = project();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+        let now = snapshots.snapshot("起点").unwrap().unwrap();
+
+        let preview = snapshots.preview_restore(&now.id).unwrap();
+        assert!(preview.changes.is_empty(), "{:?}", preview.changes);
+    }
+
+    /// 产物目录不在跟踪范围里，干跑也不该把它算进去——否则用户会以为回退要动 `dist/`。
+    #[test]
+    fn preview_ignores_the_build_output() {
+        let dir = project();
+        let snapshots = Snapshots::open(&paths(&dir)).unwrap();
+        let first = snapshots.snapshot("起点").unwrap().unwrap();
+
+        std::fs::create_dir_all(dir.path().join("dist")).unwrap();
+        std::fs::write(dir.path().join("dist/index.html"), "<p>产物</p>").unwrap();
+
+        let preview = snapshots.preview_restore(&first.id).unwrap();
+        assert!(preview.changes.is_empty(), "{:?}", preview.changes);
     }
 
     #[test]

@@ -10,7 +10,7 @@ use staticsmith_core::batch::{
 use staticsmith_core::build::{BuildMode, BuildPlan, BuildReport};
 use staticsmith_core::content::FrontMatter;
 use staticsmith_core::graph::TemplateNode;
-use staticsmith_core::history::{Restored, Snapshot, Snapshots};
+use staticsmith_core::history::{RestorePreview, Restored, Snapshot, Snapshots};
 use staticsmith_core::import::{Candidate as ImportCandidate, Report as ImportReport};
 use staticsmith_core::index::{AssetRecord, BuildRecord};
 use staticsmith_core::links::Report as LinkReport;
@@ -1368,6 +1368,16 @@ fn page_summaries(builder: &staticsmith_core::Builder) -> Vec<PageSummary> {
 pub fn list_snapshots(state: State<'_, AppState>, limit: Option<usize>) -> Result<Vec<Snapshot>> {
     let limit = limit.unwrap_or(50).clamp(1, 200);
     state.with_session(|session| Ok(Snapshots::open(&session.builder.paths)?.list(limit)?))
+}
+
+/// 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘、不留快照。
+///
+/// 回退一次动的东西比任何别的写操作都多（整个内容目录、模板、配置），却曾是唯一
+/// 只有一句文字说明、没有清单的那个。别的写操作（搬动、删除、替换、改地址、发布）
+/// 都要先给人看一眼「会改哪些」。
+#[tauri::command]
+pub fn preview_restore(state: State<'_, AppState>, id: String) -> Result<RestorePreview> {
+    state.with_session(|session| Ok(Snapshots::open(&session.builder.paths)?.preview_restore(&id)?))
 }
 
 /// 回退到某个快照。

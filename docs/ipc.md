@@ -130,7 +130,9 @@ JSON-RPC 错误，端点继续活着。
 ## 内容快照
 
 - `list_snapshots(limit?) -> Snapshot[]`：最新在前，`limit` 省略给 50、上限 200
+- `preview_restore(id) -> RestorePreview`：干跑一次回退，不碰磁盘、不留快照
 - `restore_snapshot(id) -> Restored`：回退到某一份
+
 
 `Snapshot` 字段：`id`（短哈希）、`message`（触发它的操作标识符）、`at`（RFC3339）。
 `message` 存的是标识符而不是中文：界面与 Agent 共用一条历史，标识符是两边唯一都能
@@ -146,6 +148,13 @@ JSON-RPC 错误，端点继续活着。
 内存里是新配置，随后的构建会拿着错的 `base_url` 与输出目录跑。
 
 产物不动：回退只改源文件，`dist/` 还是回退前那次构建的结果，要重新生成一次。
+
+`RestorePreview` 字段：`restored_to`、`message`、`at`、`changes`（`{path, kind}[]`，
+`kind` 是 `overwrite` / `delete` / `recover`）。`delete` 是「快照之后新建的，会被删掉」——
+回退用 `force` 签出，只回一半的「回到那一刻」不算回退。范围与真回退的 pathspec 一致，
+所以清单里不会出现 `dist/` 这类不受影响的东西。对话框在确认那一步调它，
+`changes` 为空时确认按钮置灰（那一下点了也没有任何结果）。
+
 
 快照由破坏性操作自动留下，机制见 [MCP 服务](mcp.md) 与 `staticsmith_core::history`。
 

@@ -101,10 +101,15 @@ Agent 误删内容或误发布线上站点的代价，远高于少几个工具�
 所以安全网不能只靠预览。
 
 - `list_snapshots`：看有哪些快照（`limit` 默认 20，最新在前）
-- `restore_snapshot`：把内容、模板、主题、静态资源恢复成某个快照的样子
+- `restore_snapshot`：把内容、模板、主题、静态资源恢复成某个快照的样子。
+  **默认 `dry_run = true`**：先回传 `changes`（`{path, kind}`，`kind` 为
+  `overwrite` / `delete` / `recover`），确认之后带 `dry_run: false` 才真回退。
+  与 `deploy_site` 同一条约定——回退一次动的是整个内容目录，少写一个参数就把整站换掉，
+  是这套工具里代价最大的一种手滑
 
 回退**前**的状态也会先存一份，id 在返回的 `previous` 里——所以回退错了还能再回退回来，
 历史只增不改。回退只动源文件，`dist/` 不管，之后要 `build_site` 让产物跟上。
+
 
 快照存在 `.staticsmith/history.git`，是一个**独立于用户自己 git 仓库**的影子仓库：
 工作树是项目根，但仓库目录在 `.staticsmith` 里，项目根不会出现 `.git`。

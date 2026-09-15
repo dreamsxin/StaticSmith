@@ -882,8 +882,30 @@ export const SNAPSHOT_LIMIT = 200
 export const listSnapshots = (limit?: number) => invoke<Snapshot[]>('list_snapshots', { limit })
 
 
+/** 回退会把某个文件怎么样。 */
+export type RestoreChangeKind = 'overwrite' | 'delete' | 'recover'
+
+export interface RestoreChange {
+  /** 相对项目根的路径 */
+  path: string
+  kind: RestoreChangeKind
+}
+
+/** 干跑一次回退的结果。 */
+export interface RestorePreview {
+  restored_to: string
+  message: string
+  at: string
+  /** 会动的文件。空数组表示这次回退什么也不会改 */
+  changes: RestoreChange[]
+}
+
+/** 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘、不留快照。 */
+export const previewRestore = (id: string) => invoke<RestorePreview>('preview_restore', { id })
+
 /** 回退到某个快照。产物不动，回退完要重新生成才能让 `dist/` 跟上。 */
 export const restoreSnapshot = (id: string) => invoke<Restored>('restore_snapshot', { id })
+
 
 // ---------------------------------------------------------------- 主题包
 

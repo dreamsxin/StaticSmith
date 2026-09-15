@@ -28,6 +28,16 @@ const emit = defineEmits<{ close: [] }>()
 
 /** 选中待确认的那一条。null 表示还在浏览列表。 */
 const picked = ref<string | null>(null)
+/**
+ * 这一条回退的干跑结果：会覆盖、删掉、找回哪些文件。
+ *
+ * 回退一次动的东西比任何别的写操作都多（整个内容目录、模板、配置），
+ * 而它曾是唯一只有一句「这之后的改动会被撤销」、没有清单的那个。
+ */
+const preview = ref<api.RestorePreview | null>(null)
+/** 干跑清单最多列几行。再多在浮层里就要自己滚，而数量已经说清了。 */
+const MAX_LISTED = 8
+
 /** 键盘高亮到第几条（不是选中，选中要按回车）。 */
 const active = ref(0)
 
@@ -62,6 +72,24 @@ const unsaved = computed(() => {
   return ''
 })
 
+/** 三类各几个，用来给出一句能读完的汇总。 */
+const counts = computed(() => {
+  const changes = preview.value?.changes ?? []
+  return {
+    overwrite: changes.filter((c) => c.kind === 'overwrite').length,
+    delete: changes.filter((c) => c.kind === 'delete').length,
+    recover: changes.filter((c) => c.kind === 'recover').length,
+  }
+})
+
+/** 每类的中文说法。只有颜色或英文 kind 的话，这份清单没人读得懂。 */
+const KIND_LABEL: Record<api.RestoreChangeKind, string> = {
+  overwrite: '换回旧版',
+  delete: '删掉',
+  recover: '找回',
+}
+
+
 watch(
   () => props.open,
   async (open) => {
@@ -95,9 +123,21 @@ watch(
  * 那已经在对话框外面，Esc 的 keydown 再也到不了这里，浮层就关不掉了。
  * 「换一份」回到列表时同理。
  */
-watch(picked, async () => {
+watch(picked, async (id) => {
+  preview.value = null
+  if (id) {
+    // 选中即干跑：确认页要说的是「这一条会动哪些文件」，而不是一句泛泛的警告
+    const result = await actions.previewRestore(id)
+    if (!result) {
+      // 干跑失败就不进确认态（同发布面板）：没算出来的东西不能拿去让人确认
+      picked.value = null
+      return
+    }
+    preview.value = result
+  }
   if (props.open) await focusStep()
 })
+
 
 async function focusStep() {
   await nextTick()
@@ -225,14 +265,45 @@ async function confirm() {
           这之后的内容改动会被撤销。撤销掉的状态本身也会先存成一份快照，
           所以回退错了还能再回退回来。
         </p>
+
+        <!-- 干跑清单：回退动的是整个内容目录，不列出来就只能靠信任 -->
+        <template v-if="preview">
+          <p v-if="!preview.changes.length" class="dialog__desc">
+            这次回退<strong>不会改动任何文件</strong>——磁盘上就是那一份了。
+          </p>
+          <template v-else>
+            <p class="dialog__desc">
+              会动 {{ preview.changes.length }} 个文件：换回旧版 {{ counts.overwrite }} 个、
+              删掉 {{ counts.delete }} 个、找回 {{ counts.recover }} 个。
+            </p>
+            <ul class="snapshots snapshot__changes">
+              <li v-for="item in preview.changes.slice(0, MAX_LISTED)" :key="item.path">
+                <code>{{ item.path }}</code>
+                <span :class="`snapshot__kind snapshot__kind--${item.kind}`">
+                  {{ KIND_LABEL[item.kind] }}
+                </span>
+              </li>
+              <li v-if="preview.changes.length > MAX_LISTED" class="skip">
+                另有 {{ preview.changes.length - MAX_LISTED }} 个未列出
+              </li>
+            </ul>
+          </template>
+        </template>
+
         <p v-if="unsaved" class="dialog__desc snapshot__warn">
           编辑器里有未保存的{{ unsaved }}改动，回退会让它作废。
         </p>
 
-        <button ref="confirmButton" type="button" :disabled="store.busy" @click="confirm">
+        <button
+          ref="confirmButton"
+          type="button"
+          :disabled="store.busy || preview?.changes.length === 0"
+          @click="confirm"
+        >
           确认回退
         </button>
         <button type="button" class="dialog__cancel" @click="picked = null">换一份</button>
+
       </template>
     </div>
   </div>

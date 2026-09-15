@@ -410,7 +410,18 @@ export const actions = {
    * 失败也要亮出「重新读取」的横幅：Rust 侧的失败可能发生在**签出之后**
    * （磁盘已经变了，只是重开项目失败），那时界面上的一切都不再对应磁盘。
    */
+  /**
+   * 干跑一次回退：会覆盖、删掉、找回哪些文件。不碰磁盘。
+   *
+   * 回退一次动的东西比任何别的写操作都多，却曾是唯一只有一句文字说明、
+   * 没有清单的那个。对话框在确认那一步调它。
+   */
+  async previewRestore(id: string) {
+    return await run(() => api.previewRestore(id))
+  },
+
   async restoreSnapshot(id: string) {
+
     await busySpan(async () => {
       const restored = await run(() => api.restoreSnapshot(id))
       if (!restored) {
