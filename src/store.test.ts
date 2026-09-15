@@ -233,3 +233,172 @@ describe('store 的未保存确认流', () => {
   })
 })
 
+/**
+ * 批量动作的收尾汇总。
+ *
+ * 批量动作**没有撤销栈**，所以这条汇总是唯一的补偿：它是用户判断「要不要去 Git 里回滚」
+ * 的全部依据。三件事以前只写在注释里：一篇都没动时不许报成功（「已处理 0 篇」配一个绿勾
+ * 等于说做完了）、跳过的原因要按种类说全、以及被跳过的每一篇都得能事后查到。
+ */
+describe('store 的批量收尾汇总', () => {
+  const plan = { pages: [], orphaned_pages: [], reason: '内容已改' } as never
+
+  beforeEach(() => {
+    results.clear()
+    vi.clearAllMocks()
+    actions.clearNotices()
+  })
+
+  const last = () => store.notices[0]
+
+  it('全都做成了：报成功，说清几篇', async () => {
+    await actions.afterBatch(3, [], plan)
+    expect(last()).toMatchObject({ level: 'success', message: '已处理 3 篇' })
+  })
+
+  it('一篇都没动也没跳过时不许报成功：绿勾配「已处理 0 篇」等于说做完了', async () => {
+    await actions.afterBatch(0, [], plan)
+    expect(last().level).toBe('info')
+    expect(last().message).toContain('没有需要改的')
+  })
+
+  it('有跳过的：一条 info 里说清做成几篇、跳过几篇、都是什么原因', async () => {
+    await actions.afterBatch(
+      2,
+      [
+        { source: 'posts/a.md', reason: '目标已存在' },
+        { source: 'posts/b.md', reason: 'front matter 读不出来' },
+        { source: 'posts/c.md', reason: 'front matter 读不出来' },
+      ],
+      plan,
+    )
+
+    expect(last().level).toBe('info')
+    expect(last().message).toBe(
+      '已处理 2 篇；跳过 3 篇：2 篇「front matter 读不出来」、1 篇「目标已存在」',
+    )
+  })
+
+  it('被跳过的每一篇都进通知历史的详情：汇总只有一行，而「是哪几篇」得查得到', async () => {
+    await actions.afterBatch(
+      1,
+      [
+        { source: 'posts/a.md', reason: '目标已存在' },
+        { source: 'posts/b.md', reason: '目标已存在' },
+      ],
+      plan,
+    )
+
+    expect(last().details).toEqual(['posts/a.md：目标已存在', 'posts/b.md：目标已存在'])
+  })
+
+  it('一篇都没做成就是错误，不是提示', async () => {
+    await actions.afterBatch(0, [{ source: 'posts/a.md', reason: '目标已存在' }], plan)
+    expect(last().level).toBe('error')
+  })
+
+  it('调用方可以换掉「已处理 N 篇」那句：替换要说清共几处', async () => {
+    await actions.afterBatch(1, [], plan, '替换了 1 篇里的 4 处')
+    expect(last()).toMatchObject({ level: 'success', message: '替换了 1 篇里的 4 处' })
+  })
+
+  it('顺手把新计划写进状态：改完不重新生成的话，界面得标出「待生成」', async () => {
+    await actions.afterBatch(1, [], plan)
+    expect(store.plan).toMatchObject({ reason: '内容已改' })
+  })
+})
+
+/**
+ * 一行装不下的消息。
+ *
+ * 气泡里只放得下一行，所以这些出口都做了截断（「N 条生成警告：第一条 等」）。
+ * 截断本身没问题，问题是**被截掉的部分以前没有任何落点**：用户读到「另有 3 篇同样没改成」
+ * 之后无处可查，只能自己去 grep 全站。现在整份清单进通知历史的详情。
+ */
+describe('store 把截断掉的那部分留进详情', () => {
+  const plan = { pages: [], orphaned_pages: [], reason: '内容已改' } as never
+
+  beforeEach(() => {
+    results.clear()
+    vi.clearAllMocks()
+    actions.clearNotices()
+  })
+
+  const noticeWith = (part: string) => store.notices.find((n) => n.message.includes(part))!
+
+  it('生成警告：气泡里只留一条，全部进详情', async () => {
+    results.set('runBuild', {
+      pages_rendered: 1,
+      files_written: 1,
+      duration_ms: 5,
+      phases: {},
+      warnings: ['posts/a.md: 缺描述', 'posts/b.md: 图片没有 alt', 'posts/c.md: 标题过长'],
+    })
+
+    await actions.build('full')
+
+    const notice = noticeWith('3 条生成警告')
+    expect(notice.level).toBe('info')
+    expect(notice.details).toEqual([
+      'posts/a.md: 缺描述',
+      'posts/b.md: 图片没有 alt',
+      'posts/c.md: 标题过长',
+    ])
+  })
+
+  it('只有一条警告时不摆详情：那条已经整句显示了', async () => {
+    results.set('runBuild', {
+      pages_rendered: 1,
+      files_written: 1,
+      duration_ms: 5,
+      phases: {},
+      warnings: ['posts/a.md: 缺描述'],
+    })
+
+    await actions.build('full')
+    expect(noticeWith('缺描述').details).toBeUndefined()
+  })
+
+  it('改地址时没改成的引用：每一篇都进详情，地址已经变了，这些链接还指着旧的', async () => {
+    // 用一篇没打开的文章：改地址对**当前打开且有未保存改动**的那一篇会先拒绝，
+    // 而那条规则有它自己的测试，这里要验的是失败清单
+    results.set('changeSlug', {
+      source: 'posts/z.md',
+      from_url: '/posts/z/',
+      to_url: '/posts/zz/',
+      alias_added: true,
+      refs_updated: [],
+      refs_failed: [
+        { source: 'posts/x.md', reason: 'front matter 读不出来' },
+        { source: 'posts/y.md', reason: 'front matter 读不出来' },
+      ],
+      plan,
+    })
+
+    await actions.changeSlug('posts/z.md', 'zz')
+
+
+    const notice = noticeWith('没能改写')
+    expect(notice.level).toBe('error')
+    expect(notice.details).toEqual([
+      'posts/x.md：front matter 读不出来',
+      'posts/y.md：front matter 读不出来',
+    ])
+  })
+
+  it('导入内容：「N 处需要人看一下」得说得出是哪几处', async () => {
+    results.set('importContent', {
+      imported: ['posts/a.md'],
+      skipped: [],
+      warnings: ['old/a.md: 日期认不出来', 'old/b.md: 没有标题'],
+    })
+
+    await actions.importContent('/tmp/old', 'posts')
+
+    const notice = noticeWith('需要人看一下')
+    expect(notice.details).toEqual(['old/a.md: 日期认不出来', 'old/b.md: 没有标题'])
+  })
+})
+
+
+

@@ -76,7 +76,16 @@ watch(
             {{ LEVEL_LABEL[notice.level] }}
           </span>
           <span class="notice__text">{{ notice.message }}</span>
+          <!-- 明细默认收起，用原生 <details>：键盘与读屏器的展开行为不用自己实现一遍。
+               批量动作跳过了哪几篇只有这里查得到——气泡里只放得下一行汇总 -->
+          <details v-if="notice.details?.length" class="notice__details">
+            <summary>明细（{{ notice.details.length }} 条）</summary>
+            <ul>
+              <li v-for="(line, index) in notice.details" :key="index">{{ line }}</li>
+            </ul>
+          </details>
         </li>
+
       </ul>
 
       <div class="dialog__actions">

@@ -1635,6 +1635,26 @@ kbd {
   word-break: break-word;
 }
 
+/* 明细：跟正文对齐（第三列），默认收起。批量动作跳过的每一篇都在这里，
+   而它常常有十几行——摊开会把整份历史挤成一份日志 */
+.notice__details {
+  grid-column: 3;
+  color: var(--fg-muted);
+}
+
+.notice__details summary {
+  cursor: pointer;
+}
+
+.notice__details ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
+  max-height: 12rem;
+  overflow-y: auto;
+  word-break: break-word;
+}
+
+
 
 
 .editor__dirty {

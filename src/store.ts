@@ -9,6 +9,8 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
 import { appendNotice, type Notice } from './notices'
+import { summarizeSkips } from './skips'
+
 import type {
   AssetRecord,
   BuildMode,
@@ -193,16 +195,26 @@ let toastId = 0
  * 同时进历史（`state.notices`）：toast 是瞬时出口，几秒后就没了，而「刚才那条错误
  * 到底说了什么」经常要事后再看一遍——手改配置存盘失败时，Rust 侧那条带行列号的
  * TOML 报错飘走之后就无处可查了。
+ *
+ * `details` 只进历史、不进气泡：一行装不下的东西（被跳过的每一篇）塞进气泡也读不完，
+ * 而它恰恰是事后要查的那部分。
  */
-function notify(kind: ToastKind, message: string) {
+function notify(kind: ToastKind, message: string, details?: string[]) {
   const id = ++toastId
   state.toasts.push({ id, kind, message })
-  state.notices = appendNotice(state.notices, { id, level: kind, message, at: Date.now() })
+  state.notices = appendNotice(state.notices, {
+    id,
+    level: kind,
+    message,
+    at: Date.now(),
+    ...(details?.length ? { details } : {}),
+  })
   const ttl = kind === 'error' ? 8000 : 3500
   setTimeout(() => {
     state.toasts = state.toasts.filter((t) => t.id !== id)
   }, ttl)
 }
+
 
 /**
  * 统一的错误处理与 busy 标记，避免每个组件各写一遍 try/catch。
@@ -438,7 +450,10 @@ export const actions = {
       warned > 0
         ? `导入 ${report.imported.length} 篇，${warned} 处需要人看一下`
         : `导入 ${report.imported.length} 篇`,
+      // 「N 处需要人看一下」得说得出是哪几处，否则这句话只制造焦虑
+      report.warnings,
     )
+
     await this.refresh()
     await this.loadSections()
     await this.recomputePlan()
@@ -514,14 +529,16 @@ export const actions = {
 
       // 「改了几篇」不总是最有用的那句话（替换要说清共几处），所以允许调用方换掉它
       const done = summary ?? `已处理 ${changed} 篇`
+      const skip = summarizeSkips(skipped)
       if (skipped.length === 0) {
-        notify('success', done)
+        // 一篇都没动却报成功，等于说「做完了」：绿勾配「已处理 0 篇」谁也不会去查为什么
+        if (changed === 0 && summary === undefined) notify('info', '没有需要改的，什么都没动')
+        else notify('success', done)
         return
       }
-      // 只报第一条原因：十几条堆在提示里没人看，剩下的数量给出来就够了
-      const first = `${skipped[0].source}：${skipped[0].reason}`
-      const rest = skipped.length > 1 ? `，另有 ${skipped.length - 1} 篇被跳过` : ''
-      notify(changed > 0 ? 'info' : 'error', `${done}；跳过 ${first}${rest}`)
+      // 汇总只有一行（气泡读得完），被跳过的每一篇进详情，事后能在消息中心里查
+      notify(changed > 0 ? 'info' : 'error', `${done}；${skip.message}`, skip.details)
+
     })
   },
 
@@ -625,13 +642,18 @@ export const actions = {
     }
 
     // 引用没改成的必须报出来：地址已经改了，这几条链接还指着旧的。
-    // 一条讲完（同批量结果的约定）：十几条堆在通知里没人看
+    // 一条讲完（同批量结果的约定），被截掉的那几篇进详情——否则「另有 N 篇」无处可查
     if (report.refs_failed.length > 0) {
       const first = report.refs_failed[0]
       const rest =
         report.refs_failed.length > 1 ? `，另有 ${report.refs_failed.length - 1} 篇同样没改成` : ''
-      notify('error', `${first.source} 里的链接没能改写：${first.reason}${rest}`)
+      notify(
+        'error',
+        `${first.source} 里的链接没能改写：${first.reason}${rest}`,
+        report.refs_failed.map((item) => `${item.source}：${item.reason}`),
+      )
     }
+
 
     const alias = report.alias_added ? '，旧地址已保留（构建后是重定向页）' : ''
     const hits = report.refs_updated.reduce((sum, item) => sum + item.hits, 0)
@@ -1239,11 +1261,17 @@ export const actions = {
           `生成完成：${report.pages_rendered} 个页面 / ${report.files_written} 个文件，${report.duration_ms} ms`,
         )
       }
-      // 警告合并成一条：逐条弹的话，一次生成能把通知区刷满一屏（违 6.8）
+      // 警告合并成一条：逐条弹的话，一次生成能把通知区刷满一屏（违 6.8）。
+      // 被截掉的那些进详情，否则「N 条警告」里除第一条外无处可查
       if (report.warnings.length === 1) notify('info', report.warnings[0])
       else if (report.warnings.length > 1) {
-        notify('info', `${report.warnings.length} 条生成警告：${report.warnings[0]} 等`)
+        notify(
+          'info',
+          `${report.warnings.length} 条生成警告：${report.warnings[0]} 等`,
+          report.warnings,
+        )
       }
+
     })
   },
 
