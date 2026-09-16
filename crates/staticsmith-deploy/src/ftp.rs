@@ -32,6 +32,16 @@ pub trait RemoteFs {
     fn mkdir(&mut self, path: &str) -> Result<()>;
     /// 上传单个文件。
     fn upload(&mut self, local: &Path, remote: &str) -> Result<()>;
+    /// 重新建立连接。默认什么也不做（本地/内存实现用不着）。
+    ///
+    /// **重试前必须先叫它。** 上传失败最常见的原因就是连接本身坏了——控制连接被
+    /// 服务器按空闲超时踢掉、NAT 会话过期、网络切换。拿同一条坏连接重试三次，
+    /// 三次都会失败：那样的重试「看着有、其实没有」，还白等两轮退避。
+    ///
+    /// 失败不算致命：接着用旧连接再试一次上传，让上传自己的错误去决定成败。
+    fn reconnect(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// 算出这次同步会传什么。只读远端，不写一个字节。
@@ -167,14 +177,20 @@ fn upload_with_retry(
             Ok(()) => return Ok(()),
             Err(err) if attempt >= UPLOAD_ATTEMPTS => return Err(err),
             Err(err) => {
-                tracing::warn!("上传 {remote} 第 {attempt} 次失败，准备重试: {err}");
+                tracing::warn!("上传 {remote} 第 {attempt} 次失败，准备重连后重试: {err}");
                 attempt += 1;
                 progress(Progress {
-                    message: format!("上传 {remote} 失败，第 {attempt} 次尝试"),
+                    message: format!("上传 {remote} 失败，重连后第 {attempt} 次尝试"),
                     current,
                     total,
                 });
                 std::thread::sleep(RETRY_PAUSE);
+                // 先重连再重试：失败最常见的原因就是这条连接已经坏了。
+                // 重连本身失败也接着试上传——让上传的错误去决定成败，
+                // 而不是在这里把「重连失败」当成最终原因报出去（那句话对用户没用）。
+                if let Err(reconnect_err) = fs.reconnect() {
+                    tracing::warn!("重连失败，继续用旧连接重试: {reconnect_err}");
+                }
             }
         }
     }
@@ -265,11 +281,13 @@ mod plain {
         }
     }
 
-    struct FtpFs {
+    struct FtpFs<'a> {
         stream: FtpStream,
+        /// 重连要用的那份连接参数。借用而不是复制：参数的唯一来源是 deployer 自己。
+        deployer: &'a FtpDeployer,
     }
 
-    impl RemoteFs for FtpFs {
+    impl RemoteFs for FtpFs<'_> {
         fn stat(&mut self, path: &str) -> Result<Option<RemoteEntry>> {
             let Ok(size) = self.stream.size(path) else {
                 return Ok(None); // 550：文件不存在
@@ -299,6 +317,14 @@ mod plain {
                 .map(|_| ())
                 .map_err(|e| Error::Ftp(format!("上传 {remote}: {e}")))
         }
+
+        fn reconnect(&mut self) -> Result<()> {
+            // 旧连接可能只是半死（控制连接还在、数据连接超时），先礼貌关一下，
+            // 失败无所谓——它已经不可信了。
+            let _ = self.stream.quit();
+            self.stream = self.deployer.connect()?;
+            Ok(())
+        }
     }
 
     impl Deployer for FtpDeployer {
@@ -309,6 +335,7 @@ mod plain {
         ) -> Result<DeployReport> {
             let mut fs = FtpFs {
                 stream: self.connect()?,
+                deployer: self,
             };
             let target = format!("ftp://{}{}", self.host, self.remote_path);
             let report = sync(&mut fs, dist_dir, &target, self.overwrite, progress);
@@ -319,6 +346,7 @@ mod plain {
         fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
             let mut fs = FtpFs {
                 stream: self.connect()?,
+                deployer: self,
             };
             let target = format!("ftp://{}{}", self.host, self.remote_path);
             let planned = plan(&mut fs, dist_dir, &target, self.overwrite, progress);
@@ -411,18 +439,20 @@ mod secure {
         }
     }
 
-    struct SftpFs {
+    struct SftpFs<'a> {
         sftp: ssh2::Sftp,
         base: PathBuf,
+        /// 重连要用的那份连接参数。借用而不是复制：参数的唯一来源是 deployer 自己。
+        deployer: &'a SftpDeployer,
     }
 
-    impl SftpFs {
+    impl SftpFs<'_> {
         fn absolute(&self, path: &str) -> PathBuf {
             self.base.join(path)
         }
     }
 
-    impl RemoteFs for SftpFs {
+    impl RemoteFs for SftpFs<'_> {
         fn stat(&mut self, path: &str) -> Result<Option<RemoteEntry>> {
             match self.sftp.stat(&self.absolute(path)) {
                 Ok(stat) => Ok(Some(RemoteEntry {
@@ -445,6 +475,12 @@ mod secure {
             file.write_all(&data)
                 .map_err(|e| Error::io(self.absolute(remote), e))
         }
+
+        fn reconnect(&mut self) -> Result<()> {
+            // ssh2 的 Sftp 句柄绑在 Session 上，重开一条会话即可；旧的随句柄一起丢掉。
+            self.sftp = self.deployer.session()?.sftp()?;
+            Ok(())
+        }
     }
 
     impl Deployer for SftpDeployer {
@@ -457,6 +493,7 @@ mod secure {
             let mut fs = SftpFs {
                 sftp: session.sftp()?,
                 base: PathBuf::from(&self.remote_path),
+                deployer: self,
             };
             let target = format!("sftp://{}{}", self.host, self.remote_path);
             sync(&mut fs, dist_dir, &target, self.overwrite, progress)
@@ -467,6 +504,7 @@ mod secure {
             let mut fs = SftpFs {
                 sftp: session.sftp()?,
                 base: PathBuf::from(&self.remote_path),
+                deployer: self,
             };
             let target = format!("sftp://{}{}", self.host, self.remote_path);
             plan(&mut fs, dist_dir, &target, self.overwrite, progress)
@@ -498,6 +536,12 @@ mod tests {
         flaky: BTreeMap<String, usize>,
         /// 每个路径实际被尝试上传了几次。
         attempts: BTreeMap<String, usize>,
+        /// 连接已经坏了：所有上传都失败，直到重连。
+        dead: bool,
+        /// 重连被调用了几次。
+        reconnects: usize,
+        /// 重连本身也失败（模拟服务器整个不见了）。
+        reconnect_fails: bool,
     }
 
     impl RemoteFs for FakeRemote {
@@ -517,6 +561,9 @@ mod tests {
 
         fn upload(&mut self, local: &Path, remote: &str) -> Result<()> {
             *self.attempts.entry(remote.to_string()).or_default() += 1;
+            if self.dead {
+                return Err(Error::Ftp(format!("连接已断开: {remote}")));
+            }
             if let Some(left) = self.flaky.get_mut(remote) {
                 if *left > 0 {
                     *left = left.saturating_sub(1);
@@ -526,6 +573,15 @@ mod tests {
             let size = std::fs::metadata(local).unwrap().len();
             self.files.insert(remote.to_string(), (size, None));
             self.uploads.push(remote.to_string());
+            Ok(())
+        }
+
+        fn reconnect(&mut self) -> Result<()> {
+            self.reconnects += 1;
+            if self.reconnect_fails {
+                return Err(Error::Ftp("重连失败：连不上".to_string()));
+            }
+            self.dead = false;
             Ok(())
         }
     }
@@ -766,6 +822,52 @@ mod tests {
             Some(&1),
             "别的文件不该被牵连着重传"
         );
+    }
+
+    /// 重试之前必须先重连，否则这套重试在最需要它的场景下必然无效。
+    ///
+    /// 上传失败最常见的原因就是连接本身坏了（控制连接被空闲超时踢掉、NAT 会话过期、
+    /// 网络切换）。拿同一条坏连接重试三次，三次都会失败——那样的重试「看着有、其实没有」，
+    /// 还白等两轮退避。
+    #[test]
+    fn a_broken_connection_is_rebuilt_before_retrying() {
+        let dir = dist();
+        let mut remote = FakeRemote {
+            dead: true,
+            ..FakeRemote::default()
+        };
+
+        let report = sync_default(&mut remote, dir.path(), "t").unwrap();
+
+        assert_eq!(remote.reconnects, 1, "只该重连一次：一次就把连接修好了");
+        assert_eq!(report.uploaded.len(), 3, "重连之后三个都要传上去");
+        // 第一个文件失败一次、重连后成功，所以它被尝试了两次；后面的都是一次过
+        assert_eq!(remote.attempts.get("index.html"), Some(&2));
+        assert_eq!(remote.attempts.get("posts/index.html"), Some(&1));
+    }
+
+    /// 重连失败不许盖住真正的原因。
+    ///
+    /// 用户要的答案是「上传为什么失败、传到哪儿了」，而不是「重连也失败了」——
+    /// 后者只是我们自救过程中的一个中间状态。
+    #[test]
+    fn a_failed_reconnect_does_not_replace_the_upload_error() {
+        let dir = dist();
+        let mut remote = FakeRemote {
+            dead: true,
+            reconnect_fails: true,
+            ..FakeRemote::default()
+        };
+
+        let err = sync_default(&mut remote, dir.path(), "t")
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("连接已断开"), "{err}");
+        assert!(!err.contains("重连失败"), "{err}");
+        // 仍然按 UPLOAD_ATTEMPTS 试满，并且每次都试着重连
+        assert_eq!(remote.attempts.get("index.html"), Some(&UPLOAD_ATTEMPTS));
+        assert_eq!(remote.reconnects, UPLOAD_ATTEMPTS - 1);
     }
 
     /// 重试用尽之后，错误要说清「传到哪儿了」。
