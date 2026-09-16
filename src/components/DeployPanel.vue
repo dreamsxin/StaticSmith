@@ -157,13 +157,39 @@ async function removeSecret() {
 
     <div class="deploy__panel">
       <h3>执行发布</h3>
-      <button v-if="!pending" type="button" :disabled="store.busy" @click="askDeploy">
+      <button
+        v-if="!pending && !store.deployPhase"
+        type="button"
+        :disabled="store.busy"
+        @click="askDeploy"
+      >
         一键发布…
       </button>
 
+      <!-- 发布中 / 干跑中：都能停下来。上传逐文件进行，文件之间的边界本来就不是原子的，
+           所以停止是安全的——当前文件要么整个传完、要么根本没开始（见 docs/deploy.md）。
+           两个阶段停下来的后果不同，所以话也不一样 -->
+      <div v-if="store.deployPhase" class="deploy__confirm">
+        <p class="deploy__confirm-head">
+          {{ store.deployPhase === 'plan' ? '正在比对远端，算这次会传什么…' : '正在发布…' }}
+        </p>
+        <p class="build__muted">
+          {{
+            store.deployPhase === 'plan'
+              ? '比对只读远端，停下来什么也不会改，但也不会给出清单——半份清单会被当成完整的看。'
+              : '停止会在当前这个文件传完之后生效，不会留下半个文件；已经传上去的那些下次发布会跳过。'
+          }}
+        </p>
+        <div class="deploy__actions">
+          <button type="button" :disabled="store.deployStopping" @click="actions.stopDeploy()">
+            {{ store.deployStopping ? '正在停止…' : '停止' }}
+          </button>
+        </div>
+      </div>
+
       <!-- 落盘前的确认：这是唯一影响线上的动作，别的动作改错了还能在本地改回来。
            就地确认而不是浮层——清单要和目标、覆盖规则同时看得见（见 docs/ui.md） -->
-      <div v-else class="deploy__confirm">
+      <div v-else-if="pending" class="deploy__confirm">
         <p class="deploy__confirm-head">
           将发布到 <strong>{{ pending.target }}</strong>
         </p>
@@ -195,6 +221,11 @@ async function removeSecret() {
       </div>
 
       <template v-if="store.lastDeploy">
+        <!-- 「停了」和「发完了」必须一眼分得出来：两者的上传数都可能是 12，
+             但一个是全部、一个是一半 -->
+        <p v-if="store.lastDeploy.cancelled" class="warn">
+          上次发布是被停止的，不是发完了。
+        </p>
         <ul class="build__stats">
           <li>目标：{{ store.lastDeploy.target }}</li>
           <li>上传：{{ store.lastDeploy.uploaded.length }} 个文件</li>

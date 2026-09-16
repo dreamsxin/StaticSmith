@@ -1153,7 +1153,11 @@ fn deploy_site(builder: &mut Builder, args: &Value) -> Result<String, String> {
     deployer.check().map_err(|e| e.to_string())?;
 
     let mut log = Vec::new();
-    let mut on_progress = |p: staticsmith_deploy::Progress| log.push(p.message);
+    // Agent 那一侧没有「停止」按钮，也没有人守在旁边：一次调用要么跑完要么报错。
+    let mut on_progress = |p: staticsmith_deploy::Progress| {
+        log.push(p.message);
+        staticsmith_deploy::Flow::Continue
+    };
 
     // 默认干跑。发布是唯一影响线上的动作，Agent 拿不到「就地确认」那一步，
     // 所以把确认前移成一次显式的 dry_run: false。

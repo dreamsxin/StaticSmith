@@ -16,7 +16,7 @@ use staticsmith_core::history::{ChangeKind, RestorePreview, Snapshots};
 use staticsmith_core::scaffold::Preset;
 use staticsmith_core::skips::Skipped;
 use staticsmith_core::{scaffold, Builder, NewContent, PreviewServer};
-use staticsmith_deploy::{DeployReport, Progress};
+use staticsmith_deploy::{DeployReport, Flow, Progress};
 use staticsmith_mcp::{McpServer, Permissions};
 
 #[derive(Debug, Parser)]
@@ -1237,12 +1237,16 @@ fn cmd_deploy(project: &PathBuf, check_only: bool, dry_run: bool, build_first: b
         return Ok(());
     }
 
+    // CLI 这条路目前永远回答「继续」：命令行里没有「停止」按钮，
+    // Ctrl-C 仍然是硬杀（那会留下一个没有报告的「一半新一半旧」）。
+    // 要让 Ctrl-C 变成一次干净的停止，得引入信号处理，见 docs/deploy.md。
     let mut on_progress = |p: Progress| {
         if p.total > 0 {
             println!("[{}/{}] {}", p.current, p.total, p.message);
         } else {
             println!("{}", p.message);
         }
+        Flow::Continue
     };
 
     // 干跑：会传什么、跳过几个、多少字节。发布是唯一影响线上的动作，

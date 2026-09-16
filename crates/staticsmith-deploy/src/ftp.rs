@@ -9,7 +9,9 @@ use std::time::{Duration, Instant};
 use staticsmith_core::config::FtpOverwrite;
 
 use crate::manifest::{self, RemoteEntry};
-use crate::{ensure_output_ready, DeployPlan, DeployReport, Error, Progress, Result};
+use crate::{
+    ensure_output_ready, DeployPlan, DeployReport, Error, Flow, Progress, ProgressFn, Result,
+};
 
 /// 单个文件的上传尝试次数。
 ///
@@ -47,16 +49,19 @@ pub trait RemoteFs {
 /// 算出这次同步会传什么。只读远端，不写一个字节。
 ///
 /// `sync` 与 `plan` 共用它：两处各算一遍，迟早出现「预览说传 3 个、实际传 30 个」。
+///
+/// 第三个返回值是比对阶段那一次进度回调的答复：比对本身也可能要查上千次远端状态，
+/// 用户在这期间点「停止」，两边（真发布 / 干跑）各自决定怎么收场。
 fn compute(
     fs: &mut dyn RemoteFs,
     dist_dir: &Path,
     overwrite: FtpOverwrite,
-    progress: &mut dyn FnMut(Progress),
-) -> Result<(Vec<manifest::LocalEntry>, manifest::SyncPlan)> {
+    progress: ProgressFn<'_>,
+) -> Result<(Vec<manifest::LocalEntry>, manifest::SyncPlan, Flow)> {
     ensure_output_ready(dist_dir)?;
 
     let local = manifest::scan(dist_dir)?;
-    progress(Progress {
+    let flow = progress(Progress {
         message: format!("比对远端状态（{} 个文件）", local.len()),
         current: 0,
         total: local.len(),
@@ -64,7 +69,7 @@ fn compute(
 
     // 「总是上传」不必逐个 stat：省下 N 次往返，这正是选它的人想要的确定性。
     let mut remote = Vec::new();
-    if overwrite != FtpOverwrite::Always {
+    if overwrite != FtpOverwrite::Always && flow != Flow::Stop {
         for entry in &local {
             if let Some(found) = fs.stat(&entry.path)? {
                 remote.push(found);
@@ -73,7 +78,7 @@ fn compute(
     }
 
     let plan = manifest::plan_sync(&local, &remote, overwrite);
-    Ok((local, plan))
+    Ok((local, plan, flow))
 }
 
 /// 干跑：会传哪些文件、跳过几个、总共多少字节。
@@ -86,9 +91,15 @@ pub fn plan(
     dist_dir: &Path,
     target: &str,
     overwrite: FtpOverwrite,
-    progress: &mut dyn FnMut(Progress),
+    progress: ProgressFn<'_>,
 ) -> Result<DeployPlan> {
-    let (local, plan) = compute(fs, dist_dir, overwrite, progress)?;
+    let (local, plan, flow) = compute(fs, dist_dir, overwrite, progress)?;
+    if flow.is_stop() {
+        // 干跑停下来只能是错误：一份少了一半的清单在界面上和完整清单长得一样。
+        return Err(Error::Cancelled(
+            "发布预览已按要求停止，因此不给出清单：残缺的清单会被当成完整的预览来读".to_string(),
+        ));
+    }
     let mut warnings = vec![if overwrite == FtpOverwrite::Always {
         "覆盖规则是「总是覆盖」，因此没有查询远端状态：远端已有的同名文件都会被覆盖".to_string()
     } else {
@@ -118,72 +129,123 @@ pub fn plan(
 ///
 /// 远端多余文件不会被删除——静态站点常混有手工上传的资源，
 /// 静默删除的代价远高于留下少量陈旧文件。
+///
+/// `progress` 返回 [`Flow::Stop`] 时在**文件边界**停下：当前这个文件要么整个传完、
+/// 要么根本没开始传，绝不留下半个文件。
 pub fn sync(
     fs: &mut dyn RemoteFs,
     dist_dir: &Path,
     target: &str,
     overwrite: FtpOverwrite,
-    progress: &mut dyn FnMut(Progress),
+    progress: ProgressFn<'_>,
 ) -> Result<DeployReport> {
     let started = Instant::now();
-    let (local, plan) = compute(fs, dist_dir, overwrite, progress)?;
+    let (local, plan, flow) = compute(fs, dist_dir, overwrite, progress)?;
+    let total = plan.upload.len();
+    if flow.is_stop() {
+        // 比对阶段就被叫停：一个字节都还没写，连目录都不必建。
+        return Ok(cancelled(target, Vec::new(), plan.skipped, total, started));
+    }
     for dir in manifest::required_directories(&plan.upload) {
         fs.mkdir(&dir)?;
     }
 
-    let total = plan.upload.len();
+    let mut uploaded = Vec::with_capacity(total);
     for (i, path) in plan.upload.iter().enumerate() {
         let entry = local
             .iter()
             .find(|l| &l.path == path)
             .expect("上传列表来自本地清单");
-        progress(Progress {
+        // 停止判断放在上传之前：此刻前面每个文件都已完整传完，是最干净的边界。
+        if progress(Progress {
             message: format!("上传 {path}"),
             current: i + 1,
             total,
-        });
+        })
+        .is_stop()
+        {
+            return Ok(cancelled(target, uploaded, plan.skipped, total, started));
+        }
         // 上传严格顺序进行，所以「已成功几个」就是 i：走到这里说明前面每一个都成了。
-        if let Err(err) = upload_with_retry(fs, &entry.absolute, path, i + 1, total, progress) {
-            return Err(interrupted(path, i, total, &err));
+        match upload_with_retry(fs, &entry.absolute, path, i + 1, total, progress) {
+            Ok(Flow::Continue) => uploaded.push(path.clone()),
+            // 重试的间隙里被叫停：这个文件没传上去，边界依然干净。
+            Ok(Flow::Stop) => return Ok(cancelled(target, uploaded, plan.skipped, total, started)),
+            Err(err) => return Err(interrupted(path, i, total, &err)),
         }
     }
 
     Ok(DeployReport {
         target: target.to_string(),
-        uploaded: plan.upload,
+        uploaded,
         deleted: Vec::new(),
         skipped: plan.skipped,
         duration_ms: started.elapsed().as_millis() as u64,
         commit: None,
         warnings: Vec::new(),
+        cancelled: false,
     })
+}
+
+/// 被叫停之后的报告：说清「传到哪儿了、现在安不安全」。
+///
+/// 与 [`interrupted`] 是同一件事的两种成因（用户叫停 / 上传失败），话也必须一样清楚：
+/// 逐文件覆盖没有原子性，停下来的那一刻线上就是「一半新一半旧」。
+fn cancelled(
+    target: &str,
+    uploaded: Vec<String>,
+    skipped: usize,
+    total: usize,
+    started: Instant,
+) -> DeployReport {
+    let done = uploaded.len();
+    DeployReport {
+        target: target.to_string(),
+        uploaded,
+        deleted: Vec::new(),
+        skipped,
+        duration_ms: started.elapsed().as_millis() as u64,
+        commit: None,
+        warnings: vec![format!(
+            "已按要求停止：这一批 {total} 个文件里传完了 {done} 个。\
+             逐文件覆盖不是原子的，线上此刻是「一半新一半旧」；\
+             想继续就再发一次，已经传上去的那些会被跳过。"
+        )],
+        cancelled: true,
+    }
 }
 
 /// 上传一个文件，失败时重试几次。
 ///
 /// 每次重试都往进度里报一句：一次发布可能卡在某个大文件上重试好几秒，
 /// 界面上不说明的话看起来就是「卡住了」。
+///
+/// 返回 [`Flow::Stop`] 表示用户在重试的间隙里叫停，这个文件**没有**传上去——
+/// 这恰恰是最想停的时刻：卡在某个文件上反复重试，等下去也未必有结果。
 fn upload_with_retry(
     fs: &mut dyn RemoteFs,
     local: &Path,
     remote: &str,
     current: usize,
     total: usize,
-    progress: &mut dyn FnMut(Progress),
-) -> Result<()> {
+    progress: ProgressFn<'_>,
+) -> Result<Flow> {
     let mut attempt = 1;
     loop {
         match fs.upload(local, remote) {
-            Ok(()) => return Ok(()),
+            Ok(()) => return Ok(Flow::Continue),
             Err(err) if attempt >= UPLOAD_ATTEMPTS => return Err(err),
             Err(err) => {
                 tracing::warn!("上传 {remote} 第 {attempt} 次失败，准备重连后重试: {err}");
                 attempt += 1;
-                progress(Progress {
+                let flow = progress(Progress {
                     message: format!("上传 {remote} 失败，重连后第 {attempt} 次尝试"),
                     current,
                     total,
                 });
+                if flow.is_stop() {
+                    return Ok(Flow::Stop);
+                }
                 std::thread::sleep(RETRY_PAUSE);
                 // 先重连再重试：失败最常见的原因就是这条连接已经坏了。
                 // 重连本身失败也接着试上传——让上传的错误去决定成败，
@@ -220,7 +282,7 @@ mod plain {
 
     use super::{plan, sync, RemoteFs};
     use crate::manifest::RemoteEntry;
-    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result};
+    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, ProgressFn, Result};
     use staticsmith_core::config::FtpOverwrite;
 
     /// 明文 FTP 发布通道。
@@ -328,11 +390,7 @@ mod plain {
     }
 
     impl Deployer for FtpDeployer {
-        fn deploy(
-            &self,
-            dist_dir: &Path,
-            progress: &mut dyn FnMut(Progress),
-        ) -> Result<DeployReport> {
+        fn deploy(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployReport> {
             let mut fs = FtpFs {
                 stream: self.connect()?,
                 deployer: self,
@@ -343,7 +401,7 @@ mod plain {
             report
         }
 
-        fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+        fn plan(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployPlan> {
             let mut fs = FtpFs {
                 stream: self.connect()?,
                 deployer: self,
@@ -375,7 +433,7 @@ mod secure {
 
     use super::{plan, sync, RemoteFs};
     use crate::manifest::RemoteEntry;
-    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result};
+    use crate::{Credentials, DeployPlan, DeployReport, Deployer, Error, ProgressFn, Result};
     use staticsmith_core::config::FtpOverwrite;
 
     /// SFTP（SSH）发布通道。
@@ -484,11 +542,7 @@ mod secure {
     }
 
     impl Deployer for SftpDeployer {
-        fn deploy(
-            &self,
-            dist_dir: &Path,
-            progress: &mut dyn FnMut(Progress),
-        ) -> Result<DeployReport> {
+        fn deploy(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployReport> {
             let session = self.session()?;
             let mut fs = SftpFs {
                 sftp: session.sftp()?,
@@ -499,7 +553,7 @@ mod secure {
             sync(&mut fs, dist_dir, &target, self.overwrite, progress)
         }
 
-        fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+        fn plan(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployPlan> {
             let session = self.session()?;
             let mut fs = SftpFs {
                 sftp: session.sftp()?,
@@ -605,7 +659,7 @@ mod tests {
             dist_dir,
             target,
             FtpOverwrite::default(),
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
     }
 
@@ -619,7 +673,7 @@ mod tests {
             dir.path(),
             "ftp://example.test/www",
             FtpOverwrite::default(),
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
         .unwrap();
 
@@ -666,7 +720,7 @@ mod tests {
             dir.path(),
             "ftp://example.test/www",
             FtpOverwrite::default(),
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
         .unwrap();
 
@@ -698,7 +752,7 @@ mod tests {
             dir.path(),
             "t",
             FtpOverwrite::default(),
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
         .unwrap();
         assert_eq!(planned.upload, vec!["index.html".to_string()]);
@@ -719,7 +773,7 @@ mod tests {
             dir.path(),
             "t",
             FtpOverwrite::Always,
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
         .unwrap();
 
@@ -743,7 +797,10 @@ mod tests {
             dir.path(),
             "ftp://example.com",
             FtpOverwrite::default(),
-            &mut |p| events.push(p.message),
+            &mut |p| {
+                events.push(p.message);
+                Flow::Continue
+            },
         )
         .unwrap();
 
@@ -793,7 +850,7 @@ mod tests {
             dir.path(),
             "t",
             FtpOverwrite::Always,
-            &mut |_| {},
+            &mut |_| Flow::Continue,
         )
         .unwrap();
 
@@ -903,5 +960,128 @@ mod tests {
         let report = sync_default(&mut remote, dir.path(), "t").unwrap();
         assert!(report.deleted.is_empty());
         assert!(remote.files.contains_key("legacy/uploads/a.pdf"));
+    }
+
+    /// 在第 n 次进度回调上说「停」的回调；顺带记下所有消息。
+    fn stop_at(nth: usize, events: &mut Vec<String>) -> impl FnMut(Progress) -> Flow + '_ {
+        let mut seen = 0;
+        move |p: Progress| {
+            seen += 1;
+            events.push(p.message);
+            if seen >= nth {
+                Flow::Stop
+            } else {
+                Flow::Continue
+            }
+        }
+    }
+
+    /// 发布能中途停下来，而且停下来之后要说清「传到哪儿了」。
+    ///
+    /// 这是三个长操作里唯一天然有停止点的：文件之间的边界本来就不是原子的，
+    /// 中断处理早就写好了。停止不是错误——「已经传上去几个」是此刻唯一重要的信息，
+    /// 做成 `Err` 就会被一句错误吞掉。
+    #[test]
+    fn stopping_between_files_reports_how_far_it_got() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        let mut events = Vec::new();
+
+        // 回调顺序是「1 条比对 + 每个文件 1 条」，第 3 条时第一个文件已经传完。
+        let report = sync(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::default(),
+            &mut stop_at(3, &mut events),
+        )
+        .unwrap();
+
+        assert!(report.cancelled, "停止是合法结果，不该变成错误");
+        assert_eq!(report.uploaded.len(), 1, "{:?}", report.uploaded);
+        assert_eq!(
+            report.uploaded, remote.uploads,
+            "报告里说传了哪些，远端就得只有哪些"
+        );
+        let warning = report.warnings.first().unwrap();
+        assert!(warning.contains("传完了 1 个"), "{warning}");
+        assert!(warning.contains("一半新一半旧"), "{warning}");
+        assert!(warning.contains("再发一次"), "{warning}");
+    }
+
+    /// 比对阶段就叫停：一个字节都不该写，连目录都不该建。
+    ///
+    /// 比对本身可能要查上千次远端状态，是最容易让人想按停止的地方。
+    #[test]
+    fn stopping_during_the_compare_phase_writes_nothing() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+        let mut events = Vec::new();
+
+        let report = sync(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::default(),
+            &mut stop_at(1, &mut events),
+        )
+        .unwrap();
+
+        assert!(report.cancelled);
+        assert!(report.uploaded.is_empty());
+        assert!(remote.uploads.is_empty());
+        assert!(remote.dirs.is_empty(), "连目录都不必建: {:?}", remote.dirs);
+        assert_eq!(events.len(), 1, "停了就不该再报进度: {events:?}");
+    }
+
+    /// 卡在某个文件上反复重试，正是最想停的时刻；停下来时这个文件不能只传一半。
+    #[test]
+    fn stopping_while_retrying_leaves_the_file_alone() {
+        let dir = dist();
+        let mut remote = FakeRemote {
+            dead: true,
+            ..FakeRemote::default()
+        };
+        let mut events = Vec::new();
+
+        // 1 条比对 + 1 条「上传 index.html」+ 1 条「失败，重连后第 2 次尝试」
+        let report = sync(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::default(),
+            &mut stop_at(3, &mut events),
+        )
+        .unwrap();
+
+        assert!(report.cancelled);
+        assert!(report.uploaded.is_empty(), "{:?}", report.uploaded);
+        assert!(remote.files.is_empty(), "不许留下半个文件");
+        assert_eq!(remote.reconnects, 0, "已经要停了就别再重连");
+        assert!(events.last().unwrap().contains("第 2 次尝试"), "{events:?}");
+    }
+
+    /// 干跑停下来只能是错误。
+    ///
+    /// 一份少了一半的清单，在界面上和完整清单长得一模一样——用户会照着它做决定：
+    /// 「只要传 3 个」。真发布停下来是合法结果，干跑停下来不是。
+    #[test]
+    fn a_stopped_plan_refuses_to_hand_back_half_a_list() {
+        let dir = dist();
+        let mut remote = FakeRemote::default();
+
+        let err = plan(
+            &mut remote,
+            dir.path(),
+            "t",
+            FtpOverwrite::default(),
+            &mut |_| Flow::Stop,
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, Error::Cancelled(_)), "{err:?}");
+        assert!(err.to_string().contains("残缺"), "{err}");
+        // 叫停之后连远端状态都不必查了
+        assert!(remote.stats.is_empty(), "{:?}", remote.stats);
     }
 }

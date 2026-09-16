@@ -512,5 +512,83 @@ describe('store 把截断掉的那部分留进详情', () => {
   })
 })
 
+/**
+ * 停止发布。
+ *
+ * 发布是三个长操作里唯一天然有停止点的。这里钉住的是「停下来之后怎么说话」：
+ * 停止**不是**失败，但也绝不能说成「发布完成」——两者的上传数可能都是 1，
+ * 一个是全部、一个是一半。
+ */
+describe('store 的停止发布', () => {
+  const stopped = {
+    target: 'ftp://example.test/www',
+    uploaded: ['index.html'],
+    deleted: [],
+    skipped: 0,
+    duration_ms: 12,
+    commit: null,
+    warnings: ['已按要求停止：这一批 3 个文件里传完了 1 个。'],
+    cancelled: true,
+  }
+
+  beforeEach(() => {
+    results.clear()
+    vi.clearAllMocks()
+  })
+
+  it('发布期间才允许请求停止，而且真的发出去', async () => {
+    results.set('deploySite', { ...stopped, cancelled: false, warnings: [] })
+
+    // 没有发布在跑时点停止是空操作：不该给后端发一条没人接的命令
+    await actions.stopDeploy()
+    expect(calls.get('cancelDeploy')).not.toHaveBeenCalled()
+
+    const running = actions.deploy()
+    expect(store.deployPhase).toBe('upload')
+    await actions.stopDeploy()
+    expect(calls.get('cancelDeploy')).toHaveBeenCalledTimes(1)
+    // 连点第二次不再重复发：界面上按钮此刻已经置灰，状态得跟得上
+    await actions.stopDeploy()
+    expect(calls.get('cancelDeploy')).toHaveBeenCalledTimes(1)
+
+    await running
+    expect(store.deployPhase).toBeNull()
+    expect(store.deployStopping).toBe(false)
+  })
+
+  /**
+   * 干跑也算「发布在跑」：FTP 要逐个查远端状态，上千个文件时够久了。
+   * 停止按钮得在这一步就能按，否则那段时间界面上只有一个转圈。
+   */
+  it('干跑期间也能停，而且干跑失败之后状态要收干净', async () => {
+    results.set('planDeploy', new Error('已停止：发布预览已按要求停止'))
+
+    const running = actions.planDeploy()
+    expect(store.deployPhase).toBe('plan')
+    await actions.stopDeploy()
+    expect(calls.get('cancelDeploy')).toHaveBeenCalledTimes(1)
+
+    expect(await running).toBeUndefined()
+    expect(store.deployPhase).toBeNull()
+    expect(store.deployStopping).toBe(false)
+  })
+
+  it('停下来的那次发布不许说成「发布完成」', async () => {
+    results.set('deploySite', stopped)
+
+    await actions.deploy()
+
+    expect(store.lastDeploy?.cancelled).toBe(true)
+    // 新的通知在最前面：这次发布留下的那条就是它
+    const notice = store.notices[0]
+    expect(notice.message).toContain('发布已停止')
+    expect(notice.message).not.toContain('发布完成')
+    // 自己点的停止不是错误
+    expect(notice.level).toBe('info')
+    // 「传到哪儿了、线上是什么状态」留在详情里，事后还能翻到
+    expect(notice.details).toEqual(['已按要求停止：这一批 3 个文件里传完了 1 个。'])
+  })
+})
+
 
 

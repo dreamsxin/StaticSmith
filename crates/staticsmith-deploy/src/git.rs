@@ -12,7 +12,8 @@ use git2::{
 };
 
 use crate::{
-    ensure_output_ready, Credentials, DeployPlan, DeployReport, Deployer, Error, Progress, Result,
+    ensure_output_ready, Credentials, DeployPlan, DeployReport, Deployer, Error, Progress,
+    ProgressFn, Result,
 };
 
 /// Git 发布通道。
@@ -90,24 +91,35 @@ impl GitDeployer {
 }
 
 impl Deployer for GitDeployer {
-    fn deploy(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployReport> {
+    /// Git 那条路只在**提交之前**能停。
+    ///
+    /// 提交之后剩下的只有推送这一步，而推送是整个 ref 的原子更新——中间没有
+    /// 「传了一半」这种状态，也就没有安全边界可停。停在提交之前则什么都没发生过：
+    /// 最多在本地 `dist/.git` 里留下一次暂存，线上一个字节都没变。
+    fn deploy(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployReport> {
         let started = Instant::now();
         ensure_output_ready(dist_dir)?;
 
-        progress(Progress {
+        let mut flow = progress(Progress {
             message: "准备产物仓库".to_string(),
             current: 0,
             total: 4,
         });
+        if flow.is_stop() {
+            return Ok(cancelled(&self.remote, started));
+        }
         let repo = self.open_repo(dist_dir)?;
         let branch_ref = format!("refs/heads/{}", self.branch);
         repo.set_head(&branch_ref)?;
 
-        progress(Progress {
+        flow = progress(Progress {
             message: "暂存文件".to_string(),
             current: 1,
             total: 4,
         });
+        if flow.is_stop() {
+            return Ok(cancelled(&self.remote, started));
+        }
         let mut index = repo.index()?;
         index.add_all(["*"].iter(), IndexAddOption::DEFAULT, None)?;
         index.write()?;
@@ -126,11 +138,15 @@ impl Deployer for GitDeployer {
             });
         }
 
-        progress(Progress {
+        flow = progress(Progress {
             message: "提交变更".to_string(),
             current: 2,
             total: 4,
         });
+        if flow.is_stop() {
+            // 最后一个安全边界：暂存区已经写过，但还没有提交、更没有推送。
+            return Ok(cancelled(&self.remote, started));
+        }
         let signature = self.signature(&repo)?;
         let message = render_commit_message(&self.commit_message);
         let parents: Vec<&git2::Commit> = parent.iter().collect();
@@ -182,16 +198,25 @@ impl Deployer for GitDeployer {
             duration_ms: started.elapsed().as_millis() as u64,
             commit: Some(commit_id.to_string()),
             warnings: Vec::new(),
+            cancelled: false,
         })
     }
 
-    fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan> {
+    fn plan(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployPlan> {
         ensure_output_ready(dist_dir)?;
-        progress(Progress {
+        if progress(Progress {
             message: "比对上次提交".to_string(),
             current: 0,
             total: 1,
-        });
+        })
+        .is_stop()
+        {
+            // 干跑停下来只能是错误：残缺的清单在界面上和完整清单长得一样。
+            return Err(Error::Cancelled(
+                "发布预览已按要求停止，因此不给出清单：残缺的清单会被当成完整的预览来读"
+                    .to_string(),
+            ));
+        }
 
         let repo = self.open_repo(dist_dir)?;
         repo.set_head(&format!("refs/heads/{}", self.branch))?;
@@ -243,6 +268,22 @@ impl Deployer for GitDeployer {
     }
 }
 
+/// 提交之前被叫停：线上没有任何变化，这句话必须说出来。
+///
+/// 与 FTP 那条路不同，Git 停下来时线上**不是**「一半新一半旧」——要么整个 ref 更新，
+/// 要么什么都没发生。用户最想知道的正是这个区别。
+fn cancelled(remote: &str, started: Instant) -> DeployReport {
+    DeployReport {
+        target: crate::redact_url(remote),
+        warnings: vec!["已按要求停止：还没有提交、也没有推送，线上没有任何变化。\
+             本地 dist/.git 里可能留下一次暂存，下次发布会照常覆盖它。"
+            .to_string()],
+        duration_ms: started.elapsed().as_millis() as u64,
+        cancelled: true,
+        ..Default::default()
+    }
+}
+
 /// 相对上一次提交发生变化的文件列表。
 fn changed_paths(repo: &Repository, tree: &git2::Tree<'_>) -> Result<Vec<String>> {
     let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
@@ -277,6 +318,7 @@ fn render_commit_message(template: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Flow;
 
     /// 本地裸仓库充当远端，完整跑一遍「提交 + 推送」。
     fn bare_remote() -> (tempfile::TempDir, String) {
@@ -327,7 +369,10 @@ mod tests {
     fn empty_dist_is_refused_before_touching_git() {
         let dir = tempfile::tempdir().unwrap();
         let deployer = GitDeployer::new("file:///tmp/x", "main");
-        let err = deployer.deploy(dir.path(), &mut |_| {}).err().unwrap();
+        let err = deployer
+            .deploy(dir.path(), &mut |_| Flow::Continue)
+            .err()
+            .unwrap();
         assert!(matches!(err, Error::EmptyOutput(_)));
     }
 
@@ -340,7 +385,7 @@ mod tests {
         let dist = dist_with_files();
         let deployer = GitDeployer::new(&remote_url, "main");
 
-        let plan = deployer.plan(dist.path(), &mut |_| {}).unwrap();
+        let plan = deployer.plan(dist.path(), &mut |_| Flow::Continue).unwrap();
         assert_eq!(plan.upload, vec!["index.html", "posts/index.html"]);
         assert_eq!(plan.bytes, 35, "两个文件的字节数（17 + 18）");
         assert!(
@@ -353,12 +398,14 @@ mod tests {
         assert!(bare.find_reference("refs/heads/main").is_err());
 
         // 紧接着真发布：结果与「没干跑过」那次一模一样（对照 deploy_commits_and_pushes_to_remote）
-        let report = deployer.deploy(dist.path(), &mut |_| {}).unwrap();
+        let report = deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
         assert_eq!(report.uploaded, plan.upload);
         assert!(report.commit.is_some());
 
         // 再干跑一次：这次该说「与上次提交一致」，而不是把两个文件又报一遍
-        let again = deployer.plan(dist.path(), &mut |_| {}).unwrap();
+        let again = deployer.plan(dist.path(), &mut |_| Flow::Continue).unwrap();
         assert!(again.upload.is_empty(), "{:?}", again.upload);
         assert!(
             again.warnings.iter().any(|w| w.contains("跳过提交")),
@@ -375,7 +422,10 @@ mod tests {
 
         let mut events = Vec::new();
         let report = deployer
-            .deploy(dist.path(), &mut |p| events.push(p.message))
+            .deploy(dist.path(), &mut |p| {
+                events.push(p.message);
+                Flow::Continue
+            })
             .unwrap();
 
         assert_eq!(report.uploaded, vec!["index.html", "posts/index.html"]);
@@ -396,8 +446,12 @@ mod tests {
         let dist = dist_with_files();
         let deployer = GitDeployer::new(&remote_url, "main");
 
-        deployer.deploy(dist.path(), &mut |_| {}).unwrap();
-        let second = deployer.deploy(dist.path(), &mut |_| {}).unwrap();
+        deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
+        let second = deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
 
         assert!(second.commit.is_none());
         assert_eq!(second.warnings.len(), 1);
@@ -409,11 +463,67 @@ mod tests {
         let dist = dist_with_files();
         let deployer = GitDeployer::new(&remote_url, "main");
 
-        let first = deployer.deploy(dist.path(), &mut |_| {}).unwrap();
+        let first = deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
         std::fs::write(dist.path().join("index.html"), "<html>changed</html>").unwrap();
-        let second = deployer.deploy(dist.path(), &mut |_| {}).unwrap();
+        let second = deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
 
         assert_ne!(first.commit, second.commit);
         assert_eq!(second.uploaded, vec!["index.html"]);
+    }
+
+    /// 提交之前停下来：不提交、不推送，远端连分支都不该出现。
+    ///
+    /// 「提交变更」那一条进度是最后一个安全边界（第 3 次回调），停在这里
+    /// 只在本地留下一次暂存。
+    #[test]
+    fn stopping_before_the_commit_leaves_the_remote_untouched() {
+        let (remote_dir, remote_url) = bare_remote();
+        let dist = dist_with_files();
+        let deployer = GitDeployer::new(&remote_url, "main");
+
+        let mut seen = 0;
+        let report = deployer
+            .deploy(dist.path(), &mut |_| {
+                seen += 1;
+                if seen >= 3 {
+                    Flow::Stop
+                } else {
+                    Flow::Continue
+                }
+            })
+            .unwrap();
+
+        assert!(report.cancelled, "停止是合法结果，不该变成错误");
+        assert!(report.commit.is_none(), "不该提交");
+        assert!(report.uploaded.is_empty());
+        let warning = report.warnings.first().unwrap();
+        assert!(warning.contains("线上没有任何变化"), "{warning}");
+
+        let bare = Repository::open_bare(remote_dir.path()).unwrap();
+        assert!(bare.find_reference("refs/heads/main").is_err(), "不该推送");
+
+        // 停过一次之后照常能发出去：上一次只留了暂存，什么都没坏。
+        let report = deployer
+            .deploy(dist.path(), &mut |_| Flow::Continue)
+            .unwrap();
+        assert!(!report.cancelled);
+        assert!(report.commit.is_some());
+    }
+
+    /// 干跑停下来只能是错误：残缺的清单会被当成完整的预览来读。
+    #[test]
+    fn a_stopped_plan_refuses_to_hand_back_half_a_list() {
+        let (_remote_dir, remote_url) = bare_remote();
+        let dist = dist_with_files();
+        let deployer = GitDeployer::new(&remote_url, "main");
+
+        let err = deployer.plan(dist.path(), &mut |_| Flow::Stop).unwrap_err();
+
+        assert!(matches!(err, Error::Cancelled(_)), "{err:?}");
+        assert!(err.to_string().contains("残缺"), "{err}");
     }
 }

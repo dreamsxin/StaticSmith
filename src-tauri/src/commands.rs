@@ -36,7 +36,7 @@ use staticsmith_core::{
     content, frontmatter, scaffold, templates, NewContent, OutputFile, PreviewServer, SavedAsset,
     SeoReport, SiteConfig,
 };
-use staticsmith_deploy::{Credentials, DeployPlan, DeployReport, Progress};
+use staticsmith_deploy::{Credentials, DeployPlan, DeployReport, Flow, Progress};
 use staticsmith_mcp::Permissions as McpPermissions;
 use tauri::{AppHandle, Emitter, Manager, State, Window};
 
@@ -1143,6 +1143,9 @@ pub fn output_dir(state: State<'_, AppState>) -> Result<PathBuf> {
 // ---------------------------------------------------------------- 发布
 
 /// 发布站点。凭证从系统凭据管理器读取，不经过配置文件。
+///
+/// 发布可以中途停止（见 [`cancel_deploy`]）：进度回调顺带回答「继不继续」，
+/// 上传在文件边界上停下。停止不是错误，返回的报告里 `cancelled` 为真。
 #[tauri::command]
 pub fn deploy_site(window: Window, state: State<'_, AppState>) -> Result<DeployReport> {
     let (config, dist) = state.with_session(|session| {
@@ -1156,15 +1159,40 @@ pub fn deploy_site(window: Window, state: State<'_, AppState>) -> Result<DeployR
     let deployer = staticsmith_deploy::from_config(&config, credentials)?;
     deployer.check()?;
 
+    let stop = state.begin_deploy();
     let target = window.clone();
-    let mut on_progress = move |p: Progress| emit(&target, EVENT_DEPLOY_PROGRESS, p);
+    let mut on_progress = move |p: Progress| {
+        emit(&target, EVENT_DEPLOY_PROGRESS, p);
+        flow(&stop)
+    };
     Ok(deployer.deploy(&dist, &mut on_progress)?)
+}
+
+/// 请求停止当前发布。
+///
+/// 只放下一个比特就返回：这个命令**不能**碰 session 锁，否则发布一忙它就排在后面，
+/// 「停止」按钮会在最需要的时候没反应。发布不在跑时是空操作。
+#[tauri::command]
+pub fn cancel_deploy(state: State<'_, AppState>) {
+    state.request_deploy_stop();
+}
+
+/// 把「有没有人点过停止」翻译成发布层的 `Flow`。
+fn flow(stop: &std::sync::atomic::AtomicBool) -> Flow {
+    if stop.load(std::sync::atomic::Ordering::SeqCst) {
+        Flow::Stop
+    } else {
+        Flow::Continue
+    }
 }
 
 /// 干跑一次发布：会传哪些文件、跳过几个、多少字节、目标是哪里。
 ///
 /// 界面拿它做落盘前的确认。发布曾是唯一没有这一步的写操作，而它偏偏是唯一
 /// 影响**线上**的动作。`plan` 不写远端（各通道的代价写在返回的 `warnings` 里）。
+///
+/// 干跑同样能停（FTP 那条路要逐个查远端状态，上千个文件时够久了），但停下来是**错误**：
+/// 残缺的清单在界面上和完整清单长得一样，用户会照着它做决定。
 #[tauri::command]
 pub fn plan_deploy(window: Window, state: State<'_, AppState>) -> Result<DeployPlan> {
     let (config, dist) = state.with_session(|session| {
@@ -1178,8 +1206,12 @@ pub fn plan_deploy(window: Window, state: State<'_, AppState>) -> Result<DeployP
     let deployer = staticsmith_deploy::from_config(&config, credentials)?;
     deployer.check()?;
 
+    let stop = state.begin_deploy();
     let target = window.clone();
-    let mut on_progress = move |p: Progress| emit(&target, EVENT_DEPLOY_PROGRESS, p);
+    let mut on_progress = move |p: Progress| {
+        emit(&target, EVENT_DEPLOY_PROGRESS, p);
+        flow(&stop)
+    };
     Ok(deployer.plan(&dist, &mut on_progress)?)
 }
 

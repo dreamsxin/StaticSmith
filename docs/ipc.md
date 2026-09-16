@@ -344,11 +344,17 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 
 ## 发布
 
-- `deploy_site() -> DeployReport`
+- `deploy_site() -> DeployReport`：`cancelled: true` 表示用户中途停了，`uploaded`
+  是停之前真的传上去的那些，`warnings` 说清「传完了几个、线上是什么状态」。
+  停止**不是错误**——做成 `Err` 的话「已经传上去 M 个」这条唯一重要的信息会被吞掉
+- `cancel_deploy()`：请求停止当前发布，只放下一个比特就返回，**不碰 session 锁**
+  （否则发布一忙它就排在后面，按钮会在最需要的时候没反应）。发布不在跑时是空操作；
+  真正的收场由 `deploy_site` 那次调用返回的报告来说。停止点见 `docs/deploy.md`
 - `plan_deploy() -> DeployPlan`：干跑一次发布，不写远端。返回
   `{ target, upload, skipped, bytes, warnings }`；界面拿它做落盘前的确认。
   `warnings` 说的是这次干跑自己的代价（FTP 会连服务器但只读、Git 会写 dist/.git
-  的暂存区但不推送），不是「发布会出的警告」。判断与 `deploy_site` 共用一份逻辑
+  的暂存区但不推送），不是「发布会出的警告」。判断与 `deploy_site` 共用一份逻辑。
+  干跑期间叫停返回**错误**：残缺的清单会被当成完整的预览来读
 - `check_deploy()`：只检查连接与凭证
 - `save_secret(account, secret)` / `has_secret(account) -> bool` / `delete_secret(account)`
 - `deploy_account() -> string`：当前站点的凭据条目名，未配置发布方式时是空串

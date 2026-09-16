@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
@@ -144,9 +145,27 @@ pub struct Session {
 pub struct AppState {
     session: Mutex<Option<Session>>,
     self_writes: SelfWrites,
+    /// 「当前这次发布要不要停」这一个比特。
+    ///
+    /// 放在 session 锁**外面**：发布期间不持 session 锁（那正是它能停下来的前提——
+    /// 「停止」命令必须挤得进来），藏在锁后面的标志谁也读不到。
+    deploy_stop: Arc<AtomicBool>,
 }
 
 impl AppState {
+    /// 开始一次发布：先清掉上一次留下的停止请求，再把标志交给这次发布。
+    ///
+    /// 不清就会出现「上次点了停止，这次一开始就停」——一个比特的状态最容易犯这种错。
+    pub fn begin_deploy(&self) -> Arc<AtomicBool> {
+        self.deploy_stop.store(false, Ordering::SeqCst);
+        self.deploy_stop.clone()
+    }
+
+    /// 请求停止当前发布。没有发布在跑时是空操作（下一次发布开始时会清掉）。
+    pub fn request_deploy_stop(&self) {
+        self.deploy_stop.store(true, Ordering::SeqCst);
+    }
+
     /// 登记一次自身写盘，避免监听器把它当成外部改动。
     pub fn note_self_write(&self, path: &Path) {
         self.self_writes.note(path);

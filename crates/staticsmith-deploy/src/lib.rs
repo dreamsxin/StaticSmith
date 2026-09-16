@@ -36,6 +36,14 @@ pub enum Error {
     #[error("凭证不可用: {0}")]
     Credentials(String),
 
+    /// 用户在干跑过程中要求停止。
+    ///
+    /// 只有干跑会走到这里：**残缺的计划比没有计划更危险**——「会传 3 个文件」
+    /// 停在一半，界面上看起来仍是一份完整的预览，用户会照着它做决定。
+    /// 真发布停下来是另一回事，那是合法结果（见 [`DeployReport::cancelled`]）。
+    #[error("已停止：{0}")]
+    Cancelled(String),
+
     #[cfg(feature = "git")]
     #[error("Git 操作失败: {0}")]
     Git(#[from] git2::Error),
@@ -71,6 +79,30 @@ pub struct Progress {
     pub current: usize,
     pub total: usize,
 }
+
+/// 进度回调的返回值：告诉长操作「继不继续」。
+///
+/// 发布是三个长操作里唯一天然有停止点的：上传逐文件进行，文件之间的边界本来就
+/// 不是原子的（中断处理早就写好了），所以在边界上停下来不会留下半个文件。
+/// 生成与替换要能停，得等核心里真有取消令牌，那是更大的一刀。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    /// 用户要求停止。长操作应在**下一个安全边界**返回，而不是当场撕断。
+    Stop,
+}
+
+impl Flow {
+    pub fn is_stop(self) -> bool {
+        self == Flow::Stop
+    }
+}
+
+/// 进度回调。返回 [`Flow::Stop`] 即请求停止。
+///
+/// 之所以让进度回调兼任「问要不要停」：它已经贯穿整个上传循环，每个安全边界上
+/// 恰好都有一次调用。另开一条取消通道要多一份状态，还得回答「两者不一致时听谁的」。
+pub type ProgressFn<'a> = &'a mut dyn FnMut(Progress) -> Flow;
 
 /// 发布凭证。调用结束即丢弃，不做持久化。
 #[derive(Clone)]
@@ -119,6 +151,11 @@ pub struct DeployReport {
     /// Git 发布时的提交哈希。
     pub commit: Option<String>,
     pub warnings: Vec<String>,
+    /// 用户在中途要求停止，`uploaded` 是「停之前真的传上去的那些」。
+    ///
+    /// 停止不是错误：报告照样出，界面照样显示传了多少。做成 `Err` 的话，
+    /// 「已经传上去的 12 个文件」这条唯一重要的信息就会被一句错误吞掉。
+    pub cancelled: bool,
 }
 
 /// 去掉 URL 里的凭据部分，供报告、进度消息与日志使用。
@@ -161,8 +198,10 @@ pub struct DeployPlan {
 
 /// 所有发布通道的统一接口。
 pub trait Deployer {
-    /// 把 `dist_dir` 的内容发布出去。`progress` 会被多次回调。
-    fn deploy(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployReport>;
+    /// 把 `dist_dir` 的内容发布出去。`progress` 会被多次回调；它返回
+    /// [`Flow::Stop`] 时，发布在下一个安全边界停下，并返回
+    /// `cancelled: true` 的报告（不是错误）。
+    fn deploy(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployReport>;
 
     /// 算出「这次发布会动什么」，不写远端。
     ///
@@ -170,7 +209,9 @@ pub trait Deployer {
     /// （只读，但会连服务器），Git 需要在本地 `dist/.git` 里暂存一次才能 diff
     /// （不提交、不推送）。**判断与执行共用一份逻辑**——两处各算一遍，
     /// 迟早出现「预览说传 3 个、实际传 30 个」。
-    fn plan(&self, dist_dir: &Path, progress: &mut dyn FnMut(Progress)) -> Result<DeployPlan>;
+    ///
+    /// 中途要求停止会返回 [`Error::Cancelled`]：残缺的计划会被读成一份完整的预览。
+    fn plan(&self, dist_dir: &Path, progress: ProgressFn<'_>) -> Result<DeployPlan>;
 
     /// 连接性与凭证检查，不做任何写操作。
     fn check(&self) -> Result<()>;

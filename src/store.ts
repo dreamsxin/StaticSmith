@@ -40,6 +40,14 @@ import type {
 
 export type ToastKind = 'success' | 'error' | 'info'
 
+/**
+ * 发布的两个阶段。
+ *
+ * 分开是因为停下来的后果不同：`plan` 不写远端，停了什么也没发生（但也没有清单）；
+ * `upload` 停了线上就是「一半新一半旧」。界面得说对话。
+ */
+export type DeployPhase = 'plan' | 'upload'
+
 export interface Toast {
   id: number
   kind: ToastKind
@@ -128,6 +136,19 @@ interface State {
   plan: BuildPlan | null
   lastBuild: BuildReport | null
   lastDeploy: DeployReport | null
+  /**
+   * 发布正处在哪个阶段，`null` 表示没在发布。
+   *
+   * 与全局 `busy` 分开：`busy` 是「有命令在跑」，任何操作都会置上它，
+   * 而「停止」按钮只在**发布**期间才该出现——挂在 `busy` 上会让保存文件时
+   * 也冒出一个停止发布的按钮。
+   *
+   * 分两个阶段而不是一个布尔：两者停下来的后果完全不同（干跑不写远端、
+   * 上传会留下「一半新一半旧」），界面得说对话。
+   */
+  deployPhase: DeployPhase | null
+  /** 已经点过「停止」，还没等到那份报告。按钮据此变成不可再点。 */
+  deployStopping: boolean
   progress: string
   busy: boolean
   /** 保存后自动增量生成，让服务器预览与产物跟着变 */
@@ -188,6 +209,8 @@ const state = reactive<State>({
   plan: null,
   lastBuild: null,
   lastDeploy: null,
+  deployPhase: null,
+  deployStopping: false,
   progress: '',
   busy: false,
   autoBuild: localStorage.getItem(AUTO_BUILD_KEY) === '1',
@@ -1449,17 +1472,57 @@ export const actions = {
    *
    * 发布曾是唯一没有干跑的写操作，而它偏偏是唯一影响**线上**的动作：
    * 别的动作改错了还能在本地改回来，这个改错了是别人看到的页面变了。
+   *
+   * 这一步也能停：FTP 要逐个查远端状态，上千个文件时够久了。停下来会得到一次
+   * **拒绝**（后端不给残缺的清单），错误通知里那句话解释了为什么。
    */
   async planDeploy() {
-    return await run(() => api.planDeploy())
+    state.deployPhase = 'plan'
+    state.deployStopping = false
+    try {
+      return await run(() => api.planDeploy())
+    } finally {
+      state.deployPhase = null
+      state.deployStopping = false
+    }
   },
 
+  /**
+   * 发布。可以中途停止（见 `stopDeploy`）。
+   *
+   * 停止不是错误：后端在文件边界上停下并照常返回报告，所以这里也要按「停了」
+   * 而不是「失败了」来说话——用户最需要知道的是「已经传上去几个」。
+   */
   async deploy() {
-    const report = await run(() => api.deploySite())
-    if (report) {
+    state.deployPhase = 'upload'
+    state.deployStopping = false
+    try {
+      const report = await run(() => api.deploySite())
+      if (!report) return
       state.lastDeploy = report
-      notify('success', `发布完成：上传 ${report.uploaded.length} 个文件`)
+      if (report.cancelled) {
+        // 自己点的停止不是错误，用 info；报告里的 warnings 已经说清「传了几个、
+        // 线上是什么状态」，进通知详情里，不在标题上重复
+        notify('info', `发布已停止：上传 ${report.uploaded.length} 个文件`, [...report.warnings])
+      } else {
+        notify('success', `发布完成：上传 ${report.uploaded.length} 个文件`)
+      }
+    } finally {
+      state.deployPhase = null
+      state.deployStopping = false
     }
+  },
+
+  /**
+   * 请求停止正在进行的发布（干跑或上传）。
+   *
+   * 不等它结束：后端只放下一个比特就返回，真正的收场由 `deploy()` / `planDeploy()`
+   * 那边拿到的结果来说。按钮立刻变成不可再点，否则用户会连点几次而界面毫无反应。
+   */
+  async stopDeploy() {
+    if (!state.deployPhase || state.deployStopping) return
+    state.deployStopping = true
+    await run(() => api.cancelDeploy())
   },
 }
 

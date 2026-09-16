@@ -206,6 +206,8 @@ export interface DeployReport {
   duration_ms: number
   commit: string | null
   warnings: string[]
+  /** 用户中途点了「停止」。`uploaded` 是停之前真的传上去的那些。 */
+  cancelled: boolean
 }
 
 /** 发布前的影响预览：会传哪些、跳过几个、多少字节，以及这次干跑本身的代价。 */
@@ -1006,6 +1008,14 @@ export const runBuild = (mode: BuildMode) => invoke<BuildReport>('run_build', { 
 export const outputDir = () => invoke<string>('output_dir')
 
 export const deploySite = () => invoke<DeployReport>('deploy_site')
+
+/**
+ * 请求停止正在进行的发布。
+ *
+ * 后端只放下一个比特就返回，不会等发布结束：发布在**文件边界**上自己停下来，
+ * 然后照常返回一份 `cancelled: true` 的报告。
+ */
+export const cancelDeploy = () => invoke<void>('cancel_deploy')
 
 /** 干跑一次发布：会传哪些文件、跳过几个、多少字节。不写远端。 */
 export const planDeploy = () => invoke<DeployPlan>('plan_deploy')
