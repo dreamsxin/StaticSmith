@@ -161,27 +161,13 @@ pub fn list(pages: &[Page]) -> Vec<Section> {
 /// 返回被改动的索引页源文件（相对 `content/`），调用方据此刷新界面与增量构建。
 pub fn set_meta(paths: &ProjectPaths, path: &str, meta: &Meta) -> Result<String> {
     let relative = util::sanitize_relative_dir(path);
-    let dir = resolve_dir(paths, &relative)?;
-    if !dir.is_dir() {
-        return Err(Error::Other(format!("栏目不存在: {relative}")));
-    }
     if meta.title.trim().is_empty() {
         return Err(Error::Other("栏目标题不能为空".to_string()));
     }
 
-    let (file, source) = match existing_index(&dir, &relative) {
-        Some(found) => found,
-        None => {
-            let file = dir.join("index.md");
-            std::fs::write(
-                &file,
-                index_skeleton(meta.title.trim(), meta.description.trim()),
-            )
-            .map_err(|e| Error::io(&file, e))?;
-            let source = join_source(&relative, "index.md");
-            (file, source)
-        }
-    };
+    // 缺索引页就顺手补一张（与排栏目顺序共用 `ensure_index`：新建出来的索引页
+    // 长什么样只能有一个答案）。描述随后由 patch 写进去。
+    let (file, source, _) = ensure_index(paths, &relative, meta.title.trim())?;
 
     let raw = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
     let updated = frontmatter::apply(
@@ -298,6 +284,129 @@ pub fn reorder(paths: &ProjectPaths, section: &str, ordered: &[String]) -> Resul
         changed,
         total: ordered.len(),
     })
+}
+
+/// 同一层栏目重新排序的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct SectionsReordered {
+    /// 改了位次的栏目路径，按新顺序。没动的不在里面。
+    pub changed: Vec<String>,
+    /// 为了存位次而顺手补出来的索引页（相对 `content/`）。
+    pub created: Vec<String>,
+    /// 这一层一共几个栏目。
+    pub total: usize,
+}
+
+/// 把同一层栏目的顺序固化成各自索引页的 `weight = 1..N`。
+///
+/// 与 [`reorder`]（栏目**内**文章的位次）是同一件事的两半：一本书的目录既要能排
+/// 章节之间的先后，也要能排章内小节的先后。取舍也一样——必须给出这一层的全部栏目
+/// （只固化一半，剩下的会以 weight 0 跳到最前面），只写真正动了的那几个。
+///
+/// **缺索引页的栏目会顺手补一张。** 位次存在索引页的 front matter 里，没有索引页就无处可存，
+/// 排完之后它还在原地，用户看到的是「我明明挪了它」。这与 [`set_meta`] 是同一个取舍，
+/// 补出来的文件在 `created` 里报出去——悄悄新建文件是不能接受的。
+///
+/// `parent` 是这一层的父栏目（顶层栏目传空串）。根目录自己不参与排序：它没有同级。
+pub fn reorder_sections(
+    paths: &ProjectPaths,
+    parent: &str,
+    ordered: &[String],
+) -> Result<SectionsReordered> {
+    let parent_rel = util::sanitize_relative_dir(parent);
+    let loaded = content::load_all_lenient(&paths.content, SourceFormat::default())?;
+    let all = list(&loaded.pages);
+
+    // `list` 已经按 weight、再按路径排好，所以这就是这一层现在的顺序。
+    let current: Vec<&Section> = all
+        .iter()
+        .filter(|section| parent_of(&section.path).as_deref() == Some(parent_rel.as_str()))
+        .collect();
+
+    // 先校验整份清单，一个字节都不写：写一半再报错，用户就得自己猜哪几个已经生效了。
+    let mut seen: Vec<&String> = Vec::new();
+    for path in ordered {
+        if path.is_empty() {
+            return Err(Error::Other("根目录不参与排序：它没有同级栏目".to_string()));
+        }
+        if seen.contains(&path) {
+            return Err(Error::Other(format!("排序清单里有重复的栏目：{path}")));
+        }
+        seen.push(path);
+        if !current.iter().any(|section| &section.path == path) {
+            return Err(Error::Other(format!(
+                "{path} 不在 {} 这一层里，跨层要用「栏目改名」把它搬过去",
+                display_path(&parent_rel)
+            )));
+        }
+    }
+    if ordered.len() != current.len() {
+        return Err(Error::Other(format!(
+            "排序清单少了 {} 个：这一层有 {} 个栏目，清单里只有 {} 个。\
+             排序要给出整层的顺序，只排一部分会让剩下的跳到最前面",
+            current.len().saturating_sub(ordered.len()),
+            current.len(),
+            ordered.len()
+        )));
+    }
+
+    let mut out = SectionsReordered {
+        changed: Vec::new(),
+        created: Vec::new(),
+        total: ordered.len(),
+    };
+    for (index, path) in ordered.iter().enumerate() {
+        // 1 开头而不是 0：0 是「没排过」的意思，占了它就分不出「排在最前」与「没排过」。
+        let weight = index as i64 + 1;
+        let section = current
+            .iter()
+            .find(|section| &section.path == path)
+            .expect("上面已经校验过每一项都在这一层里");
+        if section.weight == weight && section.index_source.is_some() {
+            continue;
+        }
+        let (file, source, created) = ensure_index(paths, path, &section.title)?;
+        if created {
+            out.created.push(source);
+        }
+        let raw = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
+        let updated = frontmatter::apply(
+            &raw,
+            &frontmatter::Patch {
+                weight: Some(weight),
+                ..frontmatter::Patch::default()
+            },
+        )?;
+        std::fs::write(&file, updated).map_err(|e| Error::io(&file, e))?;
+        out.changed.push(path.clone());
+    }
+    Ok(out)
+}
+
+/// 拿到这个栏目的索引页，没有就建一张。返回 `(文件, 源路径, 是不是新建的)`。
+///
+/// 改栏目信息与排栏目顺序都要往索引页里写，两处各建一遍的话，「新建出来的索引页
+/// 长什么样」会有两种答案。
+fn ensure_index(
+    paths: &ProjectPaths,
+    relative: &str,
+    title: &str,
+) -> Result<(PathBuf, String, bool)> {
+    let dir = resolve_dir(paths, relative)?;
+    if !dir.is_dir() {
+        return Err(Error::Other(format!("栏目不存在: {relative}")));
+    }
+    if let Some((file, source)) = existing_index(&dir, relative) {
+        return Ok((file, source, false));
+    }
+    let title = if title.trim().is_empty() {
+        default_title(relative)
+    } else {
+        title.trim().to_string()
+    };
+    let file = dir.join("index.md");
+    std::fs::write(&file, index_skeleton(&title, "")).map_err(|e| Error::io(&file, e))?;
+    Ok((file, join_source(relative, "index.md"), true))
 }
 
 /// 栏目路径给人看的写法。根目录是空串，直接印出来是一片空白。
@@ -1123,6 +1232,102 @@ mod tests {
 
         // 一次都没写成，磁盘上还是原样
         let raw = std::fs::read_to_string(f.paths.content.join("posts/a.md")).unwrap();
+        assert!(!raw.contains("weight"), "{raw}");
+    }
+
+    /// 这一层的栏目路径，按站点上列出的顺序。
+    fn level(f: &Fixture, parent: &str) -> Vec<String> {
+        sections(f)
+            .into_iter()
+            .filter(|s| !s.path.is_empty() && parent_of(&s.path).as_deref() == Some(parent))
+            .map(|s| s.path)
+            .collect()
+    }
+
+    /// 栏目的位次也要能挪，理由与文章那条路一样：全是 weight 0 时「上移一位」无从表达。
+    ///
+    /// 界面上原先只有一个「排序」数字输入框——那是把实现细节摆给用户看。
+    #[test]
+    fn reorder_sections_freezes_the_sibling_order_into_index_pages() {
+        let f = fixture();
+        for name in ["guides", "notes", "posts"] {
+            write(
+                &f,
+                &format!("{name}/index.md"),
+                &format!("+++\ntitle = \"{name}\"\n+++\n"),
+            );
+        }
+        // 都没排过（weight 0），所以现在按路径排
+        assert_eq!(level(&f, ""), ["guides", "notes", "posts"]);
+
+        let wanted = vec![
+            "posts".to_string(),
+            "notes".to_string(),
+            "guides".to_string(),
+        ];
+        let done = reorder_sections(&f.paths, "", &wanted).unwrap();
+
+        assert_eq!(done.changed, wanted, "三个都没排过，三个都要写");
+        assert!(done.created.is_empty(), "索引页本来就有");
+        assert_eq!(done.total, 3);
+        assert_eq!(level(&f, ""), wanted, "站点上的栏目顺序就得是这个顺序");
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/index.md")).unwrap();
+        assert!(raw.contains("weight = 1"), "{raw}");
+    }
+
+    /// 位次存在索引页的 front matter 里，所以缺索引页的栏目得顺手补一张。
+    ///
+    /// 不补的话它的位次无处可存，排完之后它还在原地——用户看到的是「我明明挪了它」。
+    /// 这与改栏目信息（`set_meta`）是同一个取舍，补出来的文件必须报给调用方。
+    #[test]
+    fn reorder_sections_creates_a_missing_index_page_to_store_the_position() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        // 只有文章、没有索引页的栏目
+        write(&f, "notes/a.md", "+++\ntitle = \"甲\"\n+++\n");
+
+        let done =
+            reorder_sections(&f.paths, "", &["notes".to_string(), "posts".to_string()]).unwrap();
+
+        assert_eq!(done.created, ["notes/index.md"]);
+        let raw = std::fs::read_to_string(f.paths.content.join("notes/index.md")).unwrap();
+        // 标题用目录名兜底，别写出一张没标题的列表页
+        assert!(raw.contains("title = \"notes\""), "{raw}");
+        assert!(raw.contains("weight = 1"), "{raw}");
+        assert_eq!(level(&f, ""), ["notes", "posts"]);
+    }
+
+    /// 只给同一层的一部分是不行的，理由同文章排序：剩下的会以 weight 0 跳到最前面。
+    #[test]
+    fn reorder_sections_refuses_anything_but_the_whole_level() {
+        let f = fixture();
+        for name in ["posts", "notes"] {
+            write(
+                &f,
+                &format!("{name}/index.md"),
+                &format!("+++\ntitle = \"{name}\"\n+++\n"),
+            );
+        }
+        write(&f, "posts/2026/index.md", "+++\ntitle = \"2026\"\n+++\n");
+
+        for (paths, expect) in [
+            (vec!["posts"], "少了"),
+            (vec!["posts", "notes", "posts/2026"], "不在"),
+            (vec!["posts", "posts"], "重复"),
+            (vec!["posts", ""], "根目录"),
+        ] {
+            let ordered: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+            let err = reorder_sections(&f.paths, "", &ordered)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(expect),
+                "{ordered:?} 该说「{expect}」，得到：{err}"
+            );
+        }
+
+        // 一次都没写成
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/index.md")).unwrap();
         assert!(!raw.contains("weight"), "{raw}");
     }
 }

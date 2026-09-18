@@ -25,7 +25,7 @@ use staticsmith_core::replace::{
 use staticsmith_core::search::Hit as SearchHit;
 use staticsmith_core::sections::{
     Created as SectionCreated, Meta as SectionMeta, RenamePreview as SectionRenamePreview,
-    Renamed as SectionRenamed, Reordered, Section,
+    Renamed as SectionRenamed, Reordered, Section, SectionsReordered,
 };
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::theme::{
@@ -965,6 +965,46 @@ pub fn reorder_section(state: State<'_, AppState>, args: ReorderArgs) -> Result<
         Ok(session
             .builder
             .reorder_section(&args.section, &args.ordered)?)
+    })
+}
+
+/// 同一层栏目重新排序的参数。
+#[derive(Debug, Deserialize)]
+pub struct ReorderSectionsArgs {
+    /// 这一层的父栏目（顶层栏目传空串）。
+    pub parent: String,
+    /// 这一层的**全部**栏目，按想要的顺序。
+    pub ordered: Vec<String>,
+}
+
+/// 把同一层栏目的顺序固化成各自索引页的 `weight`。
+///
+/// 与 `reorder_section`（栏目内文章的位次）是同一件事的两半。缺索引页的栏目会顺手补一张
+/// ——位次只能存在那里，不补的话排完它还在原地。补出来的文件在 `created` 里报出去。
+#[tauri::command]
+pub fn reorder_sections(
+    state: State<'_, AppState>,
+    args: ReorderSectionsArgs,
+) -> Result<SectionsReordered> {
+    state.with_writing_session("reorder_sections", |session| {
+        // 会写这一层每个栏目的索引页（可能还会新建），整层都先登记，
+        // 免得改完弹「检测到外部修改」
+        let content_root = session.builder.paths.content.clone();
+        for path in &args.ordered {
+            for name in ["index.md", "_index.md"] {
+                let source = if path.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{path}/{name}")
+                };
+                if let Ok(file) = content::resolve_source(&content_root, &source) {
+                    state.note_self_write(&file);
+                }
+            }
+        }
+        Ok(session
+            .builder
+            .reorder_sections(&args.parent, &args.ordered)?)
     })
 }
 

@@ -227,7 +227,13 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
   目标已存在）在这里就会报错，界面据此在落盘前挡住它们；判断与执行共用 `rename_setup()`
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
 - `save_section_meta(args: { path, title, description, weight }) -> Section[]`：
-  改栏目元信息，返回刷新后的清单
+  改栏目元信息，返回刷新后的清单。`weight` 由「上移 / 下移」维护，界面上不出现这个数字
+  ——但保存时必须**原样带回来**，漏掉它就等于把这一层的顺序清成「没排过」
+- `reorder_sections(args: { parent, ordered }) -> SectionsReordered`：
+  把同一层栏目的顺序固化成各自索引页的 `weight`。`ordered` 必须是这一层的**全部**栏目
+  （`parent` 为空串表示顶层；根目录自己不参与，它没有同级）。返回
+  `{ changed, created, total }`——`created` 是为了存位次而顺手补出来的索引页：
+  位次只能存在那里，不补的话排完它还在原地，而悄悄新建文件是不能接受的
 - `reorder_section(args: { section, ordered }) -> Reordered`：
   把一栏文章的阅读顺序固化成各篇的 `weight`。`ordered` 必须是这一栏的**全部**文章
   （不多、不少、不重复、不含索引页），否则报错——只固化一半会让剩下的以 weight 0
@@ -304,7 +310,8 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 `save_section_meta` 把标题、简介、排序权重写进索引页的 front matter（`toml_edit`
 保序改写，正文与其他键不动）；简介留空、权重为 0 表示删掉那个键。缺索引页的栏目
 会顺手补一张 `index.md`——栏目就是目录，元信息只能存在那张列表页里，
-另开一个「栏目配置文件」就会出现两处真相。
+另开一个「栏目配置文件」就会出现两处真相。新建出来的索引页长什么样只有一处定义
+（`sections::ensure_index`），改栏目信息与排栏目顺序共用它。
 
 `rename_section` 的 `keep_aliases` 省略时按 `true`：给每篇文章补旧地址，
 构建后旧地址是重定向页。改名与删栏目都会牵动整棵子树，因此这几个命令会先

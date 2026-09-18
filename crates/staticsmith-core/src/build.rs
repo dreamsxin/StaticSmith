@@ -473,6 +473,17 @@ impl Builder {
         Ok(done)
     }
 
+    /// 把同一层栏目的顺序固化成各自索引页的 weight，见 [`sections::reorder_sections`]。
+    pub fn reorder_sections(
+        &mut self,
+        parent: &str,
+        ordered: &[String],
+    ) -> Result<sections::SectionsReordered> {
+        let done = sections::reorder_sections(&self.paths, parent, ordered)?;
+        self.reload()?;
+        Ok(done)
+    }
+
     /// 新建内容文件，返回其相对 `content/` 的路径。
     ///
     /// 同名文件已存在时追加 `-2`、`-3`，不会覆盖已有内容。

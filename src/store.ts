@@ -8,7 +8,7 @@ import { computed, reactive, readonly } from 'vue'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
-import { moved } from './grouping'
+import { moved, movedSection, siblingsOf } from './grouping'
 import { appendNotice, type Notice } from './notices'
 import { summarizeSkips } from './skips'
 
@@ -721,6 +721,36 @@ export const actions = {
       notify('success', `顺手把 ${report.refs_updated.length} 篇里的 ${hits} 处站内链接改到了新地址`)
     }
     await this.afterBatch(report.moved.length, report.skipped, report.plan)
+  },
+
+  /**
+   * 把一个栏目在它那一层里挪一位（`-1` 上移，`1` 下移）。
+   *
+   * 与挪动文章同构，理由也一样：全是 weight 0 时「上移一位」无从表达，所以第一次挪动
+   * 会把整层的顺序固化下来。位次存在索引页的 front matter 里，缺索引页的栏目会顺手
+   * 补一张——不补的话它的位次无处可存，排完还在原地。补了几张要说出来：
+   * 悄悄新建文件是不能接受的。
+   */
+  async moveSection(path: string, delta: -1 | 1) {
+    const siblings = siblingsOf(state.sections, path)
+    const ordered = movedSection(siblings, path, delta)
+    if (!ordered) return
+
+    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+    const done = await run(() => api.reorderSections(parent, ordered))
+    if (!done) return
+    const where = delta === -1 ? '上移' : '下移'
+    const created =
+      done.created.length > 0 ? `，并为 ${done.created.length} 个栏目补了列表页` : ''
+    notify(
+      'success',
+      done.changed.length > 2
+        ? `已${where}「${path}」，并把这一层 ${done.total} 个栏目的顺序固化下来${created}`
+        : `已${where}「${path}」${created}`,
+      done.created.length > 0 ? [...done.created] : undefined,
+    )
+    await this.refresh()
+    await this.recomputePlan()
   },
 
   /** 干跑一次改地址：新地址是什么、会改写哪几篇里的几处引用。不碰磁盘。 */

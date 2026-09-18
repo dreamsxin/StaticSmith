@@ -24,7 +24,7 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import { groupBySection, moved, worstSeoBySource } from '../grouping'
+import { groupBySection, moved, movedSection, siblingsOf, worstSeoBySource } from '../grouping'
 import type { Criteria, Filter } from '../grouping'
 import type { PageSummary, SearchHit } from '../api'
 
@@ -399,6 +399,16 @@ function canMove(page: PageSummary, delta: -1 | 1): boolean {
   return moved(siblings, page.source, delta) !== null
 }
 
+/**
+ * 这个栏目在它那一层里还能不能往那个方向挪。
+ *
+ * 与文章那条路同构（判断与执行共用一份逻辑）。比的是**整层的栏目**，
+ * 而不是列表上看到的那几组：筛选或搜索会把没命中的栏目整组去掉，而顺序是整层的事。
+ */
+function canMoveSection(section: string, delta: -1 | 1): boolean {
+  return movedSection(siblingsOf(store.sections, section), section, delta) !== null
+}
+
 
 
 
@@ -523,6 +533,8 @@ async function copyText(text: string) {
         :section="group.section"
         :count="group.pages.length"
         :nested="group.parentShown"
+        :can-up="canMoveSection(group.section, -1)"
+        :can-down="canMoveSection(group.section, 1)"
         :meta="sectionOf.get(group.section)"
         @new-content="startNewContentIn"
       />

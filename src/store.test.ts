@@ -670,5 +670,68 @@ describe('store 挪动文章的位次', () => {
   })
 })
 
+/**
+ * 挪动栏目的位次。
+ *
+ * 与挪动文章同构。这里额外要钉住的是**父栏目算得对**：算错了就会去排另一层的顺序，
+ * 而那一层的清单对不上，后端会直接报错——用户看到的是「上移一位失败」。
+ */
+describe('store 挪动栏目的位次', () => {
+  beforeEach(async () => {
+    results.clear()
+    vi.clearAllMocks()
+    results.set('listSections', [
+      { path: '', weight: 0 },
+      { path: 'guides', weight: 0 },
+      { path: 'posts', weight: 0 },
+      { path: 'posts/2025', weight: 0 },
+      { path: 'posts/2026', weight: 0 },
+    ])
+    await actions.loadSections()
+    vi.clearAllMocks()
+  })
+
+  it('顶层栏目上移：父栏目是根目录（空串）', async () => {
+    results.set('reorderSections', { changed: ['posts', 'guides'], created: [], total: 2 })
+
+    await actions.moveSection('posts', -1)
+
+    expect(calls.get('reorderSections')).toHaveBeenCalledWith('', ['posts', 'guides'])
+  })
+
+  it('子栏目下移：父栏目是它上一层，同级只有兄弟', async () => {
+    results.set('reorderSections', {
+      changed: ['posts/2026', 'posts/2025'],
+      created: [],
+      total: 2,
+    })
+
+    await actions.moveSection('posts/2025', 1)
+
+    expect(calls.get('reorderSections')).toHaveBeenCalledWith('posts', [
+      'posts/2026',
+      'posts/2025',
+    ])
+  })
+
+  it('已经在头 / 尾时一个字节都不写', async () => {
+    await actions.moveSection('guides', -1)
+    expect(calls.get('reorderSections')).not.toHaveBeenCalled()
+  })
+
+  it('顺手补出来的列表页要说出来：悄悄新建文件是不能接受的', async () => {
+    results.set('reorderSections', {
+      changed: ['posts', 'guides'],
+      created: ['guides/index.md'],
+      total: 2,
+    })
+
+    await actions.moveSection('posts', -1)
+
+    expect(store.notices[0].message).toContain('为 1 个栏目补了列表页')
+    expect(store.notices[0].details).toEqual(['guides/index.md'])
+  })
+})
+
 
 

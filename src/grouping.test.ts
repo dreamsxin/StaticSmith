@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
-import { groupBySection, matchesFilter, moved, readingOrder, worstSeoBySource } from './grouping'
+import {
+  groupBySection,
+  matchesFilter,
+  moved,
+  movedSection,
+  readingOrder,
+  siblingsOf,
+  worstSeoBySource,
+} from './grouping'
 import type { Criteria, GroupablePage } from './grouping'
 
 /**
@@ -298,6 +306,61 @@ describe('moved', () => {
 
   it('不在这一栏里的文章挪不动', () => {
     expect(moved(posts, 'ghost.md', -1)).toBeNull()
+  })
+})
+
+/**
+ * 挪动栏目在同一层里的位次。
+ *
+ * 与挪动文章同构：一本书的目录既要能排章节之间的先后，也要能排章内小节的先后，
+ * 两件事不该有两种手感。界面上原先只有一个「排序」数字输入框。
+ */
+describe('movedSection 与 siblingsOf', () => {
+  const sections = [
+    { path: '', weight: 0 },
+    { path: 'guides', weight: 0 },
+    { path: 'notes', weight: 0 },
+    { path: 'posts', weight: 0 },
+    { path: 'posts/2026', weight: 0 },
+    { path: 'posts/2025', weight: 0 },
+  ]
+
+  it('同一层的栏目才算同级，根目录没有同级', () => {
+    expect(siblingsOf(sections, 'posts').map((s) => s.path)).toEqual([
+      'guides',
+      'notes',
+      'posts',
+    ])
+    expect(siblingsOf(sections, 'posts/2026').map((s) => s.path)).toEqual([
+      'posts/2026',
+      'posts/2025',
+    ])
+    expect(siblingsOf(sections, '')).toEqual([])
+  })
+
+  it('上移一位：给出整层的新顺序', () => {
+    const siblings = siblingsOf(sections, 'posts')
+    expect(movedSection(siblings, 'notes', -1)).toEqual(['notes', 'guides', 'posts'])
+  })
+
+  it('下移一位', () => {
+    const siblings = siblingsOf(sections, 'posts')
+    expect(movedSection(siblings, 'guides', 1)).toEqual(['notes', 'guides', 'posts'])
+  })
+
+  it('已经在头 / 尾时动不了，返回 null 而不是发一次什么也不改的写操作', () => {
+    const siblings = siblingsOf(sections, 'posts')
+    expect(movedSection(siblings, 'guides', -1)).toBeNull()
+    expect(movedSection(siblings, 'posts', 1)).toBeNull()
+  })
+
+  it('排过序的栏目按 weight 走，不再按名字', () => {
+    const ranked = [
+      { path: 'guides', weight: 3 },
+      { path: 'notes', weight: 2 },
+      { path: 'posts', weight: 1 },
+    ]
+    expect(movedSection(ranked, 'notes', -1)).toEqual(['notes', 'posts', 'guides'])
   })
 })
 

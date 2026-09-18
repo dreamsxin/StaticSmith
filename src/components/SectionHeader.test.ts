@@ -28,6 +28,7 @@ const actions = {
   renameSection: vi.fn(async () => {}),
   saveSectionMeta: vi.fn(async () => {}),
   removeSection: vi.fn(async () => {}),
+  moveSection: vi.fn(async () => {}),
 }
 
 /** 右键菜单只记下条目：菜单本身是全局单例，这里要验的是「给了哪几项」。 */
@@ -81,6 +82,52 @@ async function openRenameForm(wrapper: ReturnType<typeof mountHeader>) {
   entry('section.rename').run?.()
   await wrapper.vm.$nextTick()
 }
+
+/**
+ * 挪动栏目的位次。
+ *
+ * 界面上原先只有一个「排序」数字输入框——那是把实现细节摆给用户看。现在与文章同构：
+ * 菜单里「上移 / 下移」，到头到尾置灰。
+ */
+describe('SectionHeader 的上移下移', () => {
+  async function openMenu(props: Record<string, unknown> = {}) {
+    const wrapper = mountHeader(props)
+    await button(wrapper, '⋯').trigger('click')
+    return wrapper
+  }
+
+  it('能挪的时候可以点，挪一位就调 moveSection', async () => {
+    await openMenu({ canUp: true, canDown: true })
+
+    expect(entry('section.up').disabled).toBeFalsy()
+    entry('section.up').run?.()
+    expect(actions.moveSection).toHaveBeenCalledWith('posts', -1)
+
+    entry('section.down').run?.()
+    expect(actions.moveSection).toHaveBeenCalledWith('posts', 1)
+  })
+
+  it('到头 / 到尾时置灰，而不是点了没反应', async () => {
+    await openMenu({ canUp: false, canDown: false })
+
+    expect(entry('section.up').disabled).toBe(true)
+    expect(entry('section.down').disabled).toBe(true)
+  })
+
+  it('根目录没有这两项：它没有同级', async () => {
+    await openMenu({ section: '', meta: undefined, canUp: true, canDown: true })
+
+    expect(entries().map((item) => item.id)).toEqual(['section.new', 'section.meta'])
+  })
+
+  it('顺序不在「栏目信息」表单里：数字是实现细节', async () => {
+    const wrapper = mountHeader()
+    await button(wrapper, '信息').trigger('click')
+
+    expect(wrapper.findAll('.page-list__rename input[type="number"]')).toHaveLength(0)
+    expect(wrapper.get('form.page-list__rename').text()).toContain('上移一位')
+  })
+})
 
 /**
  * 栏目名怎么显示。

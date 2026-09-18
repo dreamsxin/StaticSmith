@@ -860,6 +860,25 @@ export interface Reordered {
 export const reorderSection = (section: string, ordered: string[]) =>
   invoke<Reordered>('reorder_section', { args: { section, ordered } })
 
+/** 同一层栏目重新排序的结果。 */
+export interface SectionsReordered {
+  /** 改了位次的栏目路径，按新顺序 */
+  changed: string[]
+  /** 为了存位次而顺手补出来的索引页 */
+  created: string[]
+  /** 这一层一共几个栏目 */
+  total: number
+}
+
+/**
+ * 把同一层栏目的顺序固化下来（写进各自索引页的 `weight`）。
+ *
+ * `ordered` 必须是这一层的**全部**栏目。缺索引页的栏目会顺手补一张——位次只能存在那里，
+ * 不补的话排完它还在原地；补出来的文件在 `created` 里。
+ */
+export const reorderSections = (parent: string, ordered: string[]) =>
+  invoke<SectionsReordered>('reorder_sections', { args: { parent, ordered } })
+
 
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */
 export const removeMedia = (paths: string[]) => invoke<MediaRemoved>('remove_media', { paths })

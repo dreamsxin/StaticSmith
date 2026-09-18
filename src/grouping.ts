@@ -173,6 +173,54 @@ export function moved(
   return swapped
 }
 
+/**
+ * 同一层栏目之间的顺序：`weight` 升序，再按路径。
+ *
+ * 与站点上 `sections` 列出的顺序一致（Rust 侧 `sections::list` 的结尾就是这么排的）。
+ * 注意它与文章的 `readingOrder` **不是**一回事：栏目没有日期可比。
+ */
+export function siblingOrder(a: GroupableSection, b: GroupableSection): number {
+  if (a.weight !== b.weight) return a.weight - b.weight
+  return a.path < b.path ? -1 : a.path > b.path ? 1 : 0
+}
+
+/**
+ * 与某个栏目同一层的全部栏目（含它自己）。
+ *
+ * 根目录返回空数组：它没有同级，也不该出现「上移根目录」这种菜单项。
+ */
+export function siblingsOf<T extends GroupableSection>(
+  sections: readonly T[],
+  path: string,
+): T[] {
+  if (path === '') return []
+  const parent = parentOf(path)
+  return sections.filter((section) => section.path !== '' && parentOf(section.path) === parent)
+}
+
+/**
+ * 把一个栏目在它那一层里挪一位，返回**整层**的新顺序。
+ *
+ * 已经在头 / 尾、或者它根本不在这一层时返回 `null`：调用方据此把菜单项置灰，
+ * 而不是发一次什么也不改的写操作。
+ *
+ * 与 [`moved`] 同构（那个管栏目内的文章）：一本书的目录既要能排章节之间的先后，
+ * 也要能排章内小节的先后，两件事不该有两种手感。
+ */
+export function movedSection(
+  siblings: readonly GroupableSection[],
+  path: string,
+  delta: -1 | 1,
+): string[] | null {
+  const ordered = [...siblings].sort(siblingOrder)
+  const at = ordered.findIndex((section) => section.path === path)
+  const to = at + delta
+  if (at < 0 || to < 0 || to >= ordered.length) return null
+  const swapped = ordered.map((section) => section.path)
+  ;[swapped[at], swapped[to]] = [swapped[to], swapped[at]]
+  return swapped
+}
+
 /** 某个栏目的父栏目路径。顶层栏目的父是根目录（空串）。 */
 function parentOf(path: string): string {
   const at = path.lastIndexOf('/')

@@ -47,6 +47,9 @@ const props = defineProps<{
    * 否则孤零零一个「2026」看不出是谁的。
    */
   nested?: boolean
+  /** 这一层里它还能不能往上 / 往下挪（由 `PageList` 算：那边才知道同级有哪些）。 */
+  canUp?: boolean
+  canDown?: boolean
   /** 栏目元信息。没有索引页的栏目取不到，界面要能容忍它缺席。 */
   meta?: SectionMetaView
 }>()
@@ -126,10 +129,13 @@ function cancelRename() {
 // ---------------------------------------------------------------- 栏目信息
 
 /**
- * 栏目元信息：标题、简介、排序权重。
+ * 栏目元信息：标题与简介。
  *
- * 这三项都存在索引页的 front matter 里——栏目就是目录，它的介绍该在那张列表页上，
+ * 两项都存在索引页的 front matter 里——栏目就是目录，它的介绍该在那张列表页上，
  * 而不是另开一个栏目配置文件。缺索引页的栏目保存时会顺手补一张。
+ *
+ * **位次（`weight`）不在这张表单里出现**，但要原样带回去：它由「上移 / 下移」维护，
+ * 保存栏目信息时漏掉它就等于把顺序清成「没排过」——用户改了个简介，整层顺序乱了。
  */
 const editingMeta = ref(false)
 const metaForm = reactive({ title: '', description: '', weight: 0 })
@@ -175,13 +181,27 @@ function menu(): MenuEntry[] {
     { separator: true },
     {
       id: 'section.meta',
-      label: '栏目信息（标题 / 简介 / 排序）…',
+      label: '栏目信息（标题 / 简介）…',
       run: () => startMeta(),
     },
   ]
   if (props.section === '') return items
   const pages = props.meta?.pages ?? 0
   items.push(
+    {
+      id: 'section.up',
+      label: '上移一位',
+      hint: '这一层的顺序，与网站上一致',
+      disabled: !props.canUp,
+      run: () => actions.moveSection(props.section, -1),
+    },
+    {
+      id: 'section.down',
+      label: '下移一位',
+      hint: '这一层的顺序，与网站上一致',
+      disabled: !props.canDown,
+      run: () => actions.moveSection(props.section, 1),
+    },
     {
       id: 'section.rename',
       label: '栏目改名…',
@@ -219,7 +239,7 @@ function menu(): MenuEntry[] {
     <button
       type="button"
       class="page-list__icon"
-      title="栏目信息：标题、简介、排序（存在索引页的 front matter 里）"
+      title="栏目信息：标题与简介（存在索引页的 front matter 里）"
       @click="startMeta"
     >
       信息
@@ -263,10 +283,10 @@ function menu(): MenuEntry[] {
       简介（列表页与 SEO 描述用）
       <input v-model="metaForm.description" type="text" />
     </label>
-    <label>
-      排序（小的在前，0 表示不排）
-      <input v-model.number="metaForm.weight" type="number" />
-    </label>
+    <!-- 顺序不在这张表单里：数字是实现细节，读者看到的只有先后。
+         用右键菜单里的「上移 / 下移」调整（同文章）。原值原样带回去，
+         否则改个简介就把这一层的顺序清成「没排过」 -->
+    <p class="build__muted">顺序用右键菜单里的「上移一位 / 下移一位」调整。</p>
     <p v-if="!props.meta?.index_source" class="page-list__hint">
       这个栏目还没有列表页，保存时会顺手建一张 index.md。
     </p>
