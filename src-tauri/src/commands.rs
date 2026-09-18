@@ -25,7 +25,7 @@ use staticsmith_core::replace::{
 use staticsmith_core::search::Hit as SearchHit;
 use staticsmith_core::sections::{
     Created as SectionCreated, Meta as SectionMeta, RenamePreview as SectionRenamePreview,
-    Renamed as SectionRenamed, Section,
+    Renamed as SectionRenamed, Reordered, Section,
 };
 use staticsmith_core::templates::TemplateInfo;
 use staticsmith_core::theme::{
@@ -84,6 +84,8 @@ pub struct PageSummary {
     pub scheduled: bool,
     /// 属性面板的标签建议来自这里，因此列表项也要带上
     pub tags: Vec<String>,
+    /// 人排过的顺序（0 表示没排过）。侧栏要按站点上的真实顺序列，就得知道它。
+    pub weight: i64,
 }
 
 /// 构建进度事件载荷。
@@ -941,6 +943,31 @@ pub fn save_section_meta(
 
 // ---------------------------------------------------------------- 主题包
 
+/// 一栏文章重新排序的参数。
+#[derive(Debug, Deserialize)]
+pub struct ReorderArgs {
+    /// 栏目路径（相对 `content/`），根目录是空串。
+    pub section: String,
+    /// 这一栏的**全部**文章，按想要的阅读顺序。
+    pub ordered: Vec<String>,
+}
+
+/// 把一栏文章的阅读顺序固化成 `weight`。
+///
+/// 界面上只有「上移 / 下移」，用户看不到数字——数字是实现细节，读者看到的只有先后。
+/// 参数要整栏的清单（而不是「把 X 挪到第 3 位」）：顺序是一件整体的事，由界面算出来，
+/// 核心只负责落盘并说清动了哪几篇。为什么必须整栏、为什么从 1 开始，见 `sections::reorder`。
+#[tauri::command]
+pub fn reorder_section(state: State<'_, AppState>, args: ReorderArgs) -> Result<Reordered> {
+    state.with_writing_session("reorder_section", |session| {
+        // 会被改写的就是清单里这些文件，先登记，免得改完弹「检测到外部修改」
+        note_batch(&state, session, &args.ordered);
+        Ok(session
+            .builder
+            .reorder_section(&args.section, &args.ordered)?)
+    })
+}
+
 /// 打包当前站点的外观（模板 + 主题静态资源）成一个 zip。
 ///
 /// 不含 `content/` 与 `static/`：文章与上传的图片是站点的，不是主题的。
@@ -1365,6 +1392,7 @@ fn page_summary(page: &staticsmith_core::Page) -> PageSummary {
         date: page.date.map(|d| d.to_rfc3339()),
         scheduled: false,
         tags: page.tags.clone(),
+        weight: page.weight,
     }
 }
 

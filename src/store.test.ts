@@ -590,5 +590,85 @@ describe('store 的停止发布', () => {
   })
 })
 
+/**
+ * 挪动文章在栏目里的位次。
+ *
+ * 侧栏要像一本书的目录，前提是它显示的顺序就是读者看到的顺序，并且**能改**。
+ * 这里钉住三件事：交给后端的是整栏的清单（不是「挪到第几位」）、索引页不算一篇、
+ * 挪不动的时候一个字节都不写。
+ */
+describe('store 挪动文章的位次', () => {
+  const page = (source: string, extra: Record<string, unknown> = {}) => ({
+    source,
+    title: source,
+    url: `/${source}`,
+    template: 'pages/post.html',
+    section: 'posts',
+    is_index: false,
+    draft: false,
+    date: null,
+    scheduled: false,
+    tags: [],
+    weight: 0,
+    ...extra,
+  })
+
+  beforeEach(async () => {
+    results.clear()
+    vi.clearAllMocks()
+    results.set('openProject', {
+      root: '/site',
+      config: { site: { title: '测试站点' } },
+      // 日期倒序，所以顺序是 a、b、c
+      pages: [
+        page('posts/index.md', { is_index: true }),
+        page('posts/a.md', { date: '2026-01-03T00:00:00Z' }),
+        page('posts/b.md', { date: '2026-01-02T00:00:00Z' }),
+        page('posts/c.md', { date: '2026-01-01T00:00:00Z' }),
+      ],
+      layouts: [],
+      components: [],
+      templates: [],
+      recent_builds: [],
+      config_warnings: [],
+      broken_sources: [],
+    })
+    await actions.openProject('/site')
+    vi.clearAllMocks()
+  })
+
+  it('上移一位：交给后端的是整栏的新顺序，索引页不算一篇', async () => {
+    results.set('reorderSection', { changed: ['posts/b.md', 'posts/a.md'], total: 3 })
+
+    await actions.movePage('posts/b.md', -1)
+
+    expect(calls.get('reorderSection')).toHaveBeenCalledWith('posts', [
+      'posts/b.md',
+      'posts/a.md',
+      'posts/c.md',
+    ])
+  })
+
+  it('已经在最前 / 最后时一个字节都不写', async () => {
+    await actions.movePage('posts/a.md', -1)
+    await actions.movePage('posts/c.md', 1)
+    expect(calls.get('reorderSection')).not.toHaveBeenCalled()
+  })
+
+  it('第一次挪动会固化整栏，通知里就得说清动了几篇', async () => {
+    // 三篇的 weight 原本都是 0，所以第一次挪动会写三篇
+    results.set('reorderSection', {
+      changed: ['posts/b.md', 'posts/a.md', 'posts/c.md'],
+      total: 3,
+    })
+
+    await actions.movePage('posts/b.md', -1)
+
+    // 「我只挪了一下，怎么 3 个文件都变了」不能像个 bug
+    expect(store.notices[0].message).toContain('固化')
+    expect(store.notices[0].message).toContain('3 篇')
+  })
+})
+
 
 

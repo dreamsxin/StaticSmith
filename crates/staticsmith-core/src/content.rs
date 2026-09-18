@@ -268,6 +268,26 @@ fn collect_taxonomy_fields(fm: &FrontMatter) -> std::collections::BTreeMap<Strin
     out
 }
 
+/// 读者看到的顺序：`weight` 升序 → 日期降序 → 标题升序。
+///
+/// **这套顺序只在这一处定义。** 栏目列表页、分类词条页都按它排，桌面端侧栏也按它排
+/// （`src/grouping.ts` 是它的孪生实现，两边各有测试钉住同样的例子）。
+/// 各处各写一遍的下场是「界面上第 3 篇、网站上第 7 篇」——而那正是
+/// 「编辑网站不像编辑一本书」的根源：目录必须与成书一致，否则它只是个文件夹。
+///
+/// 为什么是这三级：
+/// - `weight` 是人排过的位次，**升序**，所以缺省的 0 排在 1、2、3… 之前：
+///   一栏固化过顺序之后新建的文章（weight 0）会出现在最前面。这是有意的——
+///   新写的东西该看得见，而且界面与网站是同一套顺序，挪一次就固化进去了；
+/// - 同一个 weight 里按日期**倒序**——写文章的默认期望是新的在前；
+/// - 同日再按标题，只为让结果稳定：同一份内容两次生成的顺序不能不一样。
+pub fn reading_order(a: &Page, b: &Page) -> std::cmp::Ordering {
+    a.weight
+        .cmp(&b.weight)
+        .then_with(|| b.date.cmp(&a.date))
+        .then_with(|| a.title.cmp(&b.title))
+}
+
 /// 递归扫描 `content/` 下的源文件并解析。
 ///
 /// **收哪些扩展名与 `format` 无关**：`.md` / `.markdown` / `.html` / `.htm` 一律收。
@@ -675,6 +695,55 @@ fn toml_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 阅读顺序的孪生测试：这几条例子与 `src/grouping.test.ts` 里的一一对应。
+    ///
+    /// 两边各有一份实现（产物生成在 Rust，界面列表在 TS），不一致的下场是
+    /// 「界面上第 3 篇、网站上第 7 篇」——那时侧栏就不再是目录，只是个文件夹。
+    #[test]
+    fn reading_order_matches_the_twin_in_the_ui() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let page = |name: &str, front: &str| {
+            let file = root.join(name);
+            std::fs::write(&file, format!("+++\n{front}+++\n\n正文\n")).unwrap();
+            Page::from_file(root, &file, SourceFormat::default()).unwrap()
+        };
+        let sorted = |mut items: Vec<&Page>| -> Vec<String> {
+            items.sort_by(|a, b| reading_order(a, b));
+            items.iter().map(|p| p.source.clone()).collect()
+        };
+
+        let w1 = page(
+            "w1.md",
+            "title = \"排过的\"\nweight = 1\ndate = \"2020-01-01\"\n",
+        );
+        let w2 = page("w2.md", "title = \"排过的二\"\nweight = 2\n");
+        let fresh = page("fresh.md", "title = \"新写的\"\ndate = \"2026-12-31\"\n");
+        let old = page("old.md", "title = \"旧的\"\ndate = \"2026-01-01\"\n");
+        let undated = page("undated.md", "title = \"没日期\"\n");
+        let jia = page(
+            "jia.md",
+            "title = \"甲\"\nweight = 9\ndate = \"2026-01-01\"\n",
+        );
+        let yi = page(
+            "yi.md",
+            "title = \"乙\"\nweight = 9\ndate = \"2026-01-01\"\n",
+        );
+
+        // weight 升序，所以缺省的 0 排在 1、2 之前：固化过顺序之后新建的文章出现在最前面
+        assert_eq!(
+            sorted(vec![&w1, &fresh, &w2]),
+            ["fresh.md", "w1.md", "w2.md"]
+        );
+        // 同一个 weight 里按日期倒序，没日期的落在最后
+        assert_eq!(
+            sorted(vec![&undated, &old, &fresh]),
+            ["fresh.md", "old.md", "undated.md"]
+        );
+        // 同 weight 同日期按标题定死：「乙」(U+4E59) 在「甲」(U+7532) 之前
+        assert_eq!(sorted(vec![&jia, &yi]), ["yi.md", "jia.md"]);
+    }
 
     /// 一篇坏文件不该让「读取整站」这件事整体失败。
     ///

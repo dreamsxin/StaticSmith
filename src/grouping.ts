@@ -17,6 +17,10 @@ export interface GroupablePage {
   readonly section: string
   readonly draft: boolean
   readonly scheduled: boolean
+  /** 人排过的顺序，0 表示没排过 */
+  readonly weight: number
+  /** RFC3339，没写日期时为 null */
+  readonly date: string | null
 }
 
 /** 栏目在排序里只用得到路径与权重。 */
@@ -104,14 +108,67 @@ function matchesKeyword(page: GroupablePage, keyword: string): boolean {
 }
 
 /**
- * 按栏目分组，并按「索引页 weight，然后路径」排序。
+ * 读者看到的顺序：weight 升序 → 日期降序 → 标题升序。
  *
- * 两条容易被改坏的规则：
+ * **这是 Rust 侧 `content::reading_order` 的孪生实现**，两边各有测试钉住同样的例子
+ * （同 `skips.ts` ↔ `skips.rs` 的做法）。为什么要有两份：顺序既要在生成产物时用，
+ * 也要在界面上列出来，而界面拿不到 Rust 的比较器。两边不一致的下场是
+ * 「界面上第 3 篇、网站上第 7 篇」——那时侧栏就不再是目录，只是个文件夹。
+ *
+ * 日期用 `Date.parse` 比而不是比字符串：RFC3339 允许不同时区偏移，
+ * `2026-01-01T00:00:00+08:00` 与 `2025-12-31T20:00:00Z` 是同一刻，字符串比会判反。
+ * 没写日期的排在有日期的后面（与 Rust 里 `None < Some` 在降序下的效果一致）。
+ *
+ * 标题这一级只为让结果稳定，用码位序而不是 `localeCompare`：后者按语言习惯排，
+ * 与 Rust 的字节序差得更远。固化过顺序之后 weight 各不相同，这一级根本不会走到。
+ */
+export function readingOrder(a: GroupablePage, b: GroupablePage): number {
+  if (a.weight !== b.weight) return a.weight - b.weight
+  const at = a.date ? Date.parse(a.date) : null
+  const bt = b.date ? Date.parse(b.date) : null
+  if (at !== bt) {
+    if (at === null) return 1
+    if (bt === null) return -1
+    return bt - at
+  }
+  return a.title < b.title ? -1 : a.title > b.title ? 1 : 0
+}
+
+/**
+ * 把某一篇在它那一栏里挪一位，返回**整栏**的新顺序（源文件路径）。
+ *
+ * 已经在头 / 尾时返回 `null`：调用方据此把菜单项置灰，而不是发一次什么也不改的写操作。
+ *
+ * 为什么返回整栏而不是「把 X 挪到第 3 位」：顺序是一件整体的事。新站点里每篇的
+ * weight 都是 0，"往上挪一位" 在那种状态下无从表达（交换两个 0 什么也没变），
+ * 所以核心要的是整栏的顺序，由这里算出来——它也是唯一知道「现在看到的顺序」的地方。
+ */
+export function moved(
+  pages: readonly GroupablePage[],
+  source: string,
+  delta: -1 | 1,
+): string[] | null {
+  const ordered = [...pages].sort(readingOrder)
+  const at = ordered.findIndex((page) => page.source === source)
+  const to = at + delta
+  if (at < 0 || to < 0 || to >= ordered.length) return null
+  const swapped = ordered.map((page) => page.source)
+  ;[swapped[at], swapped[to]] = [swapped[to], swapped[at]]
+  return swapped
+}
+
+/**
+ * 按栏目分组，栏目之间按「索引页 weight，然后路径」，**组内按阅读顺序**。
+ *
+ * 三条容易被改坏的规则：
  *
  * - **空栏目也要摆出来**，否则新建完一个栏目它就「消失」了。但只在既没搜索也没筛选时补
  *   ——那时用户要的是完整结构；搜索时补空栏目等于在结果里塞进一堆噪音。
  * - 栏目顺序跟着索引页的 `weight`，与站点上列出的顺序一致；没排过序的（weight 0）
  *   按路径排，免得顺序看起来随机。
+ * - **组内按 `readingOrder`**，也就是网站上的顺序。这里曾经直接用后端给的数组顺序，
+ *   而那是**源文件名字母序**——于是侧栏看着像文件夹而不像目录：`a.md` 永远在
+ *   `b.md` 前面，哪怕网站上是倒过来的。
  */
 export function groupBySection<T extends GroupablePage>(
   pages: readonly T[],
@@ -133,6 +190,8 @@ export function groupBySection<T extends GroupablePage>(
     list.push(page)
     map.set(page.section, list)
   }
+
+  for (const list of map.values()) list.sort(readingOrder)
 
   const weightOf = (path: string) => sections.find((s) => s.path === path)?.weight ?? 0
   return [...map.entries()].sort(([a], [b]) => weightOf(a) - weightOf(b) || a.localeCompare(b))

@@ -91,6 +91,11 @@ JSON-RPC 错误，端点继续活着。
 
 `PageSummary.tags` 带上了页面标签，属性面板据此给出全站已用过的标签候选。
 
+`PageSummary.weight` 是这一篇在栏目里的位次（0 表示没排过）。侧栏要按**网站上的真实顺序**
+列文章，就得知道它：顺序规则在 `content::reading_order` 一处定义（weight 升序 → 日期降序
+→ 标题），`src/grouping.ts` 的 `readingOrder` 是它的孪生实现，两边各有测试钉住同样的例子。
+`list_pages` 返回的数组本身仍按源文件路径排——那只是传输顺序，不是阅读顺序。
+
 
 `create_content` 的 `request` 字段：`section`、`title`、`path?`、`slug?`、`template?`、
 `description?`、`tags?`、`draft?`（缺省 true）。文件名由 slug 或标题推导，
@@ -223,6 +228,12 @@ base64 只有 4/3 的开销。前端 `saveAsset(fileName, bytes)` 已封装编�
 - `remove_section(path) -> Section[]`：删空栏目，返回删除后的清单
 - `save_section_meta(args: { path, title, description, weight }) -> Section[]`：
   改栏目元信息，返回刷新后的清单
+- `reorder_section(args: { section, ordered }) -> Reordered`：
+  把一栏文章的阅读顺序固化成各篇的 `weight`。`ordered` 必须是这一栏的**全部**文章
+  （不多、不少、不重复、不含索引页），否则报错——只固化一半会让剩下的以 weight 0
+  跳到最前面。返回 `{ changed, total }`：`changed` 是真正改了 front matter 的那几篇
+  （按新顺序），第一次挪动会是整栏，之后只有两篇。界面上只有「上移 / 下移」，
+  数字不出现在界面里
 
 批量动作（逐篇独立，结果里分「改了哪些」与「跳过哪些及原因」）：
 

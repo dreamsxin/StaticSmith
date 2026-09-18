@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { groupBySection, matchesFilter, worstSeoBySource } from './grouping'
+import { groupBySection, matchesFilter, moved, readingOrder, worstSeoBySource } from './grouping'
 import type { Criteria, GroupablePage } from './grouping'
 
 /**
@@ -16,6 +16,8 @@ function page(source: string, extra: Partial<GroupablePage> = {}): GroupablePage
     section: source.includes('/') ? source.slice(0, source.lastIndexOf('/')) : '',
     draft: false,
     scheduled: false,
+    weight: 0,
+    date: null,
     ...extra,
   }
 }
@@ -124,6 +126,105 @@ describe('groupBySection', () => {
       ([, p]) => p,
     )
     expect(found.map((p) => p.source)).toEqual(['posts/a.md'])
+  })
+})
+
+/**
+ * 阅读顺序 —— Rust 侧 `content::reading_order` 的孪生实现。
+ *
+ * 这几条例子与 `sections.rs` 的测试对着写：两边不一致的下场是
+ * 「界面上第 3 篇、网站上第 7 篇」，那时侧栏就不再是目录，只是个文件夹。
+ */
+describe('readingOrder', () => {
+  const sorted = (items: GroupablePage[]) =>
+    [...items].sort(readingOrder).map((p) => p.source)
+
+  it('排过序的在前，按 weight 升序', () => {
+    expect(
+      sorted([
+        page('c.md', { weight: 3 }),
+        page('a.md', { weight: 1 }),
+        page('b.md', { weight: 2 }),
+      ]),
+    ).toEqual(['a.md', 'b.md', 'c.md'])
+  })
+
+  it('没排过序的（weight 0）按日期倒序：写文章的默认期望是新的在前', () => {
+    expect(
+      sorted([
+        page('old.md', { date: '2026-01-01T00:00:00Z' }),
+        page('new.md', { date: '2026-03-01T00:00:00Z' }),
+      ]),
+    ).toEqual(['new.md', 'old.md'])
+  })
+
+  it('固化过顺序之后新建的文章（weight 0）出现在最前面', () => {
+    // weight 是升序的位次，0 排在 1、2、3… 之前。这是有意的：新写的东西该看得见，
+    // 而且界面与网站是同一套顺序——挪一次就固化进去了。
+    expect(
+      sorted([
+        page('ranked.md', { weight: 1, date: '2020-01-01T00:00:00Z' }),
+        page('brand-new.md', { date: '2026-12-31T00:00:00Z' }),
+      ]),
+    ).toEqual(['brand-new.md', 'ranked.md'])
+  })
+
+  it('没写日期的排在有日期的后面', () => {
+    expect(sorted([page('none.md'), page('dated.md', { date: '2020-01-01T00:00:00Z' })])).toEqual([
+      'dated.md',
+      'none.md',
+    ])
+  })
+
+  it('时区不同也要比对刻，不是比字符串', () => {
+    // 这两个是同一刻，先后由标题决定；比字符串会把 2026-01-01 判成更新
+    const same = sorted([
+      page('b.md', { date: '2026-01-01T00:00:00+08:00' }),
+      page('a.md', { date: '2025-12-31T16:00:00Z' }),
+    ])
+    expect(same).toEqual(['a.md', 'b.md'])
+  })
+
+  it('同 weight 同日期时按标题定死，免得两次列出的顺序不一样', () => {
+    // 按码位比，不按语言习惯：「乙」(U+4E59) 在「甲」(U+7532) 之前。
+    // 这看着违反直觉，但与 Rust 侧的字节序一致——一致比「符合直觉」重要。
+    expect(
+      sorted([
+        page('jia.md', { title: '甲', weight: 1, date: '2026-01-01T00:00:00Z' }),
+        page('yi.md', { title: '乙', weight: 1, date: '2026-01-01T00:00:00Z' }),
+      ]),
+    ).toEqual(['yi.md', 'jia.md'])
+  })
+})
+
+/**
+ * 「上移 / 下移」算出来的整栏新顺序。
+ *
+ * 这是界面上唯一能改顺序的动作，而它必须给出**整栏**的清单：
+ * 新站点里每篇的 weight 都是 0，「往上挪一位」在那种状态下无从表达。
+ */
+describe('moved', () => {
+  const posts = [
+    page('a.md', { date: '2026-01-03T00:00:00Z' }), // 日期倒序：a、b、c
+    page('b.md', { date: '2026-01-02T00:00:00Z' }),
+    page('c.md', { date: '2026-01-01T00:00:00Z' }),
+  ]
+
+  it('上移一位：给出整栏的新顺序', () => {
+    expect(moved(posts, 'b.md', -1)).toEqual(['b.md', 'a.md', 'c.md'])
+  })
+
+  it('下移一位', () => {
+    expect(moved(posts, 'b.md', 1)).toEqual(['a.md', 'c.md', 'b.md'])
+  })
+
+  it('已经在头 / 尾时动不了，返回 null 而不是发一次什么也不改的写操作', () => {
+    expect(moved(posts, 'a.md', -1)).toBeNull()
+    expect(moved(posts, 'c.md', 1)).toBeNull()
+  })
+
+  it('不在这一栏里的文章挪不动', () => {
+    expect(moved(posts, 'ghost.md', -1)).toBeNull()
   })
 })
 

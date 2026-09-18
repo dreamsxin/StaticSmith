@@ -462,6 +462,17 @@ impl Builder {
         Ok(source)
     }
 
+    /// 把一栏文章的阅读顺序固化成 weight，见 [`sections::reorder`]。
+    pub fn reorder_section(
+        &mut self,
+        section: &str,
+        ordered: &[String],
+    ) -> Result<sections::Reordered> {
+        let done = sections::reorder(&self.paths, section, ordered)?;
+        self.reload()?;
+        Ok(done)
+    }
+
     /// 新建内容文件，返回其相对 `content/` 的路径。
     ///
     /// 同名文件已存在时追加 `-2`、`-3`，不会覆盖已有内容。
@@ -1337,19 +1348,17 @@ fn term_urls(
         .collect()
 }
 
-/// 栏目索引页所列出的条目：同目录下的非索引页，按 weight 升序、日期降序排列。
+/// 栏目索引页所列出的条目：同目录下的非索引页，按阅读顺序排列。
+///
+/// 排序规则在 `content::reading_order` 一处定义，界面侧栏用的是同一套——
+/// 「界面上第 3 篇、网站上第 7 篇」这种事一旦出现，目录就不再是目录了。
 fn section_items<'a>(index_page: &Page, all_pages: &[&'a Page]) -> Vec<&'a Page> {
     let mut items: Vec<&Page> = all_pages
         .iter()
         .filter(|p| !p.is_index && p.section == index_page.section)
         .copied()
         .collect();
-    items.sort_by(|a, b| {
-        a.weight
-            .cmp(&b.weight)
-            .then_with(|| b.date.cmp(&a.date))
-            .then_with(|| a.title.cmp(&b.title))
-    });
+    items.sort_by(|a, b| content::reading_order(a, b));
     items
 }
 

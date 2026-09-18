@@ -313,9 +313,15 @@ cover = "/images/cover.png"
   没有索引页的栏目，文章能访问，栏目地址本身是 404
 - 文章模板按位置约定推导（栏目里的普通文件用 `pages/post.html`），新增栏目不需要新模板
 - 列表页只收**同一层**的兄弟文章，不递归子栏目；分页由 `[build] page_size` 控制
+- 列表页的顺序（也就是读者看到的顺序）由 `content::reading_order` 一处定义：
+  文章的 `weight` 升序 → 日期降序 → 标题。`weight` 缺省是 0，所以**没排过的排在
+  排过的前面**——固化过顺序之后新写的文章会出现在最前面
+- 栏目之间的顺序看索引页的 `weight`，规则同上
 
 界面里在内容侧栏管理栏目：新建（同时生成索引页）、改名（默认给每篇文章补 `aliases`）、
-删除（仅空栏目）。Agent 侧对应 `list_sections` / `create_section` / `rename_section`，
-删栏目不开给 Agent。日常动作与取舍见 [站点运营手册](operations.md)。
+删除（仅空栏目）。文章的位次用右键菜单里的「上移 / 下移」调，第一次挪动会把整栏的顺序
+固化成 `weight = 1..N`（界面上不出现这个数字）。Agent 侧对应 `list_sections` /
+`create_section` / `rename_section`，删栏目与排序都不开给 Agent。
+日常动作与取舍见 [站点运营手册](operations.md)。
 
 

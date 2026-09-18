@@ -8,6 +8,7 @@ import { computed, reactive, readonly } from 'vue'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
+import { moved } from './grouping'
 import { appendNotice, type Notice } from './notices'
 import { summarizeSkips } from './skips'
 
@@ -726,6 +727,37 @@ export const actions = {
   async previewSlug(source: string, slug: string) {
     return await run(() => api.previewSlug(source, slug))
   },
+
+  /**
+   * 把一篇在它那一栏里挪一位（`-1` 上移，`1` 下移）。
+   *
+   * 界面上没有「排序权重」这种数字：读者看到的只有先后，数字是实现细节。
+   * 第一次挪动会把整栏的当前顺序固化成位次（因此可能改写这一栏的每一篇），
+   * 之后每次只动两篇——通知里说清动了几篇，不然「我只挪了一下，怎么 30 个文件都变了」
+   * 会像个 bug。
+   *
+   * 已经在头 / 尾时什么都不做：`moved` 返回 null，不发一次什么也不改的写操作。
+   */
+  async movePage(source: string, delta: -1 | 1) {
+    const page = state.project?.pages.find((p) => p.source === source)
+    if (!page) return
+    const siblings = state.project!.pages.filter((p) => p.section === page.section && !p.is_index)
+    const ordered = moved(siblings, source, delta)
+    if (!ordered) return
+
+    const done = await run(() => api.reorderSection(page.section, ordered))
+    if (!done) return
+    const where = delta === -1 ? '上移' : '下移'
+    notify(
+      'success',
+      done.changed.length > 2
+        ? `已${where}《${page.title}》，并把这一栏 ${done.total} 篇的顺序固化下来（改写 ${done.changed.length} 篇）`
+        : `已${where}《${page.title}》`,
+    )
+    await this.refresh()
+    await this.recomputePlan()
+  },
+
 
   /**
    * 改一篇的地址（slug）。

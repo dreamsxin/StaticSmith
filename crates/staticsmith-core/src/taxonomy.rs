@@ -61,12 +61,9 @@ pub fn collect<'a>(pages: &[&'a Page], base_slug: &str, field: &str) -> Vec<Term
     grouped
         .into_iter()
         .map(|(name, mut pages)| {
-            pages.sort_by(|a, b| {
-                a.weight
-                    .cmp(&b.weight)
-                    .then_with(|| b.date.cmp(&a.date))
-                    .then_with(|| a.title.cmp(&b.title))
-            });
+            // 与栏目列表页同一套顺序（`content::reading_order`）：同一篇文章
+            // 在栏目里和在标签页里的先后不该不一样。
+            pages.sort_by(|a, b| crate::content::reading_order(a, b));
             let slug = unique_slug(&name, &mut used);
             let prefix = base_slug.trim_matches('/');
             Term {

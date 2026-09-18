@@ -24,7 +24,7 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import { groupBySection, worstSeoBySource } from '../grouping'
+import { groupBySection, moved, worstSeoBySource } from '../grouping'
 import type { Criteria, Filter } from '../grouping'
 import type { PageSummary, SearchHit } from '../api'
 
@@ -346,6 +346,21 @@ function pageMenu(page: PageSummary): MenuEntry[] {
     },
     { separator: true },
     {
+      id: 'page.up',
+      label: '上移一位',
+      hint: '这一栏的顺序，与网站列表页一致',
+      disabled: !canMove(page, -1),
+      run: () => actions.movePage(page.source, -1),
+    },
+    {
+      id: 'page.down',
+      label: '下移一位',
+      hint: '这一栏的顺序，与网站列表页一致',
+      disabled: !canMove(page, 1),
+      run: () => actions.movePage(page.source, 1),
+    },
+    { separator: true },
+    {
       id: 'page.draft',
       label: page.draft ? '发布（取消草稿）' : '设为草稿',
       run: () => actions.batchSetDraft([page.source], !page.draft),
@@ -368,6 +383,20 @@ function pageMenu(page: PageSummary): MenuEntry[] {
       },
     },
   ]
+}
+
+/**
+ * 这一篇在它那一栏里还能不能往那个方向挪。
+ *
+ * 判断与真正的挪动共用 `moved`：两处各算一遍，迟早出现「菜单能点、点了没反应」。
+ * 注意比的是**这一栏的全部文章**，不是列表上看到的那些——筛选或搜索时列表只剩几行，
+ * 而顺序是整栏的事。
+ */
+function canMove(page: PageSummary, delta: -1 | 1): boolean {
+  const siblings = (store.project?.pages ?? []).filter(
+    (p) => p.section === page.section && !p.is_index,
+  )
+  return moved(siblings, page.source, delta) !== null
 }
 
 

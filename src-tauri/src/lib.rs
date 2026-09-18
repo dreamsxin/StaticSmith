@@ -69,6 +69,7 @@ pub fn run() {
             commands::preview_slug,
             commands::batch_delete,
             commands::batch_preview,
+            commands::reorder_section,
             commands::preview_replace,
             commands::apply_replace,
             commands::scan_import,

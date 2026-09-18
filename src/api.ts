@@ -121,6 +121,8 @@ export interface PageSummary {
   /** 非草稿但这次不会进产物：日期还没到，且站点开了定时发布 */
   scheduled: boolean
   tags: string[]
+  /** 人排过的位次，0 表示没排过（会排在 1、2、3… 之前） */
+  weight: number
 }
 
 
@@ -840,6 +842,23 @@ export const removeSection = (path: string) => invoke<Section[]>('remove_section
  */
 export const saveSectionMeta = (path: string, meta: SectionMeta) =>
   invoke<Section[]>('save_section_meta', { args: { path, ...meta } })
+
+/** 一栏文章重新排序的结果。 */
+export interface Reordered {
+  /** 真正改了 front matter 的源文件，按新顺序。没动的不在里面 */
+  changed: string[]
+  /** 这一栏一共几篇 */
+  total: number
+}
+
+/**
+ * 把一栏文章的阅读顺序固化下来（写进各篇的 `weight`）。
+ *
+ * `ordered` 必须是这一栏的**全部**文章：顺序是一件整体的事，只排一部分会让剩下的
+ * 跳到最前面。界面上只有「上移 / 下移」，数字是实现细节，读者看到的只有先后。
+ */
+export const reorderSection = (section: string, ordered: string[]) =>
+  invoke<Reordered>('reorder_section', { args: { section, ordered } })
 
 
 /** 删除媒体文件，不可撤销。只允许删资源目录内的文件。 */

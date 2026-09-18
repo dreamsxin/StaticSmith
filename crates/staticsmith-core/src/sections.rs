@@ -197,6 +197,118 @@ pub fn set_meta(paths: &ProjectPaths, path: &str, meta: &Meta) -> Result<String>
     Ok(source)
 }
 
+/// 一栏文章重新排序的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct Reordered {
+    /// 真正改了 front matter 的源文件，按新顺序。没动的不在里面。
+    pub changed: Vec<String>,
+    /// 这一栏一共几篇（也就是 weight 写到几）。
+    pub total: usize,
+}
+
+/// 把一栏文章的阅读顺序固化成 `weight = 1..N`。
+///
+/// **为什么必须整栏一起写**：新站点里每篇的 `weight` 都是 0（「没排过」），
+/// 靠日期倒序决定先后。此时「把这篇往上挪一位」根本无从表达——交换两个 0 什么也没变。
+/// 所以第一次排序把整栏的当前顺序原样写成 1、2、3…，之后的每次挪动才有意义。
+///
+/// **为什么只写真正动了的那几篇**：每次都重写整栏的话，一次上移会让 300 篇文章
+/// 全部变成「改过」——增量生成失去意义，版本库里也看不出到底动了什么。
+///
+/// **为什么清单必须是这一栏的全部文章**：只固化一半，剩下那些会以 weight 0
+/// 跳到最前面。用户明明只想动一篇，看到的却是整栏乱了。
+///
+/// 读不出来的文件（front matter 手改坏了）不在这一栏的清单里——它们本来也不出现在
+/// 网站上与界面里。修好之后它会带着 weight 0 回到最前面，这时再排一次即可。
+pub fn reorder(paths: &ProjectPaths, section: &str, ordered: &[String]) -> Result<Reordered> {
+    let relative = util::sanitize_relative_dir(section);
+    let loaded = content::load_all_lenient(&paths.content, SourceFormat::default())?;
+
+    let mut current: Vec<&Page> = loaded
+        .pages
+        .iter()
+        .filter(|page| !page.is_index && page.section == relative)
+        .collect();
+    current.sort_by(|a, b| content::reading_order(a, b));
+
+    // 先校验整份清单，一个字节都不写：写一半再报错，用户就得自己猜哪些已经生效了。
+    let mut seen: Vec<&String> = Vec::new();
+    for source in ordered {
+        if seen.contains(&source) {
+            return Err(Error::Other(format!("排序清单里有重复的文章：{source}")));
+        }
+        seen.push(source);
+        match loaded.pages.iter().find(|page| &page.source == source) {
+            Some(page) if page.is_index => {
+                return Err(Error::Other(format!(
+                    "{source} 是栏目索引页，它是这一栏的容器，不参与栏目内排序"
+                )));
+            }
+            Some(page) if page.section != relative => {
+                return Err(Error::Other(format!(
+                    "{source} 不属于栏目 {}，跨栏目要用「移动到栏目」",
+                    display_path(&relative)
+                )));
+            }
+            Some(_) => {}
+            None => {
+                return Err(Error::Other(format!(
+                    "{source} 不属于栏目 {}（它不存在，或者 front matter 读不出来）",
+                    display_path(&relative)
+                )));
+            }
+        }
+    }
+    if ordered.len() != current.len() {
+        return Err(Error::Other(format!(
+            "排序清单少了 {} 篇：这一栏有 {} 篇，清单里只有 {} 篇。\
+             排序要给出整栏的顺序，只排一部分会让剩下的跳到最前面",
+            current.len().saturating_sub(ordered.len()),
+            current.len(),
+            ordered.len()
+        )));
+    }
+
+    let weight_of: BTreeMap<&str, i64> = current
+        .iter()
+        .map(|page| (page.source.as_str(), page.weight))
+        .collect();
+
+    let mut changed = Vec::new();
+    for (index, source) in ordered.iter().enumerate() {
+        // 1 开头而不是 0：0 是「没排过」的意思，占了它就分不出「排在最前」与「没排过」。
+        let weight = index as i64 + 1;
+        if weight_of.get(source.as_str()) == Some(&weight) {
+            continue;
+        }
+        let file = content::resolve_source(&paths.content, source)?;
+        let raw = std::fs::read_to_string(&file).map_err(|e| Error::io(&file, e))?;
+        let updated = frontmatter::apply(
+            &raw,
+            &frontmatter::Patch {
+                weight: Some(weight),
+                ..frontmatter::Patch::default()
+            },
+        )?;
+        std::fs::write(&file, updated).map_err(|e| Error::io(&file, e))?;
+        changed.push(source.clone());
+    }
+
+    Ok(Reordered {
+        changed,
+        total: ordered.len(),
+    })
+}
+
+/// 栏目路径给人看的写法。根目录是空串，直接印出来是一片空白。
+fn display_path(relative: &str) -> &str {
+    if relative.is_empty() {
+        "（根目录）"
+    } else {
+        relative
+    }
+}
+
 /// 已有的索引页（`index.md` 优先，其次 `_index.md`）。
 fn existing_index(dir: &Path, relative: &str) -> Option<(PathBuf, String)> {
     ["index.md", "_index.md"].into_iter().find_map(|name| {
@@ -891,5 +1003,126 @@ mod tests {
         let created = create(&f.paths, "../../evil", "越界", "").unwrap();
         assert_eq!(created.path, "evil");
         assert!(f.paths.content.join("evil/index.md").is_file());
+    }
+
+    /// 这一栏最终的阅读顺序。用 `content::reading_order` 算，也就是网站上的顺序。
+    fn order_of(f: &Fixture, section: &str) -> Vec<String> {
+        let pages = content::load_all(&f.paths.content, SourceFormat::default()).unwrap();
+        let mut items: Vec<&content::Page> = pages
+            .iter()
+            .filter(|p| !p.is_index && p.section == section)
+            .collect();
+        items.sort_by(|a, b| content::reading_order(a, b));
+        items.iter().map(|p| p.source.clone()).collect()
+    }
+
+    /// 「上移一篇」在 weight 全是 0 的站点里无从表达——三篇都是 0，交换两个 0 什么也没变。
+    /// 所以第一次排序必须把整栏的顺序**固化**成 1..N。
+    #[test]
+    fn reorder_freezes_the_whole_section_into_weights() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        // 日期倒序时天然是 c、b、a；现在要的是 b、a、c
+        write(
+            &f,
+            "posts/a.md",
+            "+++\ntitle = \"甲\"\ndate = \"2026-01-01\"\n+++\n",
+        );
+        write(
+            &f,
+            "posts/b.md",
+            "+++\ntitle = \"乙\"\ndate = \"2026-01-02\"\n+++\n",
+        );
+        write(
+            &f,
+            "posts/c.md",
+            "+++\ntitle = \"丙\"\ndate = \"2026-01-03\"\n+++\n",
+        );
+        assert_eq!(
+            order_of(&f, "posts"),
+            ["posts/c.md", "posts/b.md", "posts/a.md"],
+            "没排过的按日期倒序"
+        );
+
+        let wanted = vec![
+            "posts/b.md".to_string(),
+            "posts/a.md".to_string(),
+            "posts/c.md".to_string(),
+        ];
+        let done = reorder(&f.paths, "posts", &wanted).unwrap();
+
+        assert_eq!(done.changed, wanted, "三篇都没排过，三篇都要写");
+        assert_eq!(done.total, 3);
+        assert_eq!(order_of(&f, "posts"), wanted, "网站上的顺序就得是这个顺序");
+        // 1 开头而不是 0：0 是「没排过」，占了它就分不出「排在最前」与「没排过」
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/b.md")).unwrap();
+        assert!(raw.contains("weight = 1"), "{raw}");
+    }
+
+    /// 固化过之后，「上移一篇」只该动那两篇。
+    ///
+    /// 每次都重写整栏的话，一次上移会让 300 篇文章全部进入「改过」状态：
+    /// 增量生成失去意义，版本库里也看不出到底动了什么。
+    #[test]
+    fn reorder_only_writes_the_pages_that_actually_move() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        for (name, weight) in [("a", 1), ("b", 2), ("c", 3)] {
+            write(
+                &f,
+                &format!("posts/{name}.md"),
+                &format!("+++\ntitle = \"{name}\"\nweight = {weight}\n+++\n"),
+            );
+        }
+
+        let done = reorder(
+            &f.paths,
+            "posts",
+            &[
+                "posts/b.md".to_string(),
+                "posts/a.md".to_string(),
+                "posts/c.md".to_string(),
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(done.changed, ["posts/b.md", "posts/a.md"], "c 没动就别碰它");
+        assert_eq!(
+            order_of(&f, "posts"),
+            ["posts/b.md", "posts/a.md", "posts/c.md"]
+        );
+    }
+
+    /// 只给半栏是不行的。
+    ///
+    /// 固化一半会让剩下的那些以 weight 0 排到**最前面**——用户明明只想动一篇，
+    /// 看到的却是整栏乱了。所以清单必须是这一栏的全部文章，不多不少。
+    #[test]
+    fn reorder_refuses_anything_but_the_whole_section() {
+        let f = fixture();
+        write(&f, "posts/index.md", "+++\ntitle = \"文章\"\n+++\n");
+        write(&f, "posts/a.md", "+++\ntitle = \"甲\"\n+++\n");
+        write(&f, "posts/b.md", "+++\ntitle = \"乙\"\n+++\n");
+        write(&f, "notes/c.md", "+++\ntitle = \"丙\"\n+++\n");
+
+        for (list, expect) in [
+            (vec!["posts/a.md"], "少了"),
+            (vec!["posts/a.md", "posts/b.md", "notes/c.md"], "不属于"),
+            (vec!["posts/a.md", "posts/b.md", "posts/index.md"], "索引页"),
+            (vec!["posts/a.md", "posts/a.md"], "重复"),
+        ] {
+            let sources: Vec<String> = list.iter().map(|s| s.to_string()).collect();
+            let err = reorder(&f.paths, "posts", &sources)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                err.contains(expect),
+                "{sources:?} 该说「{expect}」，得到：{err}"
+            );
+        }
+
+        // 一次都没写成，磁盘上还是原样
+        let raw = std::fs::read_to_string(f.paths.content.join("posts/a.md")).unwrap();
+        assert!(!raw.contains("weight"), "{raw}");
     }
 }

@@ -14,6 +14,7 @@ function page(partial: Partial<PageSummary> & { source: string }): PageSummary {
     date: null,
     scheduled: false,
     tags: [],
+    weight: 0,
     ...partial,
   }
 }
