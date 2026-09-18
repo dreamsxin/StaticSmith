@@ -29,6 +29,22 @@ export interface GroupableSection {
   readonly weight: number
 }
 
+/** 侧栏里的一组：一个栏目及它直属的文章。 */
+export interface SectionGroup<T> {
+  /** 栏目路径，根目录是空串。 */
+  readonly section: string
+  /** 缩进层级。根目录与顶层栏目都是 0，`posts/2026` 是 1。 */
+  readonly depth: number
+  /**
+   * 它的父栏目**也在这份清单里**（就排在它上面）。
+   *
+   * 为真时名字只显示末段（`2026`）——缩进已经说明它属于谁。为假时必须显示完整路径：
+   * 筛选或搜索会把没有命中的父栏目整组去掉，那时孤零零一个「2026」看不出是谁的。
+   */
+  readonly parentShown: boolean
+  readonly pages: T[]
+}
+
 /** 一次筛选的全部条件。 */
 export interface Criteria {
   /** 搜索词。大小写与首尾空白由这里统一处理，调用方不必先规整 */
@@ -157,24 +173,46 @@ export function moved(
   return swapped
 }
 
+/** 某个栏目的父栏目路径。顶层栏目的父是根目录（空串）。 */
+function parentOf(path: string): string {
+  const at = path.lastIndexOf('/')
+  return at < 0 ? '' : path.slice(0, at)
+}
+
 /**
- * 按栏目分组，栏目之间按「索引页 weight，然后路径」，**组内按阅读顺序**。
+ * 栏目的排序键：从根到自己每一层的「(权重, 名字)」。
  *
- * 三条容易被改坏的规则：
+ * 逐层比较就得到**深度优先**的顺序——父栏目紧跟着自己的子栏目，正是一本书目录的样子。
+ * 直接按整条路径字符串排是不行的：`posts` 与 `posts-old` 之间会插进 `posts/2026`，
+ * 子栏目就跑到别人家里去了。根目录的键是空数组，因此永远排在最前（它是站点的根）。
+ */
+function sortKey(path: string, weightOf: (path: string) => number): Array<[number, string]> {
+  if (path === '') return []
+  const parts = path.split('/')
+  return parts.map((name, i) => [weightOf(parts.slice(0, i + 1).join('/')), name])
+}
+
+/**
+ * 按栏目分组并**排成一棵树**：栏目之间深度优先（父栏目紧跟自己的子栏目），
+ * 同级之间按索引页 `weight` 再按名字，**组内按阅读顺序**。
+ *
+ * 四条容易被改坏的规则：
  *
  * - **空栏目也要摆出来**，否则新建完一个栏目它就「消失」了。但只在既没搜索也没筛选时补
  *   ——那时用户要的是完整结构；搜索时补空栏目等于在结果里塞进一堆噪音。
- * - 栏目顺序跟着索引页的 `weight`，与站点上列出的顺序一致；没排过序的（weight 0）
- *   按路径排，免得顺序看起来随机。
+ * - 同级顺序跟着索引页的 `weight`，与站点上列出的顺序一致；没排过序的（weight 0）
+ *   按名字排，免得顺序看起来随机。
+ * - **子栏目跟在父栏目下面**（`depth` 表达缩进）。这里曾经把所有栏目平铺，
+ *   `posts` 与 `posts/2026` 是两个并列的分组——站点结构本来是有层级的，
+ *   平铺之后侧栏看着像一堆文件夹，而不像一本书的目录。
  * - **组内按 `readingOrder`**，也就是网站上的顺序。这里曾经直接用后端给的数组顺序，
- *   而那是**源文件名字母序**——于是侧栏看着像文件夹而不像目录：`a.md` 永远在
- *   `b.md` 前面，哪怕网站上是倒过来的。
+ *   而那是**源文件名字母序**：`a.md` 永远在 `b.md` 前面，哪怕网站上是倒过来的。
  */
 export function groupBySection<T extends GroupablePage>(
   pages: readonly T[],
   sections: readonly GroupableSection[],
   criteria: Criteria,
-): Array<[string, T[]]> {
+): Array<SectionGroup<T>> {
   const keyword = criteria.keyword.trim().toLowerCase()
   const map = new Map<string, T[]>()
 
@@ -194,5 +232,22 @@ export function groupBySection<T extends GroupablePage>(
   for (const list of map.values()) list.sort(readingOrder)
 
   const weightOf = (path: string) => sections.find((s) => s.path === path)?.weight ?? 0
-  return [...map.entries()].sort(([a], [b]) => weightOf(a) - weightOf(b) || a.localeCompare(b))
+  const keys = new Map([...map.keys()].map((path) => [path, sortKey(path, weightOf)]))
+  const order = [...map.keys()].sort((a, b) => {
+    const ka = keys.get(a)!
+    const kb = keys.get(b)!
+    for (let i = 0; i < Math.min(ka.length, kb.length); i += 1) {
+      if (ka[i][0] !== kb[i][0]) return ka[i][0] - kb[i][0]
+      if (ka[i][1] !== kb[i][1]) return ka[i][1] < kb[i][1] ? -1 : 1
+    }
+    // 前缀短的在前：父栏目排在自己的子栏目之上
+    return ka.length - kb.length
+  })
+
+  return order.map((section) => ({
+    section,
+    depth: section === '' ? 0 : section.split('/').length - 1,
+    parentShown: section.includes('/') && map.has(parentOf(section)),
+    pages: map.get(section)!,
+  }))
 }

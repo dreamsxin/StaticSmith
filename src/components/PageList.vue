@@ -68,7 +68,7 @@ const sectionOf = computed(() => new Map(store.sections.map((s) => [s.path, s]))
 
 
 const total = computed(() => store.project?.pages.length ?? 0)
-const matched = computed(() => groups.value.reduce((sum, [, pages]) => sum + pages.length, 0))
+const matched = computed(() => groups.value.reduce((sum, group) => sum + group.pages.length, 0))
 
 /**
  * 筛选项。
@@ -162,7 +162,7 @@ watch(normalized, (query) => {
 
 /** 只留正文命中，且排除标题列表里已经出现过的那些。 */
 const extraHits = computed(() => {
-  const shown = new Set(groups.value.flatMap(([, pages]) => pages.map((p) => p.source)))
+  const shown = new Set(groups.value.flatMap((group) => group.pages.map((p) => p.source)))
   return bodyHits.value.filter((hit) => hit.field === 'body' && !shown.has(hit.source))
 })
 
@@ -294,7 +294,7 @@ function toggleOne(source: string) {
 /** 只选当前可见（已按搜索与筛选过滤）的条目：所见即所选。 */
 function selectVisible() {
   const next = new Set<string>()
-  for (const [, pages] of groups.value) for (const page of pages) next.add(page.source)
+  for (const group of groups.value) for (const page of group.pages) next.add(page.source)
   selected.value = next
 }
 
@@ -509,20 +509,29 @@ async function copyText(text: string) {
     <!-- 读不出来的源文件摆在最前：生成会因为它被拦下，是要先处理的事 -->
     <BrokenList :items="store.project?.broken_sources ?? []" />
 
-    <div v-for="[section, pages] in groups" :key="section" class="page-list__group">
+    <!-- 栏目按树排（子栏目紧跟父栏目），缩进用 --depth 表达：层数不定，
+         写成 --depth-1/2/3 这类固定类名迟早不够用 -->
+    <div
+      v-for="group in groups"
+      :key="group.section"
+      class="page-list__group"
+      :class="{ 'page-list__group--nested': group.depth > 0 }"
+      :style="{ '--depth': group.depth }"
+    >
 
       <SectionHeader
-        :section="section"
-        :count="pages.length"
-        :meta="sectionOf.get(section)"
+        :section="group.section"
+        :count="group.pages.length"
+        :nested="group.parentShown"
+        :meta="sectionOf.get(group.section)"
         @new-content="startNewContentIn"
       />
 
-      <p v-if="!pages.length" class="page-list__hint">这个栏目还没有文章。</p>
+      <p v-if="!group.pages.length" class="page-list__hint">这个栏目还没有文章。</p>
       <ul>
         <!-- 行内的样子在 PageRow.vue 里；哪一行处于确认态、菜单里放什么留在这里 -->
         <PageRow
-          v-for="page in pages"
+          v-for="page in group.pages"
           :key="page.source"
           :page="page"
           :selecting="selecting"

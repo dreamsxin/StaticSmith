@@ -82,6 +82,37 @@ async function openRenameForm(wrapper: ReturnType<typeof mountHeader>) {
   await wrapper.vm.$nextTick()
 }
 
+/**
+ * 栏目名怎么显示。
+ *
+ * 侧栏现在按树排（子栏目缩进在父栏目下面），所以名字要跟着变：缩进已经说明它属于谁，
+ * 再重复一遍完整路径只是噪音。但父栏目被搜索/筛选整组去掉时，孤零零一个「2026」
+ * 看不出是谁的——那时必须报完整路径。
+ */
+describe('SectionHeader 的名字', () => {
+  const name = (wrapper: ReturnType<typeof mountHeader>) =>
+    wrapper.get('.page-list__section-name')
+
+  it('父栏目就在上面时只报末段', () => {
+    const wrapper = mountHeader({ section: 'posts/2026', nested: true })
+    expect(name(wrapper).text()).toBe('2026')
+    // 完整路径仍然查得到，只是不占那一行
+    expect(name(wrapper).attributes('title')).toBe('posts/2026')
+  })
+
+  it('父栏目不在清单里时报完整路径', () => {
+    const wrapper = mountHeader({ section: 'posts/2026', nested: false })
+    expect(name(wrapper).text()).toBe('posts/2026')
+  })
+
+  it('根目录有自己的说法，不显示空白', () => {
+    const wrapper = mountHeader({ section: '', count: 1, meta: undefined })
+    expect(name(wrapper).text()).toBe('根目录')
+    expect(name(wrapper).attributes('title')).toContain('content/')
+  })
+})
+
+
 describe('SectionHeader', () => {
   beforeEach(() => {
     vi.clearAllMocks()

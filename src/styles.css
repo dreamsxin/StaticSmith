@@ -1293,9 +1293,28 @@ kbd {
 
 
 
+/* 栏目按层级缩进：站点结构本来是一棵树（栏目就是目录，可以任意层嵌套），
+   平铺之后侧栏看着像一堆文件夹，而不像一本书的目录。层数不定，所以用
+   `--depth` 算内缩，而不是写死 --depth-1/2/3 这类类名。
+   只缩左边，右边那排按钮保持对齐——否则越深的栏目按钮越往里躲。 */
 .page-list__group {
-  padding: 0 0.5rem;
+  padding: 0 0.5rem 0 calc(0.5rem + var(--depth, 0) * 0.85rem);
 }
+
+/* 子栏目挂一条竖线：只靠留白，缩进一级时看不出父子关系 */
+.page-list__group--nested > h3 {
+  position: relative;
+}
+
+.page-list__group--nested > h3::before {
+  content: '';
+  position: absolute;
+  left: -0.45rem;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  border-left: 1px solid var(--border);
+}
+
 
 .page-list__group h3 {
   display: flex;

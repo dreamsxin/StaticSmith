@@ -64,46 +64,119 @@ describe('groupBySection', () => {
     { path: 'empty', weight: 3 },
   ]
 
+  /** 分组结果里「哪个栏目 → 哪几篇」。 */
+  const bySection = <T extends { source: string }>(
+    groups: Array<{ section: string; pages: T[] }>,
+  ) => new Map(groups.map((g) => [g.section, g.pages]))
+  const names = (groups: Array<{ section: string }>) => groups.map((g) => g.section)
+
   it('按栏目分组，根目录的文章归到空栏目名下', () => {
-    const groups = groupBySection(pages, sections, criteria())
-    const map = new Map(groups)
+    const map = bySection(groupBySection(pages, sections, criteria()))
     expect(map.get('posts')?.map((p) => p.source)).toEqual(['posts/a.md', 'posts/b.md'])
     expect(map.get('')?.map((p) => p.source)).toEqual(['about.md'])
   })
 
   it('空栏目也要摆出来：新建完一个栏目不该看起来像没建成', () => {
     const groups = groupBySection(pages, sections, criteria())
-    expect(groups.map(([name]) => name)).toContain('empty')
-    expect(new Map(groups).get('empty')).toEqual([])
+    expect(names(groups)).toContain('empty')
+    expect(bySection(groups).get('empty')).toEqual([])
   })
 
   it('搜索或筛选时不补空栏目：那时要的是命中项，不是完整结构', () => {
     const searched = groupBySection(pages, sections, criteria({ keyword: 'a.md' }))
-    expect(searched.map(([name]) => name)).not.toContain('empty')
+    expect(names(searched)).not.toContain('empty')
 
     const filtered = groupBySection(pages, sections, criteria({ filter: 'draft' }))
-    expect(filtered.map(([name]) => name)).not.toContain('empty')
+    expect(names(filtered)).not.toContain('empty')
   })
 
-  it('栏目按索引页 weight 排，同权重按路径——顺序不能看起来随机', () => {
+  it('栏目按索引页 weight 排，同权重按名字——顺序不能看起来随机', () => {
     const groups = groupBySection(pages, sections, criteria())
     // posts(1) → notes(2) → empty(3)，根目录（weight 0）在最前
-    expect(groups.map(([name]) => name)).toEqual(['', 'posts', 'notes', 'empty'])
+    expect(names(groups)).toEqual(['', 'posts', 'notes', 'empty'])
 
     const flat = groupBySection(pages, [], criteria())
-    expect(flat.map(([name]) => name)).toEqual(['', 'notes', 'posts'])
+    expect(names(flat)).toEqual(['', 'notes', 'posts'])
   })
 
   it('搜索命中标题或路径，且不分大小写', () => {
     const items = [page('posts/hello.md', { title: '你好 World' }), page('posts/other.md')]
 
-    expect(groupBySection(items, [], criteria({ keyword: 'WORLD' })).flatMap(([, p]) => p)).toEqual([
-      items[0],
-    ])
+    expect(
+      groupBySection(items, [], criteria({ keyword: 'WORLD' })).flatMap((g) => g.pages),
+    ).toEqual([items[0]])
     // 想不起标题但记得放在哪：路径也该命中
     expect(
-      groupBySection(items, [], criteria({ keyword: 'posts/other' })).flatMap(([, p]) => p),
+      groupBySection(items, [], criteria({ keyword: 'posts/other' })).flatMap((g) => g.pages),
     ).toEqual([items[1]])
+  })
+
+  /**
+   * 栏目树。
+   *
+   * 站点结构本来是有层级的（栏目就是目录，可以任意层嵌套），而这里曾经把所有栏目平铺：
+   * `posts` 与 `posts/2026` 是两个并列的分组。平铺之后侧栏看着像一堆文件夹，
+   * 不像一本书的目录。
+   */
+  describe('栏目树', () => {
+    const nested = [
+      page('posts/top.md'),
+      page('posts/2026/spring.md'),
+      page('posts/2026/summer.md'),
+      page('posts-old/legacy.md'),
+      page('notes/n.md'),
+    ]
+
+    it('子栏目紧跟在父栏目下面，并给出缩进层级', () => {
+      const groups = groupBySection(nested, [], criteria())
+
+      expect(names(groups)).toEqual(['notes', 'posts', 'posts/2026', 'posts-old'])
+      expect(groups.map((g) => g.depth)).toEqual([0, 0, 1, 0])
+    })
+
+    it('子栏目不会跑到别人家里去：不能按整条路径字符串排', () => {
+      // 按字符串排的话 `posts/2026` 会插在 `posts` 与 `posts-old` 之间——看着对，
+      // 但只要顶层栏目排过序（weight）就会露馅：子栏目得跟着父栏目走
+      const groups = groupBySection(
+        nested,
+        [
+          { path: 'posts', weight: 9 },
+          { path: 'posts-old', weight: 1 },
+        ],
+        criteria(),
+      )
+
+      expect(names(groups)).toEqual(['notes', 'posts-old', 'posts', 'posts/2026'])
+    })
+
+    it('同级之间按 weight，父子关系不受影响', () => {
+      const groups = groupBySection(
+        nested,
+        [
+          { path: 'posts', weight: 1 },
+          { path: 'notes', weight: 2 },
+        ],
+        criteria(),
+      )
+
+      // posts-old 没排过（0）所以在最前，posts(1) 带着自己的子栏目，notes(2) 收尾
+      expect(names(groups)).toEqual(['posts-old', 'posts', 'posts/2026', 'notes'])
+    })
+
+    it('父栏目在清单里时子栏目只报末段，被筛掉时要报完整路径', () => {
+      const all = groupBySection(nested, [], criteria())
+      expect(all.find((g) => g.section === 'posts/2026')?.parentShown).toBe(true)
+
+      // 只搜子栏目里的文章：父栏目 posts 整组被筛掉了，此时孤零零一个「2026」看不出是谁的
+      const searched = groupBySection(nested, [], criteria({ keyword: 'spring' }))
+      expect(names(searched)).toEqual(['posts/2026'])
+      expect(searched[0].parentShown).toBe(false)
+    })
+
+    it('顶层栏目的名字本来就是完整的，不算「父栏目可见」', () => {
+      const groups = groupBySection(nested, [], criteria())
+      expect(groups.find((g) => g.section === 'posts')?.parentShown).toBe(false)
+    })
   })
 
   it('搜索词首尾空白不算条件：多打一个空格不该把结果清空', () => {
@@ -123,7 +196,7 @@ describe('groupBySection', () => {
       page('posts/b.md', { title: '草稿乙' }),
     ]
     const found = groupBySection(items, [], criteria({ keyword: '草稿', filter: 'draft' })).flatMap(
-      ([, p]) => p,
+      (g) => g.pages,
     )
     expect(found.map((p) => p.source)).toEqual(['posts/a.md'])
   })

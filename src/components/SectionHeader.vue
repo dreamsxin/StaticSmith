@@ -39,6 +39,14 @@ const props = defineProps<{
   section: string
   /** 这个栏目直属的文章数，显示在名字后面。 */
   count: number
+  /**
+   * 它的父栏目就在上面（由 `PageList` 判断）。
+   *
+   * 为真时只显示末段——缩进已经说明它属于谁，再重复一遍完整路径只是噪音。
+   * 为假时（搜索或筛选把父栏目整组筛掉了）必须显示完整路径，
+   * 否则孤零零一个「2026」看不出是谁的。
+   */
+  nested?: boolean
   /** 栏目元信息。没有索引页的栏目取不到，界面要能容忍它缺席。 */
   meta?: SectionMetaView
 }>()
@@ -48,7 +56,11 @@ const emit = defineEmits<{
   newContent: [section: string]
 }>()
 
-const label = computed(() => (props.section === '' ? '根目录' : props.section))
+const label = computed(() => {
+  if (props.section === '') return '根目录'
+  if (!props.nested) return props.section
+  return props.section.slice(props.section.lastIndexOf('/') + 1)
+})
 
 // ---------------------------------------------------------------- 改名
 
@@ -195,7 +207,7 @@ function menu(): MenuEntry[] {
 
 <template>
   <h3 @contextmenu="openContextMenu($event, menu())">
-    <span class="page-list__section-name">{{ label }}</span>
+    <span class="page-list__section-name" :title="props.section === '' ? 'content/（根目录）' : props.section">{{ label }}</span>
     <span class="page-list__count">{{ props.count }}</span>
     <span
       v-if="props.section !== '' && props.meta && !props.meta.index_source"
