@@ -74,6 +74,93 @@ export function parseOutline(source: string): Heading[] {
   return headings
 }
 
+/**
+ * 一个标题连同它下属的全部内容在源文里的区间（含标题行本身）。
+ *
+ * 结束位置是**下一个同级或更高级标题的开头**，所以子标题与正文都算在里面
+ * ——挪一节就该把整节挪走，这正是纸质书里「调整章节顺序」的意思。
+ */
+export interface Block {
+  readonly start: number
+  readonly end: number
+}
+
+/** 某个标题（按下标）的整块区间。 */
+function blockOf(source: string, headings: readonly Heading[], at: number): Block {
+  const level = headings[at].level
+  const next = headings.findIndex((h, i) => i > at && h.level <= level)
+  return {
+    start: headings[at].offset,
+    end: next < 0 ? source.length : headings[next].offset,
+  }
+}
+
+/**
+ * 同级的上一个 / 下一个兄弟标题的下标；没有时返回 `-1`。
+ *
+ * **不跨父标题**：往前 / 往后找的时候一旦撞上更高一级的标题就停手。
+ * 「把 2.1 挪到第 1 章下面」改变的是它属于谁，那是搬动而不是排序——与列表里
+ * 「跨栏目拖动不做」是同一条取舍：不做，比做一半更好解释。
+ *
+ * 单独导出是为了让界面能**只用标题表**就判断出「这一节还能不能挪」：
+ * 拿 `moveHeading` 去试算要把整篇重排一遍，而那是每敲一个字都要重算的东西。
+ */
+export function peerIndex(headings: readonly Heading[], at: number, delta: -1 | 1): number {
+  const me = headings[at]
+  if (!me) return -1
+  for (let i = at + delta; i >= 0 && i < headings.length; i += delta) {
+    if (headings[i].level < me.level) break
+    if (headings[i].level === me.level) return i
+  }
+  return -1
+}
+
+/**
+ * 把某一节（标题 + 它下属的全部内容）与**同级的上一个 / 下一个兄弟**整块互换。
+ *
+ * 返回新的全文与这个标题挪动之后的位置；挪不动时返回 `null`（调用方据此置灰，
+ * 而不是发一次什么也不改的改动）。能不能挪由 [`peerIndex`] 说，两处共用一份判断。
+ *
+ * 标题从 `parseOutline` 来，所以围栏代码块里的 `## 看起来像标题` 不会把它骗到。
+ */
+export function moveHeading(
+  source: string,
+  offset: number,
+  delta: -1 | 1,
+): { text: string; offset: number } | null {
+  const headings = parseOutline(source)
+  const at = headings.findIndex((h) => h.offset === offset)
+  if (at < 0) return null
+  const peer = peerIndex(headings, at, delta)
+  if (peer < 0) return null
+
+  // 同级兄弟之间没有空隙：前一块的结束就是后一块的开头（它的 level <= 前者）
+  const first = blockOf(source, headings, Math.min(at, peer))
+  const second = blockOf(source, headings, Math.max(at, peer))
+
+  // 把每一块拆成「内容」与「尾部空行」，只换内容。
+  //
+  // 尾部空行不是内容的一部分，而是**这个位置的排版**：前一块的尾巴是两块之间的空行，
+  // 后一块的尾巴是文件的结尾（可能一个换行都没有）。整块连尾巴一起换的话，
+  // 「最后一节」的单换行会被搬到中间，两节之间的空行就没了；文件末尾没有换行时，
+  // 下一节的标题还会被黏在上一节的最后一行后面。拆开换，两处排版都留在原地，
+  // 而且再挪回来一字不差。
+  const split = (block: Block) => {
+    const text = source.slice(block.start, block.end)
+    const content = text.replace(/\n+$/, '')
+    return { content, gap: text.slice(content.length) }
+  }
+  const a = split(first)
+  const b = split(second)
+  const head = b.content + a.gap
+
+  return {
+    text: source.slice(0, first.start) + head + a.content + b.gap + source.slice(second.end),
+    // 上移的是后一块（它落到最前面），下移的是前一块（它落到 head 之后）
+    offset: at > peer ? first.start : first.start + head.length,
+  }
+}
+
 /** 行内代码、图片、链接、HTML 标签、Markdown 标记：算字数时要先剥掉。 */
 const INLINE_CODE = /`[^`]*`/g
 const IMAGE = /!\[[^\]]*\]\([^)]*\)/g

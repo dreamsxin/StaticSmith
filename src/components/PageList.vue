@@ -24,7 +24,7 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import { parseOutline } from '../manuscript'
+import { parseOutline, peerIndex } from '../manuscript'
 import {
   canDropBeside,
   groupBySection,
@@ -429,7 +429,15 @@ function canMoveSection(section: string, delta: -1 | 1): boolean {
  * 不新增一栏也是有意的：编辑器已经三栏，再挤一栏正文就没宽度了（同 `docs/ui.md`
  * 里「大纲做成浮层而不是常驻侧栏」的理由）。
  */
-const currentOutline = computed(() => parseOutline(store.currentRaw))
+const currentOutline = computed(() => {
+  const headings = parseOutline(store.currentRaw)
+  // 能不能挪只看标题表（`peerIndex`），不去试算整篇重排：这一段每敲一个字都要重算。
+  return headings.map((heading, at) => ({
+    ...heading,
+    canUp: peerIndex(headings, at, -1) >= 0,
+    canDown: peerIndex(headings, at, 1) >= 0,
+  }))
+})
 
 
 /**
@@ -617,6 +625,7 @@ async function copyText(text: string) {
           @drop="dropOnRow(page as PageSummary)"
           @dragend="endDrag"
           @jump="(offset) => ui.editor?.jumpTo(offset)"
+          @move-heading="(offset, delta) => ui.editor?.moveHeading(offset, delta)"
         />
       </ul>
 

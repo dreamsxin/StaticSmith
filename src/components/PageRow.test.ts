@@ -249,6 +249,29 @@ describe('PageRow', () => {
       expect(wrapper.emitted('jump')).toEqual([[40]])
     })
 
+    it('整节上移 / 下移：能不能挪由上层给，到头到尾就置灰', async () => {
+      const wrapper = mountRow({
+        outline: [
+          { ...outline[0], canUp: false, canDown: true },
+          { ...outline[1], canUp: true, canDown: false },
+        ],
+      })
+      const rows = wrapper.findAll('.page-list__outline > li')
+      const icons = (index: number) => rows[index].findAll('.page-list__icon')
+
+      expect(icons(0)[0].attributes('disabled')).toBeDefined()
+      expect(icons(0)[1].attributes('disabled')).toBeUndefined()
+      expect(icons(1)[0].attributes('disabled')).toBeUndefined()
+      expect(icons(1)[1].attributes('disabled')).toBeDefined()
+
+      await icons(0)[1].trigger('click')
+      await icons(1)[0].trigger('click')
+      expect(wrapper.emitted('moveHeading')).toEqual([
+        [12, 1],
+        [40, -1],
+      ])
+    })
+
     it('标题那一段不许拖：拖它不该挪动整篇文章的位次', () => {
       const wrapper = mountRow({ outline })
       expect(wrapper.get('.page-list__outline').attributes('draggable')).toBe('false')

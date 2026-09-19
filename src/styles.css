@@ -1301,6 +1301,13 @@ kbd {
   list-style: none;
 }
 
+/* 标题一行：文字占满，两个挪动按钮跟在后面（悬停才显形，沿用行上的约定） */
+.page-list__outline > li {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
 .page-list__outline-item {
   display: flex;
   gap: 0.35rem;

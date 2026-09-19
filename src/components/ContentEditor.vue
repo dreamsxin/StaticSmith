@@ -16,7 +16,7 @@ import OutlineDialog from './OutlineDialog.vue'
 import LinkDialog from './LinkDialog.vue'
 import type { SlugPreview } from '../api'
 import { linkSnippet, type LinkTarget } from '../crossref'
-import { countWords, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
+import { countWords, moveHeading, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
 import { actions, brokenReason, isDirty, store } from '../store'
 
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
@@ -602,6 +602,13 @@ const editorCommands: EditorCommands = {
     showOutline.value = true
   },
   jumpTo: (offset: number) => jumpTo(offset),
+  moveHeading: (offset: number, delta: -1 | 1) => {
+    const moved = moveHeading(store.currentRaw, offset, delta)
+    if (!moved) return
+    actions.setRaw(moved.text)
+    // 光标跟着这一节走，否则挪完之后光标还停在原来那个位置的别人家里
+    requestAnimationFrame(() => jumpTo(moved.offset))
+  },
   internalLink: () => {
     showLink.value = true
   },

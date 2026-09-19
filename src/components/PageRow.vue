@@ -35,6 +35,12 @@ interface RowSeo {
   readonly messages: readonly string[]
 }
 
+/** 目录里的一条：标题本身，加上「还能不能挪」。 */
+interface OutlineEntry extends Heading {
+  readonly canUp?: boolean
+  readonly canDown?: boolean
+}
+
 const props = defineProps<{
   page: RowPage
   /** 多选态：勾选框只在这时出现 */
@@ -55,8 +61,10 @@ const props = defineProps<{
    * 只有**正在编辑的那一篇**会拿到它（见 `PageList`）：其余的要读盘才知道，
    * 一本两百章的书为了画目录去读两百个文件不划算。所以侧栏是
    * 「整本书的目录 + 这一章的细目」，而不是把全书标题都摊开。
+   *
+   * `canUp` / `canDown` 由上层算（它握着正文）：这一节还能不能挪。
    */
-  outline?: readonly Heading[]
+  outline?: readonly OutlineEntry[]
 }>()
 
 const emit = defineEmits<{
@@ -82,6 +90,8 @@ const emit = defineEmits<{
   dragend: []
   /** 点了篇内某个标题：把光标送到源文的这个位置 */
   jump: [offset: number]
+  /** 把某一节整块上移 / 下移（`-1` / `1`） */
+  moveHeading: [offset: number, delta: -1 | 1]
 }>()
 
 /**
@@ -205,6 +215,28 @@ function over(event: DragEvent) {
         >
           <span class="page-list__outline-level">H{{ heading.level }}</span>
           <span class="page-list__title">{{ heading.text }}</span>
+        </button>
+        <!-- 整节上移 / 下移：标题连同它下属的内容一起走。
+             与行上的「⋯」一样悬停或聚焦才显形，免得每条标题后面都挂两个按钮 -->
+        <button
+          type="button"
+          class="page-list__icon"
+          :disabled="!heading.canUp"
+          title="整节上移（与同级的上一节互换，含子标题与正文）"
+          :aria-label="`把「${heading.text}」整节上移`"
+          @click="emit('moveHeading', heading.offset, -1)"
+        >
+          ↑
+        </button>
+        <button
+          type="button"
+          class="page-list__icon"
+          :disabled="!heading.canDown"
+          title="整节下移（与同级的下一节互换，含子标题与正文）"
+          :aria-label="`把「${heading.text}」整节下移`"
+          @click="emit('moveHeading', heading.offset, 1)"
+        >
+          ↓
         </button>
       </li>
     </ul>

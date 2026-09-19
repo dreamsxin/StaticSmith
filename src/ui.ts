@@ -99,6 +99,13 @@ export interface EditorCommands {
    * （它握着 textarea 与选区），但发起的人可以在别处。
    */
   jumpTo(offset: number): void
+  /**
+   * 把某一节（标题 + 它下属的全部内容）与同级的上一个 / 下一个兄弟整块互换。
+   *
+   * 走编辑器而不是直接改 store：正文的改动只由编辑器写（与工具条的加粗、插链接同一条路），
+   * 顺手还能把光标送到挪过去之后的位置。
+   */
+  moveHeading(offset: number, delta: -1 | 1): void
   /** 挑一篇站内内容并插入链接（地址由站点数据给，不手打） */
   internalLink(): void
 }

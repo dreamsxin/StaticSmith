@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { countWords, parseOutline, readingMinutes } from './manuscript'
+import { countWords, moveHeading, parseOutline, readingMinutes } from './manuscript'
 
 const WITH_FRONT_MATTER = `+++
 title = "标题不算正文"
@@ -106,5 +106,104 @@ describe('阅读时长', () => {
   it('按每分钟 300 字四舍五入', () => {
     expect(readingMinutes(300)).toBe(1)
     expect(readingMinutes(1500)).toBe(5)
+  })
+})
+
+/**
+ * 整节挪动。
+ *
+ * 目录能看出「第一节在第二节前面」之后，紧接着的要求就是**调整它们的先后**，
+ * 而这要搬的是「标题 + 它下属的全部内容」——挪标题不挪正文只会把文章拆散。
+ */
+describe('整节挪动', () => {
+  const BOOK = `# 第一章
+
+引子。
+
+## 甲
+
+甲的内容。
+
+### 甲之一
+
+更深的一层。
+
+## 乙
+
+乙的内容。
+`
+
+  /** 某个标题的位置。 */
+  const offsetOf = (source: string, text: string) =>
+    parseOutline(source).find((h) => h.text === text)!.offset
+
+  it('上移：整节（含子标题与正文）与上一个同级兄弟互换', () => {
+    const moved = moveHeading(BOOK, offsetOf(BOOK, '乙'), -1)!
+
+    expect(parseOutline(moved.text).map((h) => h.text)).toEqual([
+      '第一章',
+      '乙',
+      '甲',
+      '甲之一',
+    ])
+    // 子标题与正文跟着走，没有被留在原处
+    expect(moved.text).toContain('## 乙\n\n乙的内容。\n\n## 甲\n\n甲的内容。\n\n### 甲之一')
+    // 光标落点就是这个标题的新位置
+    expect(moved.offset).toBe(offsetOf(moved.text, '乙'))
+  })
+
+  it('下移是上移的逆操作：挪回去应当一字不差', () => {
+    const up = moveHeading(BOOK, offsetOf(BOOK, '乙'), -1)!
+    const back = moveHeading(up.text, offsetOf(up.text, '乙'), 1)!
+    expect(back.text).toBe(BOOK)
+  })
+
+  it('撞上更高一级的标题就不动：那是搬动，不是排序', () => {
+    const nested = `## 甲
+
+### 一
+
+## 乙
+
+### 二
+`
+    // 「二」的上一个同级是「一」，但中间隔着 `## 乙` —— 挪过去等于换了爹
+    expect(moveHeading(nested, offsetOf(nested, '二'), -1)).toBeNull()
+  })
+
+  it('头一个与最末一个同级兄弟挪不动，返回 null 而不是原样返回', () => {
+    expect(moveHeading(BOOK, offsetOf(BOOK, '甲'), -1)).toBeNull()
+    expect(moveHeading(BOOK, offsetOf(BOOK, '乙'), 1)).toBeNull()
+    // 只有一个一级标题，它自己也没处挪
+    expect(moveHeading(BOOK, offsetOf(BOOK, '第一章'), 1)).toBeNull()
+  })
+
+  it('末尾没有换行时不许把两行黏在一起，而且挪回去能复原', () => {
+    const source = '## 甲\n甲的内容\n\n## 乙\n乙的内容'
+    const up = moveHeading(source, offsetOf(source, '乙'), -1)!
+
+    // 两节之间的空行留在两节之间，文件末尾照旧没有换行——两处排版都没被搬走
+    expect(up.text).toBe('## 乙\n乙的内容\n\n## 甲\n甲的内容')
+    expect(up.text).not.toContain('乙的内容## 甲')
+    expect(moveHeading(up.text, offsetOf(up.text, '乙'), 1)!.text).toBe(source)
+  })
+
+  it('代码块里长得像标题的行骗不到它', () => {
+    const source = `## 甲
+
+\`\`\`md
+## 假的
+\`\`\`
+
+## 乙
+`
+    const moved = moveHeading(source, offsetOf(source, '乙'), -1)!
+    // 「假的」不是标题，所以整块（含代码块）跟着「甲」一起走
+    expect(parseOutline(moved.text).map((h) => h.text)).toEqual(['乙', '甲'])
+    expect(moved.text).toContain('```md\n## 假的\n```')
+  })
+
+  it('认不出的位置不动手', () => {
+    expect(moveHeading(BOOK, 9999, -1)).toBeNull()
   })
 })
