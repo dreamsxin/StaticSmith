@@ -24,6 +24,7 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
+import { parseOutline } from '../manuscript'
 import {
   canDropBeside,
   groupBySection,
@@ -419,6 +420,19 @@ function canMoveSection(section: string, delta: -1 | 1): boolean {
 // ---------------------------------------------------------------- 拖拽排序
 
 /**
+ * 正在编辑的那一篇的篇内标题。
+ *
+ * 侧栏因此同时是「整本书的目录」与「这一章的细目」——Word 的导航窗格把整份文档的标题
+ * 摊成一列，而这里一本书是许多文件，全摊开要读遍整个 `content/`。折中是只展开手上这一篇：
+ * 它的正文已经在内存里（`store.currentRaw`），所以**边写边长**，连保存都不用等。
+ *
+ * 不新增一栏也是有意的：编辑器已经三栏，再挤一栏正文就没宽度了（同 `docs/ui.md`
+ * 里「大纲做成浮层而不是常驻侧栏」的理由）。
+ */
+const currentOutline = computed(() => parseOutline(store.currentRaw))
+
+
+/**
  * 正被拖着的那一篇，以及落点。
  *
  * 只在**同一栏目内**拖：跨栏目等于改归属，那要补旧地址、改写站内引用，
@@ -592,6 +606,7 @@ async function copyText(text: string) {
           :confirming="confirmingDelete === page.source"
           :dragging="dragging === page.source"
           :drop-at="dropTarget?.source === page.source ? dropTarget.side : null"
+          :outline="page.source === store.currentSource ? currentOutline : undefined"
           @open="actions.requestOpenContent(page)"
           @toggle="toggleOne(page.source)"
           @menu="openContextMenu($event, pageMenu(page as PageSummary))"
@@ -601,6 +616,7 @@ async function copyText(text: string) {
           @dragover="(side) => hoverRow(page as PageSummary, side)"
           @drop="dropOnRow(page as PageSummary)"
           @dragend="endDrag"
+          @jump="(offset) => ui.editor?.jumpTo(offset)"
         />
       </ul>
 

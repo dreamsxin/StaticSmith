@@ -92,6 +92,13 @@ export interface EditorCommands {
   find(): void
   /** 打开大纲浮层：按标题跳转 */
   outline(): void
+  /**
+   * 把光标送到源文的某个位置（字符下标）。
+   *
+   * 大纲浮层与内容侧栏里的标题行都用它——「跳到那一节」的落点只能由编辑器自己完成
+   * （它握着 textarea 与选区），但发起的人可以在别处。
+   */
+  jumpTo(offset: number): void
   /** 挑一篇站内内容并插入链接（地址由站点数据给，不手打） */
   internalLink(): void
 }

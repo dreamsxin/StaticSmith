@@ -1293,6 +1293,56 @@ kbd {
 
 
 
+/* 篇内标题：正在编辑的那一篇把自己的目录摊在行下面，于是侧栏同时是
+   「整本书的目录」与「这一章的细目」。压暗一档：它是细目，不该和文章标题抢注意力 */
+.page-list__outline {
+  margin: 0.1rem 0 0.35rem;
+  padding: 0;
+  list-style: none;
+}
+
+.page-list__outline-item {
+  display: flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  width: 100%;
+  padding: 0.1rem 0.3rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.page-list__outline-item:hover,
+.page-list__outline-item:focus-visible {
+  color: var(--fg);
+  background: var(--bg-subtle);
+}
+
+/* 缩进表达层级，H1 不缩进；再标一个小字号的 H2/H3 给缩进兜底
+   （缩进在窄侧栏里容易看不出，同大纲浮层的做法） */
+.page-list__outline-item--h2 {
+  padding-left: 1.1rem;
+}
+
+.page-list__outline-item--h3 {
+  padding-left: 1.9rem;
+}
+
+.page-list__outline-item--h4,
+.page-list__outline-item--h5,
+.page-list__outline-item--h6 {
+  padding-left: 2.7rem;
+}
+
+.page-list__outline-level {
+  flex: none;
+  font-size: 0.6rem;
+  opacity: 0.6;
+}
+
 /* 拖拽排序：被拖的那行压暗，落点画一条线。
    线用 box-shadow 而不是 border：border 会把这一行顶高 2px，整列跟着抖一下 */
 .page-list__row--dragging {

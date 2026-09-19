@@ -213,4 +213,45 @@ describe('PageRow', () => {
       expect(mountRow().get('li').classes().join(' ')).not.toContain('drop-')
     })
   })
+
+  /**
+   * 篇内标题。
+   *
+   * 侧栏因此同时是「整本书的目录」与「这一章的细目」。只有正在编辑的那一篇会拿到它
+   * ——其余的要读盘才知道，一本两百章的书为了画目录读两百个文件不划算。
+   */
+  describe('篇内标题', () => {
+    const outline = [
+      { level: 2, text: '第一节', offset: 12 },
+      { level: 3, text: '小节', offset: 40 },
+    ]
+
+    it('没有标题时不摆空列表', () => {
+      expect(mountRow().find('.page-list__outline').exists()).toBe(false)
+      expect(mountRow({ outline: [] }).find('.page-list__outline').exists()).toBe(false)
+    })
+
+    it('列出标题，层级用缩进加一个小字兜底', () => {
+      const wrapper = mountRow({ outline })
+      const items = wrapper.findAll('.page-list__outline-item')
+
+      expect(items).toHaveLength(2)
+      expect(items[0].text()).toContain('第一节')
+      expect(items[0].classes()).toContain('page-list__outline-item--h2')
+      expect(items[1].classes()).toContain('page-list__outline-item--h3')
+      expect(items[1].text()).toContain('H3')
+    })
+
+    it('点一条就把光标送到那一节', async () => {
+      const wrapper = mountRow({ outline })
+      await wrapper.findAll('.page-list__outline-item')[1].trigger('click')
+
+      expect(wrapper.emitted('jump')).toEqual([[40]])
+    })
+
+    it('标题那一段不许拖：拖它不该挪动整篇文章的位次', () => {
+      const wrapper = mountRow({ outline })
+      expect(wrapper.get('.page-list__outline').attributes('draggable')).toBe('false')
+    })
+  })
 })

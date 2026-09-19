@@ -601,6 +601,7 @@ const editorCommands: EditorCommands = {
   outline: () => {
     showOutline.value = true
   },
+  jumpTo: (offset: number) => jumpTo(offset),
   internalLink: () => {
     showLink.value = true
   },

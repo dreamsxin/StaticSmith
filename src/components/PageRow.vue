@@ -15,6 +15,7 @@
  * `BrokenList` 一致：这三件事每一行都要用，逐行经 props 传等于把同一个值抄 N 遍。
  */
 import { dropSide } from '../grouping'
+import type { Heading } from '../manuscript'
 import { isDirty, store } from '../store'
 
 /** 一行要用到的字段。声明成只读结构：store 导出的状态是深只读的。 */
@@ -48,6 +49,14 @@ const props = defineProps<{
   dragging?: boolean
   /** 落点指示线画在这一行的上边还是下边；`null` 表示这一行不是落点 */
   dropAt?: 'before' | 'after' | null
+  /**
+   * 这一篇的篇内标题，接在行下面。
+   *
+   * 只有**正在编辑的那一篇**会拿到它（见 `PageList`）：其余的要读盘才知道，
+   * 一本两百章的书为了画目录去读两百个文件不划算。所以侧栏是
+   * 「整本书的目录 + 这一章的细目」，而不是把全书标题都摊开。
+   */
+  outline?: readonly Heading[]
 }>()
 
 const emit = defineEmits<{
@@ -71,6 +80,8 @@ const emit = defineEmits<{
   drop: []
   /** 拖动结束（松手或按 Esc 取消都会来） */
   dragend: []
+  /** 点了篇内某个标题：把光标送到源文的这个位置 */
+  jump: [offset: number]
 }>()
 
 /**
@@ -180,5 +191,22 @@ function over(event: DragEvent) {
     >
       ⋯
     </button>
+
+    <!-- 篇内标题：正在编辑的那一篇把自己的目录摊在这里，点一条跳到那一节。
+         `draggable=false`：拖标题不该挪动整篇文章的位次（那是行本身的动作）。
+         层级用缩进表达，另标一个 H3 之类的小字给缩进兜底（同大纲浮层） -->
+    <ul v-if="props.outline?.length" class="page-list__outline" draggable="false">
+      <li v-for="(heading, index) in props.outline" :key="`${heading.offset}-${index}`">
+        <button
+          type="button"
+          :class="`page-list__outline-item page-list__outline-item--h${heading.level}`"
+          :title="`跳到「${heading.text}」`"
+          @click="emit('jump', heading.offset)"
+        >
+          <span class="page-list__outline-level">H{{ heading.level }}</span>
+          <span class="page-list__title">{{ heading.text }}</span>
+        </button>
+      </li>
+    </ul>
   </li>
 </template>
