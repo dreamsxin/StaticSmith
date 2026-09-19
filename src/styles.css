@@ -1293,6 +1293,20 @@ kbd {
 
 
 
+/* 拖拽排序：被拖的那行压暗，落点画一条线。
+   线用 box-shadow 而不是 border：border 会把这一行顶高 2px，整列跟着抖一下 */
+.page-list__row--dragging {
+  opacity: 0.45;
+}
+
+.page-list__row--drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+.page-list__row--drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+
 /* 栏目按层级缩进：站点结构本来是一棵树（栏目就是目录，可以任意层嵌套），
    平铺之后侧栏看着像一堆文件夹，而不像一本书的目录。层数不定，所以用
    `--depth` 算内缩，而不是写死 --depth-1/2/3 这类类名。

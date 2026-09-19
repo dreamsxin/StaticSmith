@@ -143,4 +143,74 @@ describe('PageRow', () => {
     state.currentSource = 'posts/a.md'
     expect(mountRow().get('button').classes()).toContain('active')
   })
+
+  /**
+   * 拖拽排序。
+   *
+   * 这一行只管两件事：能拖、以及「落点在我上边还是下边」。
+   * 落点允不允许、落下之后怎么排，都在上层——它才知道同栏目里还有谁。
+   */
+  describe('拖拽', () => {
+    /** 给这一行一个真实的高度，否则 jsdom 里矩形全是 0，中线判断测不出来。 */
+    function withBox(wrapper: ReturnType<typeof mountRow>, top = 0, height = 20) {
+      const li = wrapper.get('li')
+      ;(li.element as HTMLElement).getBoundingClientRect = () =>
+        ({ top, height, bottom: top + height, left: 0, right: 0, width: 100 }) as DOMRect
+      return li
+    }
+
+    it('整行都能拖：顺序是这一行的属性，不另设小抓手', async () => {
+      const wrapper = mountRow()
+      expect(wrapper.get('li').attributes('draggable')).toBe('true')
+
+      await wrapper.get('li').trigger('dragstart')
+      expect(wrapper.emitted('dragstart')).toHaveLength(1)
+    })
+
+    it('上半边算「放到前面」，下半边算「放到后面」', async () => {
+      const wrapper = mountRow()
+      const li = withBox(wrapper)
+
+      await li.trigger('dragover', { clientY: 4 })
+      await li.trigger('dragover', { clientY: 16 })
+
+      expect(wrapper.emitted('dragover')).toEqual([['before'], ['after']])
+    })
+
+    it('dragover 必须拦掉默认行为，否则浏览器根本不发 drop', async () => {
+      const wrapper = mountRow()
+      const li = withBox(wrapper)
+      // 自己造一个可取消的事件：`trigger` 给的 preventDefault 覆盖不到原型上那个
+      const event = new Event('dragover', { cancelable: true, bubbles: true })
+      Object.defineProperty(event, 'clientY', { value: 4 })
+
+      li.element.dispatchEvent(event)
+      await wrapper.vm.$nextTick()
+
+      expect(event.defaultPrevented).toBe(true)
+    })
+
+    it('松手与结束都报给上层', async () => {
+      const wrapper = mountRow()
+      await wrapper.get('li').trigger('drop')
+      await wrapper.get('li').trigger('dragend')
+
+      expect(wrapper.emitted('drop')).toHaveLength(1)
+      expect(wrapper.emitted('dragend')).toHaveLength(1)
+    })
+
+    it('被拖的那行压暗，落点画线：两个状态由上层给', () => {
+      expect(mountRow({ dragging: true }).get('li').classes()).toContain(
+        'page-list__row--dragging',
+      )
+      expect(mountRow({ dropAt: 'before' }).get('li').classes()).toContain(
+        'page-list__row--drop-before',
+      )
+      expect(mountRow({ dropAt: 'after' }).get('li').classes()).toContain(
+        'page-list__row--drop-after',
+      )
+      // 不是落点的行不该带任何线
+      expect(mountRow().get('li').classes().join(' ')).not.toContain('drop-')
+    })
+  })
 })

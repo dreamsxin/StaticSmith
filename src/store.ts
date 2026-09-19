@@ -8,7 +8,7 @@ import { computed, reactive, readonly } from 'vue'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 
 import * as api from './api'
-import { moved, movedSection, siblingsOf } from './grouping'
+import { moved, movedSection, readingOrder, reorderTo, siblingsOf } from './grouping'
 import { appendNotice, type Notice } from './notices'
 import { summarizeSkips } from './skips'
 
@@ -292,6 +292,39 @@ function notify(kind: ToastKind, message: string, details?: string[]) {
  * 停在 `render 42/42` 上比不显示进度更糟，它看起来像「还在跑」。
  */
 let inflight = 0
+
+/**
+ * 与这一篇同栏目的全部文章（不含栏目索引页）。
+ *
+ * 位次是**整栏**的事，所以这里比的永远是整栏，不是列表上正显示的那几行。
+ */
+function sectionSiblings(source: string) {
+  const page = state.project?.pages.find((p) => p.source === source)
+  if (!page) return []
+  return state.project!.pages.filter((p) => p.section === page.section && !p.is_index)
+}
+
+/**
+ * 落盘一份新的栏目内顺序。
+ *
+ * 「上移 / 下移」与拖拽共用它：两处各写一遍通知措辞，迟早出现「菜单说固化了、拖拽不说」。
+ * 第一次挪动会把整栏的当前顺序固化成位次（因此可能改写这一栏的每一篇），之后每次只动两篇
+ * ——通知里说清动了几篇，不然「我只挪了一下，怎么 30 个文件都变了」会像个 bug。
+ */
+async function writePageOrder(source: string, ordered: string[], verb: string) {
+  const page = state.project?.pages.find((p) => p.source === source)
+  if (!page) return
+  const done = await run(() => api.reorderSection(page.section, ordered))
+  if (!done) return
+  notify(
+    'success',
+    done.changed.length > 2
+      ? `已${verb}《${page.title}》，并把这一栏 ${done.total} 篇的顺序固化下来（改写 ${done.changed.length} 篇）`
+      : `已${verb}《${page.title}》`,
+  )
+  await actions.refresh()
+  await actions.recomputePlan()
+}
 
 async function run<T>(action: () => Promise<T>): Promise<T | undefined> {
   inflight += 1
@@ -762,30 +795,30 @@ export const actions = {
    * 把一篇在它那一栏里挪一位（`-1` 上移，`1` 下移）。
    *
    * 界面上没有「排序权重」这种数字：读者看到的只有先后，数字是实现细节。
-   * 第一次挪动会把整栏的当前顺序固化成位次（因此可能改写这一栏的每一篇），
-   * 之后每次只动两篇——通知里说清动了几篇，不然「我只挪了一下，怎么 30 个文件都变了」
-   * 会像个 bug。
-   *
    * 已经在头 / 尾时什么都不做：`moved` 返回 null，不发一次什么也不改的写操作。
    */
   async movePage(source: string, delta: -1 | 1) {
-    const page = state.project?.pages.find((p) => p.source === source)
-    if (!page) return
-    const siblings = state.project!.pages.filter((p) => p.section === page.section && !p.is_index)
-    const ordered = moved(siblings, source, delta)
+    const ordered = moved(sectionSiblings(source), source, delta)
     if (!ordered) return
+    await writePageOrder(source, ordered, delta === -1 ? '上移' : '下移')
+  },
 
-    const done = await run(() => api.reorderSection(page.section, ordered))
-    if (!done) return
-    const where = delta === -1 ? '上移' : '下移'
-    notify(
-      'success',
-      done.changed.length > 2
-        ? `已${where}《${page.title}》，并把这一栏 ${done.total} 篇的顺序固化下来（改写 ${done.changed.length} 篇）`
-        : `已${where}《${page.title}》`,
-    )
-    await this.refresh()
-    await this.recomputePlan()
+  /**
+   * 拖拽落下：把这一篇放到 `target` 的前面或后面（同一栏目内）。
+   *
+   * 参数是「放在谁的前 / 后」而不是下标：下标的坐标系（拖走自己之后位置会挪一格）
+   * 只在这里换算一次，界面那边不必也懂它。与「上移 / 下移」走同一条落盘路径，
+   * 只是插入位置不限于相邻一格——把第 12 章拖到第 2 章，用菜单要点十一次。
+   *
+   * 拖回原处时 `reorderTo` 返回 null，不发写操作。
+   */
+  async movePageTo(source: string, target: string, side: 'before' | 'after') {
+    const order = [...sectionSiblings(source)].sort(readingOrder).map((page) => page.source)
+    const at = order.indexOf(target)
+    if (at < 0) return
+    const ordered = reorderTo(order, source, side === 'after' ? at + 1 : at)
+    if (!ordered) return
+    await writePageOrder(source, ordered, '挪动')
   },
 
 

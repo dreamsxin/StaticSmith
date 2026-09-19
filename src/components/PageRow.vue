@@ -14,6 +14,7 @@
  * 全局状态（在编辑哪一篇、有没有未保存改动、忙不忙）直接读 store，与
  * `BrokenList` 一致：这三件事每一行都要用，逐行经 props 传等于把同一个值抄 N 遍。
  */
+import { dropSide } from '../grouping'
 import { isDirty, store } from '../store'
 
 /** 一行要用到的字段。声明成只读结构：store 导出的状态是深只读的。 */
@@ -43,6 +44,10 @@ const props = defineProps<{
   seo: RowSeo | null
   /** 处于删除确认态。哪一行在确认态由上层决定，一次只有一行 */
   confirming: boolean
+  /** 正被拖着的就是这一行 */
+  dragging?: boolean
+  /** 落点指示线画在这一行的上边还是下边；`null` 表示这一行不是落点 */
+  dropAt?: 'before' | 'after' | null
 }>()
 
 const emit = defineEmits<{
@@ -54,12 +59,49 @@ const emit = defineEmits<{
   remove: []
   /** 确认态里按下「取消」 */
   cancel: []
+  /** 开始拖这一行 */
+  dragstart: []
+  /**
+   * 拖着别人经过这一行，并告诉上层落点在上边还是下边。
+   *
+   * 中线判断留在这里：那是**这一行自己的几何**。上层只需要知道结论。
+   */
+  dragover: [side: 'before' | 'after']
+  /** 在这一行上松手 */
+  drop: []
+  /** 拖动结束（松手或按 Esc 取消都会来） */
+  dragend: []
 }>()
+
+/**
+ * 拖到这一行上时算前面还是后面。
+ *
+ * `preventDefault` 必须调：不调的话浏览器不认为这里能落，`drop` 事件根本不会来。
+ */
+function over(event: DragEvent) {
+  event.preventDefault()
+  const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  emit('dragover', dropSide(event.clientY, box.top, box.height))
+}
+
 </script>
 
 <template>
-  <!-- 右键挂在整行上：行内任何位置都能唤出菜单，而「⋯」是它的可见孪生入口 -->
-  <li @contextmenu="emit('menu', $event)">
+  <!-- 右键挂在整行上：行内任何位置都能唤出菜单，而「⋯」是它的可见孪生入口。
+       整行可拖：顺序是这一行的属性，抓哪儿都该能拖，不另设一个小抓手 -->
+  <li
+    draggable="true"
+    :class="{
+      'page-list__row--dragging': props.dragging,
+      'page-list__row--drop-before': props.dropAt === 'before',
+      'page-list__row--drop-after': props.dropAt === 'after',
+    }"
+    @contextmenu="emit('menu', $event)"
+    @dragstart="emit('dragstart')"
+    @dragover="over"
+    @drop.prevent="emit('drop')"
+    @dragend="emit('dragend')"
+  >
     <input
       v-if="props.selecting"
       type="checkbox"

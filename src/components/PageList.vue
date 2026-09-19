@@ -24,7 +24,14 @@ import { actions, store } from '../store'
 import { ui } from '../ui'
 import { searchContent } from '../api'
 import { outputKindLabel } from '../labels'
-import { groupBySection, moved, movedSection, siblingsOf, worstSeoBySource } from '../grouping'
+import {
+  canDropBeside,
+  groupBySection,
+  moved,
+  movedSection,
+  siblingsOf,
+  worstSeoBySource,
+} from '../grouping'
 import type { Criteria, Filter } from '../grouping'
 import type { PageSummary, SearchHit } from '../api'
 
@@ -409,6 +416,38 @@ function canMoveSection(section: string, delta: -1 | 1): boolean {
   return movedSection(siblingsOf(store.sections, section), section, delta) !== null
 }
 
+// ---------------------------------------------------------------- 拖拽排序
+
+/**
+ * 正被拖着的那一篇，以及落点。
+ *
+ * 只在**同一栏目内**拖：跨栏目等于改归属，那要补旧地址、改写站内引用，
+ * 得先干跑再确认（批量条里的「移动到栏目」就是那条路）。所以拖到别的栏目上
+ * 不给落点提示，松手也什么都不做——不做，比做一半更好解释。
+ */
+const dragging = ref<string | null>(null)
+const dropTarget = ref<{ source: string; side: 'before' | 'after' } | null>(null)
+
+function hoverRow(page: PageSummary, side: 'before' | 'after') {
+  const from = store.project?.pages.find((p) => p.source === dragging.value)
+  dropTarget.value = canDropBeside(from, page) ? { source: page.source, side } : null
+}
+
+async function dropOnRow(page: PageSummary) {
+  const target = dropTarget.value
+  const source = dragging.value
+  endDrag()
+  // 落点与松手的那一行必须是同一行：中途拖到别的栏目上时 `dropTarget` 已经清空
+  if (!source || target?.source !== page.source) return
+  await actions.movePageTo(source, target.source, target.side)
+}
+
+function endDrag() {
+  dragging.value = null
+  dropTarget.value = null
+}
+
+
 
 
 
@@ -551,11 +590,17 @@ async function copyText(text: string) {
           :dirty="dirtyPages.has(page.source)"
           :seo="seoBySource.get(page.source) ?? null"
           :confirming="confirmingDelete === page.source"
+          :dragging="dragging === page.source"
+          :drop-at="dropTarget?.source === page.source ? dropTarget.side : null"
           @open="actions.requestOpenContent(page)"
           @toggle="toggleOne(page.source)"
           @menu="openContextMenu($event, pageMenu(page as PageSummary))"
           @remove="remove(page as PageSummary)"
           @cancel="confirmingDelete = null"
+          @dragstart="dragging = page.source"
+          @dragover="(side) => hoverRow(page as PageSummary, side)"
+          @drop="dropOnRow(page as PageSummary)"
+          @dragend="endDrag"
         />
       </ul>
 

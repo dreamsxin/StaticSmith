@@ -221,6 +221,53 @@ export function movedSection(
   return swapped
 }
 
+/**
+ * 把一项挪到指定的插入位置，返回新的顺序；没有变化时返回 `null`。
+ *
+ * `index` 用的是**原数组的坐标**：0 表示「放到最前」，`order.length` 表示「放到最后」，
+ * `i` 表示「放到第 i 项之前」。拖走自己之后它后面的位置都会往前挪一格，
+ * 这个换算（`index > from ? index - 1 : index`）是拖拽排序最容易写错的一行——
+ * 写错的表现是「往后拖一位没反应、拖两位才动」。
+ *
+ * 返回 `null` 的两种情况：拖回原处（前后邻居之间），以及越界。调用方据此不发写操作。
+ */
+export function reorderTo(
+  order: readonly string[],
+  source: string,
+  index: number,
+): string[] | null {
+  const from = order.indexOf(source)
+  if (from < 0 || index < 0 || index > order.length) return null
+  const rest = order.filter((item) => item !== source)
+  rest.splice(index > from ? index - 1 : index, 0, source)
+  return rest.every((item, i) => item === order[i]) ? null : rest
+}
+
+/**
+ * 拖到一行上时，落点算在它前面还是后面。
+ *
+ * 用中线判断而不是「一律插到前面」：不然「放到最后一位」永远做不到。
+ * 抽成纯函数是为了能测——`clientY` 与元素矩形在测试环境里都是 0，
+ * 留在组件里这一行就只能靠肉眼。
+ */
+export function dropSide(clientY: number, top: number, height: number): 'before' | 'after' {
+  return clientY < top + height / 2 ? 'before' : 'after'
+}
+
+/**
+ * 能不能把 `from` 拖到 `to` 旁边。
+ *
+ * **只允许同一栏目内拖。** 跨栏目等于改归属，那要补旧地址、改写站内引用，得先干跑再确认
+ * （批量条里的「移动到栏目」就是那条路）。所以拖到别的栏目上不给落点提示，松手也什么都不做
+ * ——不做，比做一半更好解释。拖到自己身上同理。
+ */
+export function canDropBeside(
+  from: GroupablePage | undefined,
+  to: GroupablePage,
+): from is GroupablePage {
+  return !!from && from.source !== to.source && from.section === to.section
+}
+
 /** 某个栏目的父栏目路径。顶层栏目的父是根目录（空串）。 */
 function parentOf(path: string): string {
   const at = path.lastIndexOf('/')

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  canDropBeside,
+  dropSide,
   groupBySection,
   matchesFilter,
   moved,
   movedSection,
   readingOrder,
+  reorderTo,
   siblingsOf,
   worstSeoBySource,
 } from './grouping'
@@ -361,6 +364,56 @@ describe('movedSection 与 siblingsOf', () => {
       { path: 'posts', weight: 1 },
     ]
     expect(movedSection(ranked, 'notes', -1)).toEqual(['notes', 'posts', 'guides'])
+  })
+})
+
+/**
+ * 拖拽排序的算术。
+ *
+ * 「往后拖一位没反应、拖两位才动」是这一块最典型的 bug：拖走自己之后，
+ * 它后面的每个插入位都往前挪了一格。
+ */
+describe('reorderTo 与 dropSide', () => {
+  const order = ['a.md', 'b.md', 'c.md']
+
+  it('拖到最前与最后', () => {
+    expect(reorderTo(order, 'c.md', 0)).toEqual(['c.md', 'a.md', 'b.md'])
+    expect(reorderTo(order, 'a.md', 3)).toEqual(['b.md', 'c.md', 'a.md'])
+  })
+
+  it('往后挪一位：插入位要换算，不然要拖两位才动', () => {
+    // 「放到 c 之前」= index 2，而 a 自己占着 0，所以实际落在 1
+    expect(reorderTo(order, 'a.md', 2)).toEqual(['b.md', 'a.md', 'c.md'])
+  })
+
+  it('拖回原处不算改动，返回 null 而不是发一次写操作', () => {
+    expect(reorderTo(order, 'b.md', 1)).toBeNull()
+    expect(reorderTo(order, 'b.md', 2)).toBeNull()
+  })
+
+  it('越界或不在这份清单里都返回 null', () => {
+    expect(reorderTo(order, 'a.md', -1)).toBeNull()
+    expect(reorderTo(order, 'a.md', 4)).toBeNull()
+    expect(reorderTo(order, 'ghost.md', 0)).toBeNull()
+  })
+
+  it('中线决定插在前面还是后面：不然「放到最后一位」做不到', () => {
+    expect(dropSide(10, 0, 30)).toBe('before')
+    expect(dropSide(20, 0, 30)).toBe('after')
+    // 正好压线算后面，与 CSS 的半像素无关，只要两边一致
+    expect(dropSide(15, 0, 30)).toBe('after')
+  })
+
+  it('只允许同栏目内拖：跨栏目是「移动到栏目」，那条路要先干跑再确认', () => {
+    const a = page('posts/a.md')
+    const b = page('posts/b.md')
+    const other = page('notes/c.md')
+
+    expect(canDropBeside(a, b)).toBe(true)
+    expect(canDropBeside(a, other)).toBe(false)
+    // 拖到自己身上不算落点，也别发写操作
+    expect(canDropBeside(a, a)).toBe(false)
+    expect(canDropBeside(undefined, b)).toBe(false)
   })
 })
 
