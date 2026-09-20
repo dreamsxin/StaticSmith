@@ -30,6 +30,13 @@
   --tok-meta: #8a6d1f;
   --tok-directive: #9a4a06;
   --tok-attr: #6b5bd6;
+  /*
+   * 行内次要动作（「⋯」、整节上移下移、栏目的信息 / 删除）平时的不透明度。
+   *
+   * **压暗，不隐形。** 全隐的代价是用户以为功能不存在——「⋯」正是右键菜单唯一的
+   * 可见孪生入口。悬停或键盘聚焦时补到 1。
+   */
+  --icon-idle: 0.55;
   color-scheme: light dark;
 }
 
@@ -54,6 +61,8 @@
     --tok-meta: #d9bd6a;
     --tok-directive: #e5a06a;
     --tok-attr: #a99bf0;
+    /* 近黑底上同样的 0.55 看着更「陷进去」，提一档才看得出「这里有个按钮」 */
+    --icon-idle: 0.65;
   }
 }
 
@@ -144,15 +153,34 @@ h3 {
   color: var(--warn);
 }
 
-/* 主操作用实心，其余保持轻量——一屏里只该有一个「最该点的按钮」 */
+/* 实心的两颗按钮搬到一起：它们是同一种东西（一屏里最该点的那一颗），
+   只有语气不同——主动作用主色，不可撤销的动作用危险色。
+   分开写在文件两头的下场是危险按钮漏掉了 hover：它会继承 `button:hover` 的
+   `border-color: var(--accent)`，于是一颗红按钮悬停时描一圈橙边。 */
 .btn--primary {
   color: var(--on-solid);
   background: var(--accent);
   border-color: var(--accent);
 }
 
+/* 删除不可撤销，按钮必须一眼看出是危险动作 */
+.btn--danger {
+  color: var(--on-solid);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* 实心按钮悬停只提亮（`filter` 连边框一起提，两者不会走散）。
+   关键是**要把边框色写回来**：不写的话 `button:hover` 那条会把边框改成主色，
+   于是一颗红按钮悬停时描一圈橙边。 */
 .btn--primary:hover:not(:disabled) {
   filter: brightness(1.08);
+  border-color: var(--accent);
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--danger);
 }
 
 /* 卡片是界面的基本容器：起始页入口、面板分组都用它 */
@@ -584,14 +612,15 @@ h3 {
   font-variant-numeric: tabular-nums;
 }
 
-/* 移除是次要动作，悬停或聚焦才显形，避免每行都有个同等重量的按钮 */
+/* 移除是次要动作，压暗而不隐形（同 `--icon-idle` 那条规矩）：
+   隐形的按钮等于不存在的功能，用户只会以为最近列表清不掉 */
 .welcome__recent-forget {
   flex: none;
   padding: 0 0.35rem;
   background: none;
   border: none;
   color: var(--fg-muted);
-  opacity: 0;
+  opacity: var(--icon-idle);
 }
 
 .welcome__recent li:hover .welcome__recent-forget,
@@ -610,6 +639,47 @@ h3 {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* 忙态的全局标志：顶上一条来回扫的细线。
+   进度是「不确定」的（核心不报百分比），所以是扫动而不是填充——
+   填充到一半停住会被读成「卡在 50%」。
+   占位 2px 而不是 absolute：绝对定位会压在菜单栏上，而扫描线出现 / 消失时
+   整个界面跳动 2px 比让出这 2px 更晃眼。 */
+.app__progress {
+  flex: none;
+  height: 2px;
+  overflow: hidden;
+  background: var(--accent-soft);
+}
+
+.app__progress::before {
+  content: '';
+  display: block;
+  width: 35%;
+  height: 100%;
+  background: var(--accent);
+  animation: app-progress 1.1s ease-in-out infinite;
+}
+
+@keyframes app-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* 关掉动效的人看到的是一条静止的浅色带：仍然在说「有事在跑」，只是不动。
+   这类人里有一部分是前庭功能敏感，来回扫的东西会让他们不适 */
+@media (prefers-reduced-motion: reduce) {
+  .app__progress::before {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
 }
 
 .app__bar,
@@ -1408,10 +1478,11 @@ kbd {
   flex: 1;
 }
 
-/* 栏目操作平时不抢眼，悬停或键盘聚焦到这一组时才显形——与删除文章同一套规矩 */
+/* 栏目操作同样只压暗，不隐形：栏目的改名、排序、删除全都藏在「⋯」后面，
+   它隐形的话整个栏目管理就等于不存在（用户会以为栏目顺序是系统定的、改不了） */
 .page-list__group h3 .page-list__icon,
 .page-list__group h3 .page-list__danger {
-  opacity: 0;
+  opacity: var(--icon-idle);
   text-transform: none;
   letter-spacing: normal;
 }
@@ -1594,7 +1665,15 @@ kbd {
   align-items: center;
 }
 
-/* 删除入口平时不抢注意力，指针悬停或键盘聚焦时才显形 */
+/* 行内的次要动作**压暗**、而不是隐形。
+ *
+ * 原先是 `opacity: 0`，只在 `li:hover` / `li:focus-within` 时恢复。代价有两层：
+ * 一是「⋯」本来就是右键菜单唯一的可见孪生入口（右键看不见），它自己隐形就等于没有入口
+ * ——用户会以为「没有这个功能」；二是任何不在 `li` 里的用法（批量条那三颗）
+ * 永远没有恢复规则，于是**永久不可见却仍能点、仍能 Tab 停留**，那是真 bug。
+ *
+ * 0.55 足够看出「这里有个按钮」，又不与标题抢注意力；悬停或键盘聚焦时补满。
+ */
 .page-list button.page-list__icon,
 .page-list button.page-list__danger {
   flex: none;
@@ -1603,13 +1682,15 @@ kbd {
   border: none;
   background: none;
   color: var(--fg-muted);
-  opacity: 0;
+  opacity: var(--icon-idle);
 }
 
 .page-list li:hover .page-list__icon,
 .page-list li:hover .page-list__danger,
 .page-list li:focus-within .page-list__icon,
-.page-list li:focus-within .page-list__danger {
+.page-list li:focus-within .page-list__danger,
+.page-list__batch:hover .page-list__icon,
+.page-list__batch:focus-within .page-list__icon {
   opacity: 1;
 }
 
@@ -2853,13 +2934,6 @@ kbd {
   border: none;
   cursor: pointer;
   text-decoration: underline;
-}
-
-/* 删除媒体文件不可撤销，确认按钮必须一眼看出是危险动作 */
-.btn--danger {
-  color: var(--on-solid);
-  background: var(--danger);
-  border-color: var(--danger);
 }
 
 

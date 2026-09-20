@@ -168,7 +168,10 @@ function over(event: DragEvent) {
         :title="props.seo.messages.join('\n')"
         >SEO</span
       >
-      <span v-if="props.dirty" class="badge badge--dirty" title="待重新生成">●</span>
+      <!-- 「待重新生成」与「未保存」不能共用一个 `●`：一个是磁盘上的产物旧了，
+           一个是内存里的改动还没落盘，区别只靠 title 说不清——保存完那个圆点还亮着，
+           用户只会得出「保存没生效」。↻ 一眼就是「要再跑一次」 -->
+      <span v-if="props.dirty" class="badge badge--dirty" title="产物旧了，待重新生成">↻</span>
     </button>
 
     <!-- 确认态里「⋯」让位给这两颗按钮：三颗挤在一行按不准，而这时要按的只有这两颗。

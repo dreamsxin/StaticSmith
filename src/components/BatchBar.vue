@@ -150,7 +150,7 @@ async function confirmPending() {
         <span class="page-list__spacer" />
         <button
           type="button"
-          class="page-list__icon"
+          class="page-list__danger"
           title="删除选中的内容，不可撤销"
           @click="previewDelete"
         >

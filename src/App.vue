@@ -209,6 +209,20 @@ onBeforeUnmount(() => {
   <div v-else class="app">
     <AppMenu />
 
+    <!-- 忙态的唯一全局标志。
+         原先只有按钮置灰 + 状态栏左下角一行小字：全站生成、跨文件替换这类要跑几秒到
+         几十秒的操作，正文区和列表区看起来完全正常，用户会以为「刚才那一下没点中」，
+         于是去点别的按钮——而那些此刻是灰的，更像卡死了。
+         不做遮罩：遮罩会挡住正在读的内容，而这些操作并不禁止阅读。
+         进度是「不确定」的（核心不报百分比），所以用来回扫的条，不是填充的条。 -->
+    <div
+      v-if="store.busy"
+      class="app__progress"
+      role="progressbar"
+      aria-label="正在处理"
+      :aria-valuetext="store.progress || '处理中'"
+    />
+
     <header class="app__bar">
       <span class="app__mark" aria-hidden="true">◆</span>
       <div class="app__identity">

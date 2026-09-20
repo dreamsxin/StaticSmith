@@ -206,4 +206,18 @@ describe('BatchBar', () => {
       expect(button(wrapper, label).attributes('disabled')).toBeDefined()
     }
   })
+
+  /**
+   * 事故复盘：「删除…」原先带的是 `page-list__icon`（行内次要动作的幽灵类）。
+   *
+   * 那个类在 `li` 之外没有任何点亮规则，于是这颗按钮**永久不可见却仍能点**，
+   * Tab 也会停在上面——而删除是不可逆的。样式表那一侧由 `src/styles.test.ts` 把守，
+   * 这里钉住组件的选择：不可逆的动作用危险样式，不用灰色的次要动作样式。
+   */
+  it('「删除…」用危险样式，不是灰色的次要动作', () => {
+    const remove = button(mountBar(), '删除…')
+
+    expect(remove.classes()).toContain('page-list__danger')
+    expect(remove.classes()).not.toContain('page-list__icon')
+  })
 })
