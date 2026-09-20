@@ -16,6 +16,7 @@ TOML，界面不隐藏这一层，也不做块级富文本。写作者不必因�
 - 仓库：<https://github.com/dreamsxin/StaticSmith>
 - 作者：dreamszhu &lt;dreamsxin@qq.com&gt;
 - 文档：[docs/](docs/)
+- 要改这个仓库的 AI Agent：先读 [AGENTS.md](AGENTS.md)（验证套件、同步点、硬规矩、已知的坑）
 
 ## 能力现状
 

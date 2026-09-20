@@ -1,5 +1,9 @@
 # 开发指引
 
+> 如果你是要改这个仓库的 **AI Agent**，先读根目录的 [AGENTS.md](../AGENTS.md)：
+> 那份是「一页上手」的施工说明书（验证套件、同步点清单、硬规矩、已知的坑），
+> 这份是环境与测试策略的细节。两份不重复，交叉引用。
+
 ## 环境
 
 - Rust stable（`rust-toolchain.toml` 已声明，含 rustfmt 与 clippy）
