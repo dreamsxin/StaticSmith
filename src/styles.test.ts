@@ -209,4 +209,72 @@ describe('styles.css 的硬约定', () => {
       expect(values[i] - values[i - 1], order[i]).toBeGreaterThanOrEqual(0.0625)
     }
   })
+
+  /**
+   * 间距必须走刻度。
+   *
+   * 盘点出的实情：40 个取值、279 处，其中 8 个（2.4 / 3.2 / 4 / 4.8 / 5.6 / 6 / 6.4 /
+   * 7.2px）挤在 5px 的带宽里，占了近一半用量——每加一个控件就随手写个「差不多」的数，
+   * 同一种关系（标签与值、图标与文字、按钮内边距）在十个地方是十个间距。
+   * 界面「看着乱」多半来自这里，而且比字号更难察觉：没人会去量。
+   *
+   * 白名单只放**真的不是间距**的东西：
+   * - `2rem` 以上：大纲层级缩进那几档、浮层距顶，是布局尺寸，各自只用一次
+   * - 非 rem 单位：`12vh`（浮层距顶跟视口走）、`1px`（日历格之间那条线，是线不是间距）
+   * - `calc(` / 负值：按深度递进的缩进、贴紧上一行的提示
+   */
+  it('间距不许出现裸值，一律走 --space-* 刻度', () => {
+    const props = [
+      'padding',
+      'padding-top',
+      'padding-bottom',
+      'padding-left',
+      'padding-right',
+      'margin',
+      'margin-top',
+      'margin-bottom',
+      'margin-left',
+      'margin-right',
+      'gap',
+      'row-gap',
+      'column-gap',
+    ]
+    const all = props.flatMap((prop) => valuesOf(prop))
+    // 自检：清单空了下面那条断言就「全绿而无用」
+    expect(all.length).toBeGreaterThan(150)
+
+    const offenders = all
+      .filter(([, value]) => !value.includes('calc(') && !value.startsWith('-'))
+      .flatMap(([at, value]) => value.split(/\s+/).map((one) => [at, one] as const))
+      .filter(([, one]) => {
+        if (/^(0|auto|inherit)$/.test(one) || one.startsWith('var(')) return false
+        const rem = /^([\d.]+)rem$/.exec(one)
+        // 非 rem 的（vh / px）与 2rem 以上的是布局尺寸，不在刻度里
+        return rem ? Number(rem[1]) < 2 : false
+      })
+
+    expect(offenders).toEqual([])
+  })
+
+  /** 间距七档：4px 的整数倍为骨架，2px 那档专给「紧贴」。 */
+  it('间距刻度七档齐全且严格递增', () => {
+    const order = [
+      '--space-xs',
+      '--space-sm',
+      '--space-md',
+      '--space-lg',
+      '--space-xl',
+      '--space-2xl',
+      '--space-3xl',
+    ]
+    const values = order.map((token) => {
+      const found = new RegExp(`${token}:\\s*([\\d.]+)rem`).exec(css)
+      expect(found, token).not.toBeNull()
+      expect(css.match(new RegExp(`${token}:`, 'g')), token).toHaveLength(1)
+      return Number(found![1])
+    })
+
+    expect(values).toEqual([...values].sort((a, b) => a - b))
+    expect(new Set(values).size).toBe(order.length)
+  })
 })
