@@ -111,4 +111,64 @@ describe('styles.css 的硬约定', () => {
     const rule = css.slice(css.indexOf('\n.page-list__danger {'))
     expect(rule.slice(0, rule.indexOf('}'))).toContain('color: var(--danger)')
   })
+
+  /**
+   * 形状、阴影、层级都必须走令牌。
+   *
+   * 这三样原先是裸值：圆角散着 3 / 4 / 6 / 8 / 10 / 999px 六种（规范说该有一种），
+   * 阴影三处各自硬编码黑色（深色模式下几乎看不见），`z-index` 五个数字散在五个地方
+   * ——「谁压谁」只能靠通读全文去记，加一层新浮层时只能猜。
+   *
+   * 圆角允许 `0`：那不是一个档，是「明确不要圆角」（贴边的列表项、全宽输入）。
+   */
+  it('圆角、阴影、层级不许出现裸值', () => {
+    /**
+     * 取出某个属性的所有取值（连行号），用来判断「它走没走令牌」。
+     *
+     * 不用「`^prop:\s*(?!var\()`」那种否定前瞻：`\s*` 会回退成零宽，
+     * 于是 `box-shadow: var(...)` 也被判成裸值——第一版就是这么写的，
+     * 三条断言全是绿的，护栏是假的。先取值、再判断，这种坑绕不开也看得见。
+     */
+    const valuesOf = (prop: string) =>
+      css
+        .split('\n')
+        .map((line, index) => [index + 1, line.trim()] as const)
+        .map(([at, line]) => [at, new RegExp(`^${prop}:\\s*(.+);$`).exec(line)?.[1]] as const)
+        .filter((entry): entry is readonly [number, string] => entry[1] !== undefined)
+
+    const bare = (prop: string, allowed: RegExp) =>
+      valuesOf(prop).filter(([, value]) => !allowed.test(value))
+
+    // 先确认这份清单真的抓到了东西：空清单会让下面三条断言「全绿而无用」，
+    // 而那正是第一版犯的错（值都取成了 undefined，filter 自然是空的）
+    expect(valuesOf('border-radius').length).toBeGreaterThan(20)
+    expect(valuesOf('z-index').length).toBeGreaterThan(4)
+    expect(valuesOf('box-shadow').length).toBeGreaterThan(4)
+
+    // 圆角允许 `0`：那不是一个档，是「明确不要圆角」（贴边的列表项、全宽输入）
+    expect(bare('border-radius', /^(var\(--radius-|0$)/)).toEqual([])
+    expect(bare('z-index', /^var\(--z-/)).toEqual([])
+    // inset 的那几条是「线」不是「浮起」（落点指示、焦点圈），不在此列
+    expect(bare('box-shadow', /^(var\(--shadow-|inset )/)).toEqual([])
+  })
+
+  /** 阴影在深色下要单独给：18% 的黑压在近黑底上等于没有。 */
+  it('阴影令牌浅色与深色各给一套', () => {
+    for (const token of ['--shadow-raised', '--shadow-dropdown', '--shadow-dialog']) {
+      expect(css.match(new RegExp(`${token}:`, 'g')), token).toHaveLength(2)
+    }
+  })
+
+  /** 层级要成表：每一档都有名字，中间留空档好插新层。 */
+  it('层级令牌齐全且从下到上递增', () => {
+    const order = ['--z-sticky', '--z-sticky-head', '--z-dropdown', '--z-context', '--z-toast']
+    const values = order.map((token) => {
+      const found = new RegExp(`${token}:\\s*(\\d+)`).exec(css)
+      expect(found, token).not.toBeNull()
+      return Number(found![1])
+    })
+
+    expect(values).toEqual([...values].sort((a, b) => a - b))
+    expect(new Set(values).size).toBe(order.length)
+  })
 })
