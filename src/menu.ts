@@ -56,7 +56,8 @@ export function missingSections(
  * 只报**站内**的：站外链接与纯锚点的正确性不在这个站里。空地址也不报——那是还没填完的
  * 行，保存时 `MenuItem::validate` 自会拦下，在这里再喊一遍只是噪音。
  *
- * 首页 `/` 永远算存在：它不在页面列表里（首页由模板直接生成），但站点根一定有产物。
+ * **首页也要真有 `index.md` 才算存在**：没有它，站点根就是 404，报出来是对的。
+ * core 侧（`menu.rs`）拿产物地址做同一件事，两边不该有一边格外宽容。
  *
  * 返回的是**去重后**的地址列表：同一个错地址报两遍不会让人更快改对。
  */
@@ -65,7 +66,6 @@ export function unknownMenuUrls(
   targets: readonly LinkTarget[],
 ): string[] {
   const known = new Set(targets.map((item) => normalize(item.url)))
-  known.add('/')
   const bad = new Set<string>()
   for (const item of menu) {
     const url = item.url.trim()

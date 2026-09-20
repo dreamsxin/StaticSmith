@@ -51,8 +51,10 @@ describe('unknownMenuUrls', () => {
     expect(unknownMenuUrls([{ url: '/about' }], targets)).toEqual([])
   })
 
-  it('首页永远算存在：它不在页面列表里，但站点根一定生成', () => {
-    expect(unknownMenuUrls([{ url: '/' }], targets)).toEqual([])
+  it('首页也要真有 index.md 才算存在：与 core 的构建警告同一套规则', () => {
+    expect(unknownMenuUrls([{ url: '/' }], targets)).toEqual(['/'])
+    const withHome = [...targets, { source: 'index.md', title: '首页', url: '/', draft: false }]
+    expect(unknownMenuUrls([{ url: '/' }], withHome)).toEqual([])
   })
 
   it('空地址不报：那是还没填完的行，保存时自会拦下', () => {

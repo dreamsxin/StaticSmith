@@ -678,6 +678,18 @@ impl Builder {
             );
         }
 
+        // 导航菜单在**每一页**的头部，一个错地址就是全站死链，而死链原先只能等
+        // `links` 的体检发现——那已经是生成之后。桌面端另有编辑时的即时提示
+        // （`src/menu.ts`，与 `menu` 模块是孪生实现），这里报的是 CLI 与 MCP 也能看到的那一份。
+        let known_urls: BTreeSet<String> = all_pages
+            .iter()
+            .map(|page| crate::menu::normalize_url(&page.url).to_string())
+            .collect();
+        let unknown_menu = crate::menu::unknown_urls(&self.config.menu, &known_urls);
+        if !unknown_menu.is_empty() {
+            warnings.push(crate::menu::unknown_urls_warning(&unknown_menu));
+        }
+
         // 标签页依赖全站（词条成员，以及侧栏里的全局 `pages`），所以它要么整体重算、
         // 要么整体跳过。输入指纹相同且产物还在时跳过——那正是空跑的情形。
         let taxonomy_started = Instant::now();

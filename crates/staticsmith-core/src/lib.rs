@@ -41,6 +41,7 @@ pub mod import;
 pub mod index;
 pub mod links;
 pub mod media;
+pub mod menu;
 pub mod outputs;
 pub mod preview;
 pub mod refs;

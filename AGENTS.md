@@ -71,7 +71,10 @@ npm run build                                       # 打包（tauri-build 需�
 - **新增核心能力**：core 里实现 → `Builder` 上开方法 → 桌面端 / CLI / MCP 三个入口
   各接一遍（只接一个入口就要在收尾时明说欠着哪两个）
 - **新增跳过 / 警告的措辞**：`staticsmith_core::skips`（Rust）与 `src/skips.ts`（前端）
-  是一对孪生实现，两边各有测试钉同样的例子
+  是一对孪生实现，两边各有测试钉同样的例子。导航菜单的校验同理：
+  `staticsmith_core::menu`（生成时报进 `warnings`，CLI 与 MCP 也就都有了）与
+  `src/menu.ts`（编辑时即时提示，不走 IPC 才谈得上「立刻」）——规则要一致，
+  改一边就得改另一边。
 
 ## 5. 硬规矩
 

@@ -127,6 +127,42 @@ fn changing_the_config_menu_rebuilds_every_page() {
     assert!(plan.is_empty(), "配置没变就该回到空跑: {:?}", plan.pages);
 }
 
+/// 菜单指向站内不存在的地址时，生成报告里要报出来。
+///
+/// 菜单渲染在每一页的头部，所以它是唯一「一处写错、全站死链」的配置。
+/// 桌面端在编辑时就会提示，但 CLI 与 MCP 没有那一层——报告里这一条是它们的唯一机会。
+#[test]
+fn a_menu_url_the_site_does_not_have_is_reported() {
+    let dir = new_project();
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        format!("{config}\n[[menu]]\nname = \"手册\"\nurl = \"/manual/\"\n"),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let report = builder.build(BuildMode::Full).unwrap();
+
+    let hit = report
+        .warnings
+        .iter()
+        .find(|text| text.contains("/manual/"))
+        .unwrap_or_else(|| panic!("应报出菜单死链: {:?}", report.warnings));
+    // 不点明「每一页」，用户会把它当成某一处的小毛病
+    assert!(hit.contains("每一页"), "{hit}");
+
+    // 脚手架自带的那几项都有对应产物，不该被误报
+    for url in ["/posts/", "/about/"] {
+        assert!(
+            !report.warnings.iter().any(|text| text.contains(url)),
+            "{url} 存在却被报成死链: {:?}",
+            report.warnings
+        );
+    }
+}
+
 #[test]
 fn second_incremental_build_is_a_no_op() {
     let dir = new_project();
