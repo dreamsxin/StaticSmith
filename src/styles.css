@@ -109,6 +109,36 @@ button.active {
   border-color: var(--accent);
 }
 
+/*
+ * 无面按钮的悬停与聚焦：补一个「面」。
+ *
+ * 这些按钮为了不抢注意力写了 `border: none; background: none`，于是基座那条
+ * `button:hover { border-color: var(--accent) }` 对它们**视觉上是空转**——
+ * 鼠标划过去毫无反应，用户不知道这里能点。命令面板整列尤其明显：
+ * 它只有键盘高亮（`.active`），鼠标用户完全没有反馈。
+ *
+ * 这正是 docs/ui-design.md 6.1 定的「动作：悬停出现面」，欠了很久。
+ * 用一条规则统一给，而不是各处补一遍：各补一遍就会长出好几种「面」。
+ *
+ * 排除 `.active`：选中态自己有底色（导航用的是 `--bg`），悬停不该把它盖掉。
+ * 不含 `.page-list__icon` / `__danger`：那两个靠 `--icon-idle` 由暗转亮来表达
+ * 悬停，行本身也会高亮，再加一层底色是两个「面」叠在一起。
+ */
+:is(
+    .palette__item,
+    .settings__nav-item,
+    .build__output,
+    .build__output-open,
+    .toast__close,
+    .page-list__search-clear,
+    .calendar__link,
+    .seo__ref,
+    .welcome__recent-forget
+  ):is(:hover, :focus-visible):not(:disabled, .active) {
+  background: var(--bg-subtle);
+}
+
+
 input,
 select,
 textarea {
@@ -168,6 +198,14 @@ h3 {
   color: var(--on-solid);
   background: var(--danger);
   border-color: var(--danger);
+}
+
+/* 轻量的危险动作（就地确认里的「删除」、设置页里的「移除这一行」、消息中心的「清空」）。
+   红色写在这里而不是 `.page-list button.page-list__danger` 里：那条带着
+   `.page-list` 祖先，于是同一个类在设置页与消息中心里是**灰**的——
+   同一件事在两个地方长得不一样，用户会以为其中一处不危险。 */
+.page-list__danger {
+  color: var(--danger);
 }
 
 /* 实心按钮悬停只提亮（`filter` 连边框一起提，两者不会走散）。
@@ -1685,17 +1723,29 @@ kbd {
   opacity: var(--icon-idle);
 }
 
-.page-list li:hover .page-list__icon,
-.page-list li:hover .page-list__danger,
-.page-list li:focus-within .page-list__icon,
-.page-list li:focus-within .page-list__danger,
-.page-list__batch:hover .page-list__icon,
-.page-list__batch:focus-within .page-list__icon {
+.page-list li:hover .page-list__icon:not(:disabled),
+.page-list li:hover .page-list__danger:not(:disabled),
+.page-list li:focus-within .page-list__icon:not(:disabled),
+.page-list li:focus-within .page-list__danger:not(:disabled),
+.page-list__batch:hover .page-list__icon:not(:disabled),
+.page-list__batch:focus-within .page-list__icon:not(:disabled) {
   opacity: 1;
 }
 
+/* 禁用的幽灵按钮要比「压暗」更暗。
+ *
+ * 基座的 `button:disabled { opacity: 0.5 }` 在这里被压暗那条（特异性更高）盖掉，
+ * 于是 0.55 与 0.5 几乎看不出区别——目录里到头的「↑」看着和能点的一模一样，
+ * 点下去没反应。压暗表示「次要」，这一档表示「现在不能用」，两者必须分得开。
+ */
+.page-list button.page-list__icon:disabled,
+.page-list button.page-list__danger:disabled {
+  opacity: 0.25;
+}
+
+/* 列表里的删除入口始终满亮：压暗表示「次要」，而不可逆的动作不是次要的
+   （颜色由全局的 `.page-list__danger` 给，这里只管不被压暗） */
 .page-list button.page-list__danger {
-  color: var(--danger);
   opacity: 1;
 }
 

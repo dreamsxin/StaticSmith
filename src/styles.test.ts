@@ -64,4 +64,51 @@ describe('styles.css 的硬约定', () => {
     expect(css).toContain('@keyframes app-progress')
     expect(css).toContain('@media (prefers-reduced-motion: reduce)')
   })
+
+  /**
+   * 事故：写了 `border: none; background: none` 的按钮没有悬停反馈。
+   *
+   * 基座那条 `button:hover { border-color: var(--accent) }` 对它们是**空转**——
+   * 没有边框，改边框色什么也看不见。命令面板整列因此只有键盘高亮，鼠标划过去毫无反应。
+   * 规范（ui-design.md 6.1）要的是「动作：悬停出现面」。
+   */
+  it('无面按钮要有统一的悬停 / 聚焦「面」', () => {
+    // 用正则定位而不是 indexOf：这个仓库的工作副本是 CRLF，写死 '\n' 的锚点找不到
+    const rule = /:is\(\s*\.palette__item[\s\S]*?\}/.exec(css)?.[0] ?? ''
+    const selector = rule.slice(0, rule.indexOf('{'))
+    const body = rule.slice(rule.indexOf('{'))
+
+    // 这两个是当初被点出来的重灾区，掉出这条规则就等于回到老样子
+    expect(selector).toContain('.palette__item')
+    expect(selector).toContain('.settings__nav-item')
+    expect(selector).toContain(':hover')
+    expect(selector).toContain(':focus-visible')
+    expect(body).toContain('background: var(--bg-subtle)')
+    // 选中态自己有底色，悬停不该盖掉它
+    expect(selector).toContain('.active')
+  })
+
+  /**
+   * 事故：压暗（`--icon-idle` ≈ 0.55）与基座的禁用态（0.5）几乎一样，
+   * 而压暗那条特异性更高——目录里到头的「↑」看着和能点的一模一样，点下去没反应。
+   *
+   * 「次要」与「现在不能用」必须分得开；悬停也不该把禁用的按钮点亮。
+   */
+  it('幽灵按钮的禁用态要比压暗更暗，且悬停不点亮', () => {
+    expect(css).toMatch(/\.page-list button\.page-list__icon:disabled[^}]*opacity: 0\.25/)
+
+    const recovery = css.slice(css.indexOf('.page-list li:hover .page-list__icon'))
+    const selector = recovery.slice(0, recovery.indexOf('{'))
+    expect(selector.match(/:not\(:disabled\)/g)).toHaveLength(6)
+  })
+
+  /**
+   * 事故：`.page-list__danger` 的红色写在 `.page-list button.page-list__danger` 里，
+   * 带着祖先选择器。同一个类在设置页与消息中心里因此是**灰**的——
+   * 同一件事在两个地方长得不一样，用户会以为其中一处不危险。
+   */
+  it('危险动作的红色不依赖祖先', () => {
+    const rule = css.slice(css.indexOf('\n.page-list__danger {'))
+    expect(rule.slice(0, rule.indexOf('}'))).toContain('color: var(--danger)')
+  })
 })
