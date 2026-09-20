@@ -120,6 +120,13 @@ export const ui = reactive({
   newSiteOpen: false,
   /** 「回退内容」对话框：浏览内容快照并回到其中一份。 */
   snapshotsOpen: false,
+  /**
+   * 「快捷键一览」对话框。
+   *
+   * 与命令面板分开：面板回答「我想做某件事，它在哪」，这张表回答「这个键在哪儿按有用」。
+   * 帮助菜单里那条以前只是再打开一次命令面板，名不副实。
+   */
+  shortcutsOpen: false,
 
 
   /** 当前界面模式（布局预设），见 [`modes`]。 */

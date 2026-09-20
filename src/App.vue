@@ -25,6 +25,7 @@ import PageList from './components/PageList.vue'
 import PreviewPane from './components/PreviewPane.vue'
 import SeoPanel from './components/SeoPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
+import ShortcutsDialog from './components/ShortcutsDialog.vue'
 import SnapshotDialog from './components/SnapshotDialog.vue'
 import ToastStack from './components/ToastStack.vue'
 
@@ -374,6 +375,7 @@ onBeforeUnmount(() => {
     @submit="createSiteWith"
   />
   <SnapshotDialog :open="ui.snapshotsOpen" @close="ui.snapshotsOpen = false" />
+  <ShortcutsDialog :open="ui.shortcutsOpen" @close="ui.shortcutsOpen = false" />
 
 
   <ContextMenu />

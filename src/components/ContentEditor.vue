@@ -17,6 +17,7 @@ import LinkDialog from './LinkDialog.vue'
 import type { SlugPreview } from '../api'
 import { linkSnippet, type LinkTarget } from '../crossref'
 import { countWords, moveHeading, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
+import { footerShortcuts } from '../shortcuts'
 import { actions, brokenReason, isDirty, store } from '../store'
 
 import { goTo, saveLayout, ui, type EditorCommands } from '../ui'
@@ -950,9 +951,12 @@ onBeforeUnmount(() => {
       <span :title="`按每分钟 ${WORDS_PER_MINUTE} 字估算；front matter 与代码块不计入`">
         {{ words }} 字 · 约 {{ minutes }} 分钟
       </span>
-      · <kbd>Ctrl+S</kbd> 保存 · <kbd>Ctrl+B</kbd> 加粗 · <kbd>Ctrl+I</kbd> 斜体 ·
-      <kbd>Ctrl+K</kbd> 链接 · <kbd>Ctrl+Shift+O</kbd> 大纲 · <kbd>Ctrl+Enter</kbd> 增量生成 ·
-      粘贴或拖入图片即插入
+      <!-- 这几个键位从 `shortcuts.ts` 挑，不在模板里再抄一遍：抄一遍就会与
+           「快捷键一览」说的不一样。完整的表在 Ctrl+P → 「快捷键一览」里 -->
+      <template v-for="item in footerShortcuts()" :key="item.keys">
+        · <kbd>{{ item.keys }}</kbd> {{ item.what }}
+      </template>
+      · 粘贴或拖入图片即插入
     </footer>
 
     <OutlineDialog

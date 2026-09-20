@@ -503,10 +503,10 @@ export function menus(): Menu[] {
         },
         {
           id: 'help.shortcuts',
-          label: '快捷键与全部命令',
-          hint: 'Ctrl+P',
+          label: '快捷键一览…',
+          hint: '按作用域分组：随处可用 / 编辑器里 / 浮层与列表里',
           run: () => {
-            ui.paletteOpen = true
+            ui.shortcutsOpen = true
           },
         },
       ],

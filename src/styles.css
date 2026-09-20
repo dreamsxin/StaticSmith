@@ -148,6 +148,22 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/*
+ * 焦点的兜底。
+ *
+ * 规范（6.4 状态矩阵、6.6 无障碍最低线）要求每类控件都写焦点态，但实际只有 14 处写了
+ * `:focus-visible`，而控件远多于此——键盘用户在剩下那些地方**看不见自己在哪**，
+ * 这是无障碍的底线问题。
+ * 逐个补会漏（这次盘点就漏过），所以给一条全局兜底：需要特殊处理的自己覆盖它
+ * （日历格用 inset 阴影，因为格子间只有 1px 缝，outline 会被相邻格盖掉一半）。
+ *
+ * `outline-offset` 取负值：焦点圈画在元素**内侧**，不撑行高、不把相邻行挤动。
+ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 button.active {
   color: var(--on-solid);
   background: var(--accent);
@@ -610,6 +626,64 @@ h3 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 快捷键一览：按作用域分组的表。
+   三列「键位 / 做什么 / 前提」，键位一列定宽等宽字，好竖着扫 */
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.shortcuts__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.shortcuts__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.8rem;
+}
+
+.shortcuts__scope-hint {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  font-weight: 400;
+}
+
+.shortcuts__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcuts__row {
+  display: grid;
+  /* 键位定宽：竖着一列才扫得快。剩下的给动作，前提挤在最右边 */
+  grid-template-columns: 9.5rem minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  font-size: 0.8rem;
+}
+
+.shortcuts__keys {
+  justify-self: start;
+}
+
+.shortcuts__note {
+  color: var(--fg-muted);
+  font-size: 0.7rem;
 }
 
 /* 站内链接候选：地址压暗跟在标题后面——挑的时候看标题，确认的时候看地址。 */
