@@ -246,7 +246,8 @@ button.active {
     .page-list__search-clear,
     .calendar__link,
     .seo__ref,
-    .welcome__recent-forget
+    .welcome__recent-forget,
+    .editor__around button
   ):is(:hover, :focus-visible):not(:disabled, .active) {
   background: var(--bg-subtle);
 }
@@ -2487,10 +2488,37 @@ kbd {
 }
 
 .editor__foot {
-  padding: var(--space-md) var(--space-lg);
+  padding: var(--space-sm) var(--space-lg);
   color: var(--fg-muted);
   border-top: 1px solid var(--border);
   font-size: var(--text-sm);
+}
+
+/*
+ * 页脚的「上一篇 / 下一篇」。
+ *
+ * 无面按钮（页脚是一行灰字，塞两个带边框的按钮会把这一行变成工具条），
+ * 悬停的「面」由上面那条 `:is(...)` 统一给。压暗到 `--icon-idle`：
+ * 它们是次要动作，但**到头时置灰不隐藏**——隐藏会让人以为没有这个功能。
+ */
+.editor__around {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
+.editor__around button {
+  width: auto;
+  padding: 0 var(--space-md);
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: var(--icon-idle);
+  border-radius: var(--radius-sm);
+}
+
+.editor__around button:hover:not(:disabled),
+.editor__around button:focus-visible {
+  opacity: 1;
 }
 
 .preview__frame {

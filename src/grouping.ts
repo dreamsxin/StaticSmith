@@ -79,6 +79,36 @@ const RANK: Record<string, number> = { error: 0, warn: 1, hint: 2 }
  * 徽标只有一个，所以要挑最重的那条；但提示里给全部原文——补描述时想看的是「还差什么」，
  * 而不是「最严重的是什么」。
  */
+/**
+ * 这一篇在**整本书**里的前后两篇。
+ *
+ * 写书是顺着往下写的：写完这一章接着写下一章，而不是每次回目录里找。
+ * 顺序就是侧栏那份目录的顺序（栏目按树、组内按 `readingOrder`），也就是
+ * **读者在网站上看到的顺序**——同一份规则，不另立一套「编辑顺序」。
+ *
+ * 刻意**不接** `Criteria`：搜索与筛选回答的是「我现在想看哪些」，而「下一篇」
+ * 问的是「这本书接下来是什么」。跟着筛选走的话，搜过一次之后「下一篇」会突然跳过好几章。
+ *
+ * 两头给 `null` 而不是转回开头：没有下一章时界面该把按钮置灰，
+ * 而不是把人悄悄送回第一章。
+ */
+export function neighbours<T extends GroupablePage>(
+  pages: readonly T[],
+  sections: readonly GroupableSection[],
+  source: string,
+): { prev: T | null; next: T | null } {
+  const everything: Criteria = {
+    keyword: '',
+    filter: 'all',
+    dirty: new Set<string>(),
+    seo: new Set<string>(),
+  }
+  const order = groupBySection(pages, sections, everything).flatMap((group) => group.pages)
+  const at = order.findIndex((item) => item.source === source)
+  if (at < 0) return { prev: null, next: null }
+  return { prev: order[at - 1] ?? null, next: order[at + 1] ?? null }
+}
+
 export function worstSeoBySource(issues: readonly SeoLike[]): Map<string, WorstSeo> {
   const worst = new Map<string, WorstSeo>()
   for (const issue of issues) {

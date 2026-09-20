@@ -17,6 +17,7 @@ import LinkDialog from './LinkDialog.vue'
 import type { SlugPreview } from '../api'
 import { linkSnippet, type LinkTarget } from '../crossref'
 import { countWords, moveHeading, readingMinutes, WORDS_PER_MINUTE } from '../manuscript'
+import { neighbours } from '../grouping'
 import { footerShortcuts } from '../shortcuts'
 import { actions, brokenReason, isDirty, store } from '../store'
 
@@ -62,6 +63,16 @@ function syncScroll() {
  */
 const words = computed(() => countWords(store.currentRaw))
 const minutes = computed(() => readingMinutes(words.value))
+
+/**
+ * 整本书里的前后两篇（顺序与侧栏目录、与网站一致，规则在 `grouping.ts`）。
+ *
+ * 打开它走的是 `requestOpenContent`——与侧栏点一行完全同一条路，所以未保存的改动
+ * 照样会先问一句。跨篇跳转不该有「第二种打开方式」。
+ */
+const around = computed(() =>
+  neighbours(store.project?.pages ?? [], store.sections, store.currentSource ?? ''),
+)
 
 
 
@@ -975,6 +986,29 @@ onBeforeUnmount(() => {
 
 
     <footer class="editor__foot">
+      <!--
+        顺着目录往下写：写完这一章接着写下一章，不必回侧栏找。
+        顺序是整本书的（也就是读者在网站上看到的），不跟侧栏的搜索与筛选走。
+        到头置灰不隐藏——隐藏会让人以为功能不存在（规范 6.4）。
+      -->
+      <span class="editor__around">
+        <button
+          type="button"
+          :disabled="!around.prev"
+          :title="around.prev ? `上一篇：${around.prev.title}` : '这已经是第一篇'"
+          @click="around.prev && actions.requestOpenContent(around.prev)"
+        >
+          ← 上一篇
+        </button>
+        <button
+          type="button"
+          :disabled="!around.next"
+          :title="around.next ? `下一篇：${around.next.title}` : '这已经是最后一篇'"
+          @click="around.next && actions.requestOpenContent(around.next)"
+        >
+          下一篇 →
+        </button>
+      </span>
       <span :title="`按每分钟 ${WORDS_PER_MINUTE} 字估算；front matter 与代码块不计入`">
         {{ words }} 字 · 约 {{ minutes }} 分钟
       </span>

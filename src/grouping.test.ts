@@ -8,6 +8,7 @@ import {
   groupBySection,
   matchesFilter,
   moved,
+  neighbours,
   movedSection,
   readingOrder,
   reorderTo,
@@ -452,6 +453,41 @@ describe('reorderTo 与 dropSide', () => {
     // 高 40，比两条带加起来还窄
     expect(edgeScrollStep(105, 100, 40)).toBeLessThan(0)
     expect(edgeScrollStep(135, 100, 40)).toBeGreaterThan(0)
+  })
+})
+
+describe('neighbours', () => {
+  // 栏目也排过序：不排的话 notes 会按字母序跑到 posts 前面，
+  // 那本身是对的（目录就该这么显示），但这里要测的是「顺着目录走」
+  const sections = [
+    { path: 'posts', weight: 1 },
+    { path: 'notes', weight: 2 },
+  ]
+  const book = [
+    { ...page('posts/a.md'), weight: 1 },
+    { ...page('posts/b.md'), weight: 2 },
+    { ...page('notes/c.md'), section: 'notes' },
+  ]
+
+  it('顺着目录往下走，跨栏目也接得上：一本书的顺序是连续的', () => {
+    expect(neighbours(book, sections, 'posts/b.md')).toEqual({
+      prev: book[0],
+      next: book[2],
+    })
+  })
+
+  it('两头到顶就是 null：界面据此置灰，而不是转一圈回到开头', () => {
+    expect(neighbours(book, sections, 'posts/a.md').prev).toBeNull()
+    expect(neighbours(book, sections, 'notes/c.md').next).toBeNull()
+  })
+
+  it('找不到这一篇时两头都是 null：刚删掉的那篇不该把人送到别处', () => {
+    expect(neighbours(book, sections, 'posts/gone.md')).toEqual({ prev: null, next: null })
+  })
+
+  it('顺序不受侧栏搜索影响：「下一篇」是整本书的下一篇，不是搜索结果里的下一条', () => {
+    // 与 PageList 的筛选无关——这里根本不接 criteria
+    expect(neighbours(book, sections, 'posts/a.md').next).toEqual(book[1])
   })
 })
 

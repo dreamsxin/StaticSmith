@@ -29,6 +29,18 @@ const state = reactive({
         is_index: false,
         draft: false,
         tags: [] as string[],
+        weight: 1,
+      },
+      // 第二篇：页脚的「下一篇」要有地方可去
+      {
+        source: 'posts/b.md',
+        title: '乙',
+        url: '/posts/b/',
+        section: 'posts',
+        is_index: false,
+        draft: false,
+        tags: [] as string[],
+        weight: 2,
       },
     ],
     recent_builds: [] as unknown[],
@@ -49,6 +61,10 @@ const state = reactive({
   },
   plan: null,
   busy: false,
+  // 页脚的「上一篇 / 下一篇」按整本书的顺序算，那要栏目表
+  sections: [
+    { path: 'posts', title: 'posts', description: '', weight: 0, index_source: null, pages: 2 },
+  ],
   pendingPage: null,
   assets: [] as unknown[],
   previewServer: null,
@@ -67,6 +83,7 @@ const actions = {
   loadAssets: vi.fn(async () => {}),
   saveAsset: vi.fn(async () => ''),
   notify: vi.fn(),
+  requestOpenContent: vi.fn(async () => {}),
   build: vi.fn(async () => {}),
   resolvePending: vi.fn(async () => {}),
 }
@@ -147,5 +164,24 @@ describe('ContentEditor 写正文的通道', () => {
     editor.bold()
 
     expect(actions.setRaw).toHaveBeenCalledWith('一**二三**四五')
+  })
+
+  /**
+   * 顺着目录往下写：这是「像编辑一本书」里最常用的一步。
+   * 打开走的是 `requestOpenContent`——与侧栏点一行同一条路，未保存的改动照样会先问一句。
+   */
+  it('页脚能跳到下一篇；第一篇的「上一篇」置灰而不是藏起来', async () => {
+    const { wrapper } = open(0, 0)
+    const around = wrapper.findAll('.editor__around button')
+    expect(around).toHaveLength(2)
+
+    // 当前打开的是第一篇：往前没有了，按钮置灰但仍看得见（隐藏会让人以为没这功能）
+    expect(around[0].attributes('disabled')).toBeDefined()
+    expect(around[1].attributes('disabled')).toBeUndefined()
+
+    await around[1].trigger('click')
+    expect(actions.requestOpenContent).toHaveBeenCalledWith(
+      expect.objectContaining({ source: 'posts/b.md' }),
+    )
   })
 })

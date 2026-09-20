@@ -56,6 +56,8 @@ const state = reactive({
   },
   plan: null,
   busy: false,
+  // 编辑器页脚的「上一篇 / 下一篇」要按整本书的顺序算，那要栏目表
+  sections: [{ path: 'posts', title: 'posts', description: '', weight: 0, index_source: null, pages: 1 }],
   pendingPage: null,
   assets: [] as unknown[],
   previewServer: null,
