@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { LINK_LIMIT, linkSnippet, matchTargets } from './crossref'
+import { LINK_LIMIT, linkSnippet, matchTargets, menuTargets } from './crossref'
 import type { PageSummary } from './api'
 
 function page(partial: Partial<PageSummary> & { source: string }): PageSummary {
@@ -92,3 +92,34 @@ describe('linkSnippet', () => {
     )
   })
 })
+
+describe('menuTargets', () => {
+  const sections = [
+    { path: 'posts', title: '文章', url: '/posts/', index_source: 'posts/_index.md' },
+    { path: 'notes', title: '', url: '/notes/', index_source: 'notes/_index.md' },
+    // 没有索引页的栏目：它的地址本身就是 404
+    { path: 'drafts', title: '草稿堆', url: '/drafts/', index_source: null },
+  ]
+
+  it('栏目排在页面前面：菜单项要指的多半是栏目', () => {
+    const targets = menuTargets([page({ source: 'posts/a.md' })], sections)
+    expect(targets.map((item) => item.url)).toEqual(['/posts/', '/notes/', '/posts/a/'])
+  })
+
+  it('没有索引页的栏目不给选：那个地址是 404，挑了就是埋一条死链', () => {
+    const targets = menuTargets([], sections)
+    expect(targets.some((item) => item.url === '/drafts/')).toBe(false)
+  })
+
+  it('栏目没写标题就用目录名，不给空白项', () => {
+    const targets = menuTargets([], sections)
+    expect(targets.find((item) => item.url === '/notes/')?.title).toBe('notes')
+  })
+
+  it('挑出来的东西能直接喂给现成的搜索：栏目也按标题和地址匹配得到', () => {
+    const targets = menuTargets([page({ source: 'posts/a.md' })], sections)
+    expect(matchTargets(targets, '文章').map((item) => item.url)).toEqual(['/posts/'])
+    expect(matchTargets(targets, '/notes').map((item) => item.url)).toEqual(['/notes/'])
+  })
+})
+

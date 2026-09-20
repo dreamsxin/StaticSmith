@@ -96,3 +96,42 @@ export function linkSnippet(text: string, url: string, format: SourceFormat): st
   if (format === 'html') return `<a href="${escapeHtml(url)}">${escapeHtml(text)}</a>`
   return `[${escapeLinkText(text)}](${wrapUrl(url)})`
 }
+
+/** 栏目里做菜单目标要用到的那几个字段。 */
+export interface SectionTarget {
+  readonly path: string
+  readonly title: string
+  readonly url: string
+  /** 栏目的索引页。为 `null` 表示这个栏目**没有**首页 */
+  readonly index_source: string | null
+}
+
+/**
+ * 导航菜单项可以指向的站内目标：**栏目在前，页面在后**。
+ *
+ * 栏目在前是因为菜单项要指的多半是栏目（「文章」「关于」这种入口），
+ * 而站点里页面远多于栏目——按页面排在前面，想挑栏目得先翻半天。
+ *
+ * **没有索引页的栏目不给选**：那个地址本身就是 404（`build.rs` 往模板注入
+ * `sections` 时同样滤掉了它们），挑了就是在每一页的导航上埋一条死链。
+ * 手打地址正是死链的来源，而死链只能等「体检」才被发现——所以这里只给能挑的。
+ *
+ * 返回的是 `LinkTarget`，可以直接喂给 `matchTargets` 与 `LinkDialog`：
+ * 挑地址这件事不该有第二套搜索规则。栏目没有草稿的概念，一律 `draft: false`。
+ */
+export function menuTargets(
+  pages: readonly LinkTarget[],
+  sections: readonly SectionTarget[],
+): LinkTarget[] {
+  const fromSections = sections
+    .filter((section) => section.index_source)
+    .map((section) => ({
+      source: section.index_source as string,
+      // 栏目没写标题就用目录名：空白项挑不出所以然
+      title: section.title.trim() || section.path,
+      url: section.url,
+      draft: false,
+    }))
+  return [...fromSections, ...pages]
+}
+

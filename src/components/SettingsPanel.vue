@@ -12,6 +12,9 @@ import { open } from '@tauri-apps/plugin-dialog'
 import type { ImportCandidate, SiteConfig } from '../api'
 import { ftpOverwriteOptions } from '../labels'
 import { actions, store } from '../store'
+import LinkDialog from './LinkDialog.vue'
+import { menuTargets, type LinkTarget } from '../crossref'
+import { missingSections, unknownMenuUrls } from '../menu'
 
 /** 表单持有一份可变副本，保存时才写回磁盘。 */
 const form = reactive<SiteConfig>(clone(store.project?.config))
@@ -317,6 +320,51 @@ function moveMenuItem(index: number, delta: number) {
   form.menu.splice(target, 0, row)
 }
 
+/**
+ * 正在给哪一行挑地址（`null` 表示没在挑）。
+ *
+ * 菜单项的地址原先只能手打，而**手打的地址就是死链的来源**——它渲染在每一页的头部，
+ * 打错一个字等于全站死链，却要等「体检」才发现。编辑器里插站内链接早就是「挑」而不是
+ * 「打」，这里用的是同一个浮层与同一套搜索，不另立一份规则。
+ */
+const pickingFor = ref<number | null>(null)
+
+/** 可挑的目标：栏目在前，页面在后（理由在 `crossref.ts` 的 `menuTargets`）。 */
+const menuChoices = computed(() => menuTargets(store.project?.pages ?? [], store.sections))
+
+function pickMenuUrl(target: LinkTarget) {
+  const at = pickingFor.value
+  pickingFor.value = null
+  const item = at === null ? undefined : form.menu[at]
+  if (!item) return
+  item.url = target.url
+  // 名称空着就顺手填上：挑「文章」栏目十次有九次菜单上就想写「文章」。
+  // 已经写了的不动——那是用户特意起的名字
+  if (!item.name.trim()) item.name = target.title
+}
+
+/** 还没进导航的栏目。新建栏目之后最容易忘的就是回来加一行。 */
+const menuGaps = computed(() => missingSections(form.menu, store.sections))
+
+/**
+ * 指向站内、但站内找不到的地址。
+ *
+ * 只提示不阻止保存：站外链接、锚点、以及「先占个位、页面等会儿建」都是合法用法，
+ * 硬拦下去只会让人绕过界面改配置文件。
+ */
+const menuDeadUrls = computed(() => unknownMenuUrls(form.menu, menuChoices.value))
+
+function addMissingSections() {
+  for (const section of menuGaps.value) {
+    form.menu.push({
+      name: section.title.trim() || section.path,
+      url: section.url,
+      weight: form.menu.length + 1,
+      blank: false,
+    })
+  }
+}
+
 // 首次挂载也要排一次：watch 只在配置对象变化时触发
 normalizeMenu()
 
@@ -539,6 +587,10 @@ function onDeployKindChange() {
         <div class="settings__menu-row">
           <input v-model="item.name" type="text" placeholder="名称" aria-label="菜单名称" />
           <input v-model="item.url" type="text" placeholder="/posts/" aria-label="菜单地址" />
+          <!-- 手打地址就是死链的来源，而菜单渲染在每一页的头部 -->
+          <button type="button" title="从站内挑一个栏目或页面" @click="pickingFor = index">
+            挑…
+          </button>
         </div>
         <label class="settings__checkbox">
           <input v-model="item.blank" type="checkbox" />
@@ -562,9 +614,33 @@ function onDeployKindChange() {
       <p v-if="!form.menu.length" class="build__muted">
         没有配置菜单，模板会用自己写死的那几个链接。
       </p>
+
+      <!-- 菜单渲染在每一页的头部，一个错地址就是全站死链。只提示不阻止保存：
+           「先占个位、页面等会儿建」也是合法用法 -->
+      <p v-if="menuDeadUrls.length" class="page-list__batch-note">
+        这些地址在站内找不到对应的页面或栏目：{{ menuDeadUrls.join('、') }}。
+        站外链接与锚点不在此列。
+      </p>
+
       <div class="build__actions">
         <button type="button" @click="addMenuItem">添加菜单项</button>
+        <button
+          v-if="menuGaps.length"
+          type="button"
+          :title="menuGaps.map((section) => section.url).join('、')"
+          @click="addMissingSections"
+        >
+          补上没进导航的 {{ menuGaps.length }} 个栏目
+        </button>
       </div>
+
+      <!-- 与编辑器里插站内链接同一个浮层：挑地址不该有两套搜索规则 -->
+      <LinkDialog
+        :open="pickingFor !== null"
+        :pages="menuChoices"
+        @close="pickingFor = null"
+        @pick="pickMenuUrl"
+      />
     </div>
 
     <div v-if="section === 'deploy'" class="settings__panel">
