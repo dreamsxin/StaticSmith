@@ -14,6 +14,7 @@ import CreatePanel from './CreatePanel.vue'
 import BrokenList from './BrokenList.vue'
 import PageRow from './PageRow.vue'
 import BatchBar from './BatchBar.vue'
+import RefsNote from './RefsNote.vue'
 
 
 
@@ -676,20 +677,11 @@ async function copyText(text: string) {
             <span>{{ change.effect }}</span>
           </li>
         </ul>
-        <p v-if="pendingMove.preview.refs.length" class="page-list__batch-note">
-          另会把 {{ pendingMove.preview.refs.length }} 篇里的
-          {{ pendingMove.preview.refs.reduce((sum, item) => sum + item.hits, 0) }}
-          处站内链接改到新地址：{{
-            pendingMove.preview.refs.map((item) => item.source).join('、')
-          }}
-        </p>
-        <p v-if="pendingMove.preview.refs_manual.length" class="page-list__batch-note">
-          另有 {{ pendingMove.preview.refs_manual.length }} 篇里的
-          {{ pendingMove.preview.refs_manual.reduce((sum, item) => sum + item.hits, 0) }}
-          处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改：{{
-            pendingMove.preview.refs_manual.map((item) => item.source).join('、')
-          }}
-        </p>
+        <!-- 会写到用户没点名的文件上，这两句的措辞在 RefsNote 里定义 -->
+        <RefsNote
+          :refs="pendingMove.preview.refs"
+          :manual="pendingMove.preview.refs_manual"
+        />
         <div class="page-list__batch-row">
           <button
             type="button"

@@ -15,6 +15,7 @@
 import { computed, reactive, ref } from 'vue'
 
 import type { SectionRenamePreview } from '../api'
+import RefsNote from './RefsNote.vue'
 import { openContextMenu, type MenuEntry } from '../commands'
 import { focusSelector } from '../focus'
 import { actions, store } from '../store'
@@ -73,16 +74,6 @@ const keepAliases = ref(true)
 
 /** 待确认的改名：用户填的新名字 + 干跑结果。 */
 const pendingRename = ref<{ to: string; preview: SectionRenamePreview } | null>(null)
-
-/** 会被改写的引用总处数，确认那一句要用。 */
-const pendingHits = computed(() =>
-  (pendingRename.value?.preview.refs ?? []).reduce((sum, item) => sum + item.hits, 0),
-)
-
-/** 改写不到、要人工处理的相对链接总处数。 */
-const pendingManual = computed(() =>
-  (pendingRename.value?.preview.refs_manual ?? []).reduce((sum, item) => sum + item.hits, 0),
-)
 
 function startRename() {
   renaming.value = true
@@ -317,17 +308,11 @@ function menu(): MenuEntry[] {
           <span>给 {{ pendingRename.preview.aliases }} 篇补旧地址（构建后是重定向页）</span>
         </li>
       </ul>
-      <p v-if="pendingHits" class="page-list__batch-note">
-        另会把 {{ pendingRename.preview.refs.length }} 篇里的 {{ pendingHits }}
-        处站内链接改到新地址：{{ pendingRename.preview.refs.map((r) => r.source).join('、') }}
-      </p>
-      <!-- 相对链接改写不到：它按引用方所在目录解析，而改名改的是被引用方 -->
-      <p v-if="pendingManual" class="page-list__batch-note">
-        另有 {{ pendingRename.preview.refs_manual.length }} 篇里的 {{ pendingManual }}
-        处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改：{{
-          pendingRename.preview.refs_manual.map((r) => r.source).join('、')
-        }}
-      </p>
+      <!-- 改名会写到用户没有点名的文件上，这两句的措辞在 RefsNote 里定义 -->
+      <RefsNote
+        :refs="pendingRename.preview.refs"
+        :manual="pendingRename.preview.refs_manual"
+      />
       <div class="page-list__batch-row">
         <button type="button" class="btn--primary" :disabled="store.busy" @click="confirmRename">
           确认改名

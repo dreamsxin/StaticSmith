@@ -81,7 +81,9 @@ npm run build                                       # 打包（tauri-build 需�
    快照回退都走这条）。理由：这个工具没有跨文件撤销栈，Git 是唯一的安全网。
 2. **一处措辞，一处定义。** 同一句话不许在界面、CLI、MCP 各写一遍。
    已经收敛的：跳过项摘要、阅读顺序（`content::reading_order` ↔ `grouping.ts` 的
-   `readingOrder`）、字节数（`text.ts` 的 `formatBytes`）。
+   `readingOrder`）、字节数（`text.ts` 的 `formatBytes`）、快捷键表（`src/shortcuts.ts`）、
+   「会顺手改写别人文章里的链接」那两句（`components/RefsNote.vue`，测试拿源码对账，
+   拦住第四处又抄一遍）。
 3. **判断与执行共用一份逻辑。** 「能不能挪」与「真的挪」调同一个函数，否则迟早
    出现「菜单能点、点了没反应」。
 4. **错误一律带出错路径**（`Error::io(path, source)` 就是为此存在的）。

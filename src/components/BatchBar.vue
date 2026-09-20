@@ -14,6 +14,7 @@
 import { ref } from 'vue'
 
 import type { BatchPreview } from '../api'
+import RefsNote from './RefsNote.vue'
 import { actions, store } from '../store'
 import { parseList } from '../text'
 
@@ -175,21 +176,8 @@ async function confirmPending() {
           </li>
         </ul>
         <!-- 搬动会写到用户没勾的文件上（改它们里面的链接），必须先说清楚：
-             背着人改东西比不改更糟 -->
-        <p v-if="pending.preview.refs.length" class="page-list__batch-note">
-          另会把 {{ pending.preview.refs.length }} 篇里的
-          {{ pending.preview.refs.reduce((sum, item) => sum + item.hits, 0) }}
-          处站内链接改到新地址：{{ pending.preview.refs.map((item) => item.source).join('、') }}
-        </p>
-        <!-- 相对链接（`../a/`）按引用方所在目录解析，改地址改的是被引用方，改写改不到。
-             以前这些只会在「死链体检」里出现——那是改完之后 -->
-        <p v-if="pending.preview.refs_manual.length" class="page-list__batch-note">
-          另有 {{ pending.preview.refs_manual.length }} 篇里的
-          {{ pending.preview.refs_manual.reduce((sum, item) => sum + item.hits, 0) }}
-          处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改：{{
-            pending.preview.refs_manual.map((item) => item.source).join('、')
-          }}
-        </p>
+             背着人改东西比不改更糟。这两句的措辞在 RefsNote 里定义 -->
+        <RefsNote :refs="pending.preview.refs" :manual="pending.preview.refs_manual" />
         <div class="page-list__batch-row">
           <button
             type="button"

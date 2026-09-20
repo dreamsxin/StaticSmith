@@ -1741,7 +1741,10 @@ kbd {
 }
 
 /* 「还会改到别的文件」这句要比列表本身醒目一点：它说的是用户没勾的那些篇。 */
-.page-list__batch-note {
+/* 「另会改写 N 篇里 M 处链接」这类提示：警示色但不是错误，它说的是「将会发生」。
+   `.refs-note` 由 RefsNote.vue 渲染，`.page-list__batch-note` 是同一档的其它提示 */
+.page-list__batch-note,
+.refs-note {
   margin: 0;
   color: var(--warn);
   font-size: var(--text-sm);
