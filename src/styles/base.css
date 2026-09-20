@@ -1,0 +1,172 @@
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  color: var(--fg);
+  background: var(--bg);
+  font: var(--text-base)/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+
+/* 按钮与输入框的边界是「这里能点 / 能输入」的唯一线索，所以用 --border-strong
+   （1.4.11 的 3:1）。底色 --bg-subtle 与 --bg 只差 1.07:1，指望它撑起边界是自欺 */
+button {
+  padding: var(--space-md) var(--space-xl);
+  color: inherit;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/*
+ * 焦点的兜底。
+ *
+ * 规范（6.4 状态矩阵、6.6 无障碍最低线）要求每类控件都写焦点态，但实际只有 14 处写了
+ * `:focus-visible`，而控件远多于此——键盘用户在剩下那些地方**看不见自己在哪**，
+ * 这是无障碍的底线问题。
+ * 逐个补会漏（这次盘点就漏过），所以给一条全局兜底：需要特殊处理的自己覆盖它
+ * （日历格用 inset 阴影，因为格子间只有 1px 缝，outline 会被相邻格盖掉一半）。
+ *
+ * `outline-offset` 取负值：焦点圈画在元素**内侧**，不撑行高、不把相邻行挤动。
+ */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+button.active {
+  color: var(--on-solid);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/*
+ * 无面按钮的悬停与聚焦：补一个「面」。
+ *
+ * 这些按钮为了不抢注意力写了 `border: none; background: none`，于是基座那条
+ * `button:hover { border-color: var(--accent) }` 对它们**视觉上是空转**——
+ * 鼠标划过去毫无反应，用户不知道这里能点。命令面板整列尤其明显：
+ * 它只有键盘高亮（`.active`），鼠标用户完全没有反馈。
+ *
+ * 这正是 docs/ui-design.md 6.1 定的「动作：悬停出现面」，欠了很久。
+ * 用一条规则统一给，而不是各处补一遍：各补一遍就会长出好几种「面」。
+ *
+ * 排除 `.active`：选中态自己有底色（导航用的是 `--bg`），悬停不该把它盖掉。
+ * 不含 `.page-list__icon` / `__danger`：那两个靠 `--icon-idle` 由暗转亮来表达
+ * 悬停，行本身也会高亮，再加一层底色是两个「面」叠在一起。
+ */
+:is(
+    .palette__item,
+    .settings__nav-item,
+    .build__output,
+    .build__output-open,
+    .toast__close,
+    .page-list__search-clear,
+    .calendar__link,
+    .seo__ref,
+    .welcome__recent-forget,
+    .editor__around button
+  ):is(:hover, :focus-visible):not(:disabled, .active) {
+  background: var(--bg-subtle);
+}
+
+
+input,
+select,
+textarea {
+  padding: var(--space-md) var(--space-lg);
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+code {
+  padding: 0 var(--space-sm);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+/*
+ * 标题的字号与字重都显式写，不吃浏览器默认值。
+ *
+ * `<h2>` 的默认 `font-weight: 700` 超出「400 / 500 / 600」三档字重，
+ * 而默认 `1.5em` 也落在字号刻度之外（见 docs/ui-design.md 6.2）。
+ * 这个界面里 h2 / h3 都是面板标题，同一档就够。
+ */
+h1,
+h2,
+h3 {
+  margin: var(--space-2xl) 0 var(--space-lg);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.warn {
+  color: var(--warn);
+}
+
+/* 实心的两颗按钮搬到一起：它们是同一种东西（一屏里最该点的那一颗），
+   只有语气不同——主动作用主色，不可撤销的动作用危险色。
+   分开写在文件两头的下场是危险按钮漏掉了 hover：它会继承 `button:hover` 的
+   `border-color: var(--accent)`，于是一颗红按钮悬停时描一圈橙边。 */
+.btn--primary {
+  color: var(--on-solid);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 删除不可撤销，按钮必须一眼看出是危险动作 */
+.btn--danger {
+  color: var(--on-solid);
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* 轻量的危险动作（就地确认里的「删除」、设置页里的「移除这一行」、消息中心的「清空」）。
+   红色写在这里而不是 `.page-list button.page-list__danger` 里：那条带着
+   `.page-list` 祖先，于是同一个类在设置页与消息中心里是**灰**的——
+   同一件事在两个地方长得不一样，用户会以为其中一处不危险。 */
+.page-list__danger {
+  color: var(--danger);
+}
+
+/* 实心按钮悬停只提亮（`filter` 连边框一起提，两者不会走散）。
+   关键是**要把边框色写回来**：不写的话 `button:hover` 那条会把边框改成主色，
+   于是一颗红按钮悬停时描一圈橙边。 */
+.btn--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--accent);
+}
+
+.btn--danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  border-color: var(--danger);
+}

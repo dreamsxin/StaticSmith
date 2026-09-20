@@ -16,7 +16,29 @@ import { describe, expect, it } from 'vitest'
  * 读原文而不是 `import './styles.css?raw'`：Vitest 会把所有 `.css` 请求换成空串，
  * 那样断言全对着空字符串通过，护栏是假的（`node:fs` 的类型声明见 `vite-env.d.ts`）。
  */
-const css = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8')
+/**
+ * 样式表的内容。
+ *
+ * `styles.css` 现在只是一串 `@import`（规则在 `styles/` 下按功能分了十二份），
+ * 所以这里顺着那串 `@import` 把文件按**引入顺序**读起来拼在一起——拼出来的就是
+ * 浏览器最终看到的那份，顺序也与级联一致。
+ *
+ * 顺着 `@import` 走而不是 `readdir`：漏引一个文件的后果是它根本不生效，
+ * 那种错该由「界面上少了样式」暴露；而按目录读会让漏引的文件照样通过护栏，
+ * 把「没生效」伪装成「检查过了」。
+ */
+const dir = new URL('./styles/', import.meta.url)
+const entry = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8')
+const parts = [...entry.matchAll(/@import\s+'\.\/styles\/([\w-]+\.css)'/g)].map((hit) => hit[1])
+const css = parts
+  .map((name) => readFileSync(fileURLToPath(new URL(name, dir)), 'utf8'))
+  .join('\n')
+
+/** 拆分之后最容易犯的错是「引了一半」，所以先确认这串清单是全的。 */
+if (parts.length < 12) {
+  throw new Error(`styles.css 只引了 ${parts.length} 个文件，拆分清单不全`)
+}
+
 
 /**
  * 取出某个属性的所有取值（连行号），用来判断「它走没走令牌」。

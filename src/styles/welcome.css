@@ -1,0 +1,118 @@
+/* ---------------------------------------------------------------- 起始页 */
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-3xl) var(--space-3xl);
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+.welcome__sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xl);
+  width: min(62rem, 100%);
+}
+
+.welcome__brand h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  letter-spacing: 0.01em;
+}
+
+.welcome__brand p {
+  margin: var(--space-sm) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-lg);
+}
+
+.welcome__columns {
+  display: grid;
+  grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
+  gap: var(--space-2xl);
+  align-items: start;
+}
+
+/* 窄窗口下并排会把路径挤成一列字，直接改成上下 */
+@media (max-width: 52rem) {
+  .welcome__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.welcome__col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+  min-width: 0;
+}
+
+/* 版式选择：每项都要带一句说明，所以用单选列表而不是下拉。
+   选中态给整块换底色 + 描边，而不是只把那个小圆点点上——一眼扫过去要看得出选了哪套。
+   类名不带 welcome 前缀：起始页的卡片和菜单弹出的对话框共用同一个表单组件。 */
+.presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.presets legend {
+  padding: 0;
+  margin-bottom: var(--space-md);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+}
+
+.preset {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0 var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.preset:hover {
+  background: var(--bg-subtle);
+}
+
+.preset:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--bg-subtle);
+}
+
+.preset:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.preset input {
+  margin: 0;
+  align-self: center;
+}
+
+.preset__title {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.preset__desc {
+  grid-column: 2;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+/* 新建站点的表单：起始页卡片里内嵌，对话框里也是它。 */
+.new-site {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}

@@ -1,0 +1,81 @@
+.welcome__recent {
+
+  width: 100%;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.welcome__recent li {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  border-top: 1px solid var(--border);
+}
+
+.welcome__recent li:first-child {
+  border-top: none;
+}
+
+.welcome__recent-open {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-xs);
+  align-items: flex-start;
+  min-width: 0;
+  padding: var(--space-md) var(--space-md);
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+}
+
+.welcome__recent-open:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.welcome__recent-title {
+  overflow: hidden;
+  max-width: 100%;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__recent-open code {
+  overflow: hidden;
+  max-width: 100%;
+  padding: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome__recent time {
+  flex: none;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 移除是次要动作，压暗而不隐形（同 `--icon-idle` 那条规矩）：
+   隐形的按钮等于不存在的功能，用户只会以为最近列表清不掉 */
+.welcome__recent-forget {
+  flex: none;
+  padding: 0 var(--space-md);
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  opacity: var(--icon-idle);
+}
+
+.welcome__recent li:hover .welcome__recent-forget,
+.welcome__recent li:focus-within .welcome__recent-forget {
+  opacity: 1;
+}
+
+
+/* ---------------------------------------------------------------- 外框 */

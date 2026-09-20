@@ -1,0 +1,117 @@
+.badge {
+  padding: 0 var(--space-md);
+  font-size: var(--text-xs);
+  border-radius: var(--radius-pill);
+}
+
+.badge--draft {
+  border: 1px solid var(--border);
+}
+
+/* 「栏目页」是只读标注而不是状态：用虚线描边 + 弱化色，与「草稿」「定时」这类
+   会变的状态区分开（同 6.1 的元素三分类）。
+   `--kind`（产物类型：标签页 / 分页页……）同属只读标注，共用这一档样式；
+   而「草稿」与「定时」共用 `--draft` 是刻意的：两者都表示「还不在线上」。 */
+.badge--section,
+.badge--kind {
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+}
+
+
+.badge--dirty {
+  color: var(--accent);
+}
+
+/* SEO 徽标按最严重的那条问题着色：必须修用危险色，其余用提示色 */
+.badge--seo-error {
+  color: var(--danger);
+  border: 1px solid var(--danger);
+}
+
+.badge--seo-warn {
+  color: var(--warn);
+  border: 1px solid var(--border);
+}
+
+.badge--seo-hint {
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+
+
+.badge--unsaved {
+  color: var(--warn);
+}
+
+.badge--ok {
+  border: 1px solid currentcolor;
+  color: var(--success);
+}
+
+/* 消息中心的三档：与 toast 的三种样式同名，颜色也对齐——同一条消息在气泡里
+   和在历史里应该看起来是同一件事 */
+.badge--success {
+  border: 1px solid currentcolor;
+  color: var(--success);
+}
+
+.badge--info {
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+
+.badge--error {
+  border: 1px solid currentcolor;
+  color: var(--danger);
+}
+
+/* 消息历史：时间与程度定宽，正文占满剩下的宽度并允许换行——
+   报错常常带路径与行列号，截断会把最有用的那截藏掉 */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  max-height: 50vh;
+  overflow-y: auto;
+  margin: var(--space-lg) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notice {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: var(--space-lg);
+  align-items: baseline;
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.notice__time {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.notice__text {
+  word-break: break-word;
+}
+
+/* 明细：跟正文对齐（第三列），默认收起。批量动作跳过的每一篇都在这里，
+   而它常常有十几行——摊开会把整份历史挤成一份日志 */
+.notice__details {
+  grid-column: 3;
+  color: var(--fg-muted);
+}
+
+.notice__details summary {
+  cursor: pointer;
+}
+
+.notice__details ul {
+  margin: var(--space-sm) 0 0;
+  padding-left: var(--space-2xl);
+  max-height: 12rem;
+  overflow-y: auto;
+  word-break: break-word;
+}

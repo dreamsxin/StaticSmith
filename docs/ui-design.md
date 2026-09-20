@@ -273,7 +273,7 @@ WPS / Word 现在的主形态是 Ribbon：图标 + 分区 + 两行高度。我�
 - 分组用 `role="group" + aria-label`，组名 `aria-hidden`（它是给眼睛的重复信息）
 - 当前视图用 `aria-current="page"`，不靠颜色单独表达
 - 所有可聚焦控件都要有 `:focus-visible` 轮廓；轮廓画在内侧，避免撑开布局。
-  **这条靠一条全局兜底保证**（`styles.css` 顶部的 `:focus-visible`），不靠逐个控件补：
+  **这条靠一条全局兜底保证**（`styles/base.css` 里的 `:focus-visible`），不靠逐个控件补：
   盘点时发现只有 14 处写了焦点态，而可聚焦控件远多于此——「每类都要写」这种要求
   只要依赖人记得，就一定会漏。需要特殊画法的自己覆盖（日历格用 inset 阴影，
   格子间只有 1px 缝，outline 会被相邻格盖掉一半）。

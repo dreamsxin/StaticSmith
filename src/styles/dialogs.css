@@ -1,0 +1,253 @@
+/* 对话框：复用命令面板的遮罩与外框（.palette / .palette__box），
+   只把「列表」换成「表单」需要的内边距。浮层在这个界面里只该有一种行为。 */
+.dialog {
+  max-height: none;
+  padding: var(--space-2xl) var(--space-2xl) var(--space-2xl);
+  gap: var(--space-lg);
+  overflow: visible;
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.dialog__desc {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+/* 取消放在主按钮下方而不是并排：主按钮是「继续」，取消是退路，
+   并排等宽会让两者看起来同等重要。 */
+.dialog__cancel {
+  align-self: flex-start;
+}
+
+/* 快照列表：一行一条「做什么之前 / 什么时候 / 哪一份」。
+   限高滚动而不是分页：快照按时间倒序，要找的那条几乎总在最前面几行。 */
+.snapshots {
+  width: 100%;
+  max-height: 18rem;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.snapshot {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.snapshot:hover,
+.snapshot:focus-visible,
+.snapshot.active {
+  background: var(--bg-subtle);
+}
+
+
+.snapshot__when {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: right;
+}
+
+.snapshot__id {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+/* 未保存的改动会被这次回退作废，这句要比其它说明更显眼。 */
+.snapshot__warn {
+  color: var(--warn);
+}
+
+/* 历史占用：常驻信息，不是警告——所以用弱化色，超标那句话自己会说重。 */
+.snapshot__usage {
+  color: var(--fg-muted);
+}
+
+/* 干跑清单：每行一个文件加一个「会被怎么样」的标签。
+
+   删掉用危险色、找回用正常色——同一份清单里两种方向不该看起来一样。 */
+.snapshot__changes {
+  max-height: 11rem;
+  margin: var(--space-md) 0 var(--space-lg);
+  font-size: var(--text-sm);
+}
+
+.snapshot__changes li {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-xs) var(--space-lg);
+  word-break: break-all;
+}
+
+.snapshot__kind {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+.snapshot__kind--delete {
+  color: var(--danger);
+}
+
+
+/* 大纲：这一篇的目录。层级用缩进表达而不是字号——六级标题各一个字号会让面板
+   看起来像排版事故，缩进已经足够说明「这一节在那一节下面」。 */
+.outline {
+  width: 100%;
+  max-height: 22rem;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.outline__item {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outline__item:hover,
+.outline__item:focus-visible,
+.outline__item.active {
+  background: var(--bg-subtle);
+}
+
+.outline__item--h1 {
+  font-weight: 600;
+}
+
+.outline__item--h2 {
+  padding-left: var(--space-3xl);
+}
+
+.outline__item--h3 {
+  padding-left: 2.3rem;
+}
+
+.outline__item--h4 {
+  padding-left: 3.2rem;
+}
+
+.outline__item--h5 {
+  padding-left: 4.1rem;
+}
+
+.outline__item--h6 {
+  padding-left: 5rem;
+}
+
+/* 级别标签给缩进兜底：H4 与 H5 只差一档缩进，眼睛分不清。 */
+.outline__level {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.outline__text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 快捷键一览：按作用域分组的表。
+   三列「键位 / 做什么 / 前提」，键位一列定宽等宽字，好竖着扫 */
+.shortcuts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.shortcuts__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.shortcuts__scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: baseline;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.shortcuts__scope-hint {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
+.shortcuts__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shortcuts__row {
+  display: grid;
+  /* 键位定宽：竖着一列才扫得快。剩下的给动作，前提挤在最右边 */
+  grid-template-columns: 9.5rem minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: var(--space-lg);
+  align-items: baseline;
+  font-size: var(--text-sm);
+}
+
+.shortcuts__keys {
+  justify-self: start;
+}
+
+.shortcuts__note {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+/* 站内链接候选：地址压暗跟在标题后面——挑的时候看标题，确认的时候看地址。 */
+.link__url {
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 草稿不进产物，链过去就是死链。标出来但不禁用：先写互链再补那一篇是常见顺序。 */
+.link__draft {
+  color: var(--warn);
+  font-size: var(--text-xs);
+}

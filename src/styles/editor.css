@@ -1,0 +1,433 @@
+.editor__dirty {
+  color: var(--warn);
+}
+
+.editor__pending {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--space-lg);
+  margin: 0;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+/* 读不出来的那一篇：与「未保存改动」同一条位置，但用错误色——
+   它不是待选择的分支，而是一个必须修掉的状态 */
+.editor__broken {
+  padding: var(--space-lg);
+  margin: 0;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--danger);
+  border-left: 3px solid var(--danger);
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+/* 「读不出来」那一组：摆在栏目之前，用左边一条竖线与正常分组区分开 */
+.page-list__group--broken {
+  border-left: 3px solid var(--danger);
+  padding-left: var(--space-md);
+}
+
+
+
+.editor__toolbar {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__toolbar button {
+  min-width: 2rem;
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.editor__toolbar button.active {
+  border-color: var(--accent);
+}
+
+/* 单篇内查找替换那一行。不做浮层：查找条要和正文同时看得见，
+   浮层会盖住「命中的那一行」这件唯一要看的东西 */
+.editor__find {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__find input[type='text'] {
+  min-width: 8rem;
+  flex: 1 1 8rem;
+}
+
+.editor__find button {
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.editor__find-count,
+.editor__find-case {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.editor__find-case {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+
+.editor__props {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: var(--space-md) var(--space-lg);
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.editor__prop {
+  gap: var(--space-xs);
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.editor__prop input[type='text'] {
+  font-size: var(--text-base);
+}
+
+/* 标题、描述、标签值都长，占满整行才不至于处处截断 */
+.editor__prop--wide {
+  grid-column: 1 / -1;
+}
+
+.editor__prop--check {
+  flex-direction: row;
+  gap: var(--space-md);
+  align-items: center;
+  grid-column: 1 / -1;
+}
+
+.editor__assets {
+  display: flex;
+
+
+  gap: var(--space-md);
+  align-items: center;
+  overflow-x: auto;
+  max-height: 6.5rem;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+}
+
+.editor__asset {
+  flex: none;
+  padding: var(--space-xs);
+  line-height: 0;
+}
+
+.editor__asset img {
+  width: 4rem;
+  height: 4rem;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+}
+
+.editor__asset-name {
+  display: inline-block;
+  overflow: hidden;
+  max-width: 9rem;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.editor,
+.preview {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor__bar,
+.preview__bar {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  padding: var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.editor__spacer {
+  flex: 1;
+}
+
+.editor__hint {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.editor__area,
+.layouts__editor {
+  flex: 1;
+  min-height: 20rem;
+  padding: var(--space-xl);
+  border: none;
+  border-radius: 0;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  resize: none;
+}
+
+/*
+ * 语法着色：textarea 文字透明、只留光标，背后垫一层同字体同行高的高亮镜像。
+ * 两层的字体、字号、行高、内边距、换行规则必须逐项一致，差一点就会错位，
+ * 所以共用一组声明而不是各写一遍。
+ */
+.editor__code {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 20rem;
+  overflow: hidden;
+}
+
+.editor__code .editor__area,
+.editor__code .layouts__editor,
+.editor__mirror {
+  min-height: 0;
+  margin: 0;
+  padding: var(--space-xl);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  /* 正文与模板是这个软件里盯得最久的区域，走 base 而不是 sm：刻度里 sm 的语义是
+     「次要与密集信息」，正文不属于次要。镜像与 textarea 共用这条规则，
+     字号必须一字不差，否则着色会整体错位 */
+  font-size: var(--text-base);
+  line-height: 1.6;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+.editor__code .editor__area,
+.editor__code .layouts__editor {
+  position: relative;
+  z-index: var(--z-sticky);
+  flex: 1;
+  color: transparent;
+  background: transparent;
+  caret-color: var(--fg);
+}
+
+/* 选区仍要看得见：文字透明时靠背景色标出范围 */
+.editor__code .editor__area::selection,
+.editor__code .layouts__editor::selection {
+  color: transparent;
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+
+.editor__mirror {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  color: var(--fg);
+  pointer-events: none;
+}
+
+.tok-heading {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tok-fence,
+.tok-marker {
+  color: var(--fg-muted);
+}
+
+.tok-code {
+  color: var(--tok-literal);
+}
+
+.tok-quote {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+/* 700 在 chrome 里不许用（字重三档到 600 为止），但这里画的是**正文内容**：
+   源文里加粗的那段字，就该看起来比 600 更重 */
+.tok-strong {
+  font-weight: 700;
+}
+
+.tok-em {
+  font-style: italic;
+}
+
+.tok-link {
+  color: var(--accent);
+}
+
+.tok-url {
+  color: var(--fg-muted);
+  text-decoration: underline;
+}
+
+.tok-fm,
+.tok-fm-value {
+  color: var(--tok-meta);
+}
+
+.tok-fm-key {
+  color: var(--fg-muted);
+}
+
+/* 模板：先分清「这段是 HTML 还是 Tera」，再看细节 */
+.tok-comment {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.tok-stmt,
+.tok-expr {
+  color: var(--tok-directive);
+}
+
+.tok-keyword {
+  color: var(--tok-directive);
+  font-weight: 600;
+}
+
+.tok-tagname {
+  color: var(--accent);
+}
+
+.tok-attr {
+  color: var(--tok-attr);
+}
+
+/* HTML 正文里的注释：压暗即可，它不是内容 */
+.tok-comment {
+  color: var(--fg-muted);
+}
+
+
+.tok-string {
+  color: var(--tok-literal);
+}
+
+/* 模板编辑器的高亮层与内容编辑器共用一组尺寸声明，这里只补它自己的撑满行为 */
+.layouts__code {
+  min-height: 12rem;
+}
+
+/* 着色的深色分支不在这里：颜色都走 --tok-* 令牌，令牌自己有两套值。
+   原先这里有一份 .tok-* 的深色覆盖，等于同一组颜色写了两遍规则。 */
+
+/* 正文命中的片段：只读标注，弱化色 + 小一档字号，与上面的标题按钮拉开层级（6.1） */
+.page-list__snippet {
+  margin: 0 0 var(--space-md) var(--space-lg);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.editor--empty,
+.preview__empty {
+  padding: var(--space-2xl);
+  color: var(--fg-muted);
+}
+
+/* 首次上手的三步：每行「标记 + 动作按钮 + 说明」，三类元素靠字号与色彩区分（6.1） */
+.editor__guide {
+  margin: var(--space-2xl) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editor__guide li {
+  display: flex;
+  gap: var(--space-md);
+  align-items: baseline;
+  margin-bottom: var(--space-lg);
+}
+
+.editor__guide li.done button {
+  /* 做完的一步留在原地但不再抢视线，也不禁用：还想再做一次是合理的 */
+  opacity: 0.6;
+}
+
+.editor__guide-mark {
+  width: 1rem;
+  color: var(--success);
+  text-align: center;
+}
+
+.editor__guide-hint {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+.editor__area--dragging {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+.editor__foot {
+  padding: var(--space-sm) var(--space-lg);
+  color: var(--fg-muted);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+/*
+ * 页脚的「上一篇 / 下一篇」。
+ *
+ * 无面按钮（页脚是一行灰字，塞两个带边框的按钮会把这一行变成工具条），
+ * 悬停的「面」由上面那条 `:is(...)` 统一给。压暗到 `--icon-idle`：
+ * 它们是次要动作，但**到头时置灰不隐藏**——隐藏会让人以为没有这个功能。
+ */
+.editor__around {
+  display: inline-flex;
+  gap: var(--space-xs);
+}
+
+.editor__around button {
+  width: auto;
+  padding: 0 var(--space-md);
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: var(--icon-idle);
+  border-radius: var(--radius-sm);
+}
+
+.editor__around button:hover:not(:disabled),
+.editor__around button:focus-visible {
+  opacity: 1;
+}
+
+.preview__frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  /* 这一处白色不是取自令牌，也不该跟着深色模式变：iframe 里是站点自己的页面，
+     背景该由它自己的样式决定，垫白只为避免加载瞬间闪一下黑 */
+  background: #fff;
+}
+
+/* ---------------------------------------------------------------- 其他面板 */

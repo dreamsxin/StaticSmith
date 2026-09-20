@@ -1,0 +1,580 @@
+kbd {
+  padding: 0 var(--space-sm);
+  color: var(--fg-muted);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  /* 唯一一个相对单位：快捷键提示嵌在按钮、菜单项、状态栏等不同字号的文字里，
+     写成固定 rem 会在小字里显得过大。它不算第四档字号，因为它没有自己的绝对值 */
+  font-size: 0.85em;
+}
+
+/* ---------------------------------------------------------------- 内容区 */
+
+.page-list {
+  padding: 0 0 var(--space-xl);
+}
+
+/* 标题行说明这一栏是什么，并把「新建」放在固定位置——搜索框不再兼任入口 */
+.page-list__head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky-head);
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  padding: var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__head h2 {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.page-list__count {
+  flex: 1;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.page-list__group .page-list__count {
+  flex: none;
+  margin-left: var(--space-md);
+}
+
+/* 放大镜与清除按钮压在输入框上，一眼能看出这是搜索而不是待填的字段 */
+.page-list__search {
+  position: relative;
+  display: flex;
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__search input {
+  flex: 1;
+  min-width: 0;
+  padding-left: var(--space-3xl);
+  font-size: var(--text-base);
+}
+
+/*
+ * 运营视角的筛选：把体检结论接回工作列表。
+ *
+ * 曾经是五个药丸按钮，在 260px 宽的侧栏里要折两三行，光「草稿 / 待生成」这种两字标签
+ * 也说不清作用。改成一行下拉：省两行高度，选项文字直接把含义写全（「草稿（还没发布）」）。
+ */
+.page-list__filter {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.page-list__filter-label {
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.page-list__filter select {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-xs) var(--space-md);
+  font-size: var(--text-sm);
+}
+
+/* 正在筛选时给个视觉提示：否则「列表怎么少了一半」会被当成 bug */
+.page-list__filter select.active {
+  border-color: var(--accent);
+}
+
+
+
+.page-list__search-icon {
+  position: absolute;
+  top: 50%;
+  left: 0.95rem;
+  transform: translateY(-50%);
+  opacity: 0.55;
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+.page-list__search-clear {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  padding: 0 var(--space-sm);
+  transform: translateY(-50%);
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+}
+
+
+/* 工具条常驻可见：列表滚起来后过滤框不该跟着滚走 */
+.page-list__toolbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+
+.page-list__toolbar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-list__empty {
+  padding: var(--space-lg);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.page-list__new {
+  padding: var(--space-lg) var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__new h3 {
+  margin: 0 0 var(--space-md);
+  font-size: var(--text-sm);
+}
+
+.page-list__new label {
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 路径与栏目是互斥的两种写法，说明必须紧跟在下面，不能等出错了才讲。 */
+.page-list__new-hint {
+  margin: -0.1rem 0 var(--space-lg);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.page-list__new-actions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+
+
+/* 篇内标题：正在编辑的那一篇把自己的目录摊在行下面，于是侧栏同时是
+   「整本书的目录」与「这一章的细目」。压暗一档：它是细目，不该和文章标题抢注意力 */
+.page-list__outline {
+  margin: var(--space-xs) 0 var(--space-md);
+  padding: 0;
+  list-style: none;
+}
+
+/* 标题一行：文字占满，两个挪动按钮跟在后面（悬停才显形，沿用行上的约定） */
+.page-list__outline > li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.page-list__outline-item {
+  display: flex;
+  gap: var(--space-md);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--space-xs) var(--space-md);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.page-list__outline-item:hover,
+.page-list__outline-item:focus-visible {
+  color: var(--fg);
+  background: var(--bg-subtle);
+}
+
+/* 缩进表达层级，H1 不缩进；再标一个小字号的 H2/H3 给缩进兜底
+   （缩进在窄侧栏里容易看不出，同大纲浮层的做法） */
+.page-list__outline-item--h2 {
+  padding-left: var(--space-2xl);
+}
+
+.page-list__outline-item--h3 {
+  padding-left: var(--space-3xl);
+}
+
+.page-list__outline-item--h4,
+.page-list__outline-item--h5,
+.page-list__outline-item--h6 {
+  padding-left: 2.7rem;
+}
+
+.page-list__outline-level {
+  flex: none;
+  font-size: var(--text-xs);
+  opacity: 0.6;
+}
+
+/* 拖拽排序：被拖的那行压暗，落点画一条线。
+   线用 box-shadow 而不是 border：border 会把这一行顶高 2px，整列跟着抖一下 */
+.page-list__row--dragging {
+  opacity: 0.45;
+}
+
+.page-list__row--drop-before {
+  box-shadow: inset 0 2px 0 0 var(--accent);
+}
+
+.page-list__row--drop-after {
+  box-shadow: inset 0 -2px 0 0 var(--accent);
+}
+
+/* 栏目按层级缩进：站点结构本来是一棵树（栏目就是目录，可以任意层嵌套），
+   平铺之后侧栏看着像一堆文件夹，而不像一本书的目录。层数不定，所以用
+   `--depth` 算内缩，而不是写死 --depth-1/2/3 这类类名。
+   只缩左边，右边那排按钮保持对齐——否则越深的栏目按钮越往里躲。 */
+.page-list__group {
+  padding: 0 0.5rem 0 calc(0.5rem + var(--depth, 0) * 0.85rem);
+}
+
+/*
+ * 拖到这个栏目上时的落点态。
+ *
+ * 用 inset 阴影而不是 border：加边框会把整列推动 2px，一排栏目挨着时看着像在抖。
+ * 底色用 --accent-soft 而不是实心主色：这是「可以放这里」，不是「已经选中」。
+ */
+.page-list__group--drop {
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* 子栏目挂一条竖线：只靠留白，缩进一级时看不出父子关系 */
+.page-list__group--nested > h3 {
+  position: relative;
+}
+
+.page-list__group--nested > h3::before {
+  content: '';
+  position: absolute;
+  left: -0.45rem;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  border-left: 1px solid var(--border);
+}
+
+
+.page-list__group h3 {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  margin: var(--space-xl) 0 var(--space-sm);
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+}
+
+.page-list__section-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-list__spacer {
+  flex: 1;
+}
+
+/* 栏目操作同样只压暗，不隐形：栏目的改名、排序、删除全都藏在「⋯」后面，
+   它隐形的话整个栏目管理就等于不存在（用户会以为栏目顺序是系统定的、改不了） */
+.page-list__group h3 .page-list__icon,
+.page-list__group h3 .page-list__danger {
+  opacity: var(--icon-idle);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.page-list__group:hover h3 .page-list__icon,
+.page-list__group:hover h3 .page-list__danger,
+.page-list__group h3 .page-list__icon:focus-visible,
+.page-list__group h3 .page-list__danger:focus-visible {
+  opacity: 1;
+}
+
+/* 批量动作条：选择态才出现，紧挨着筛选，不做浮层 */
+.page-list__batch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.page-list__batch-head {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.page-list__batch-row {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+/* 「还会改到别的文件」这句要比列表本身醒目一点：它说的是用户没勾的那些篇。 */
+/* 「另会改写 N 篇里 M 处链接」这类提示：警示色但不是错误，它说的是「将会发生」。
+   `.refs-note` 由 RefsNote.vue 渲染，`.page-list__batch-note` 是同一档的其它提示 */
+.page-list__batch-note,
+.refs-note {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+/* 发布前的确认：唯一影响线上的动作，清单要和目标、覆盖规则同时看得见。 */
+.deploy__confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.deploy__confirm-head {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.deploy__files {
+  max-height: 9rem;
+  padding-left: var(--space-2xl);
+  margin: 0;
+  overflow-y: auto;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+
+
+.page-list__batch-row input[type='text'] {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+}
+
+/* 勾选框只在多选态出现，别在平时占掉标题的宽度 */
+.page-list__pick {
+  flex-shrink: 0;
+  margin: 0 var(--space-xs) 0 var(--space-md);
+}
+
+/* 干跑结果：逐条说明会怎么变；不会动的那些压暗，视线自然落在真会改的行上 */
+.page-list__dry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.page-list__dry-list {
+  max-height: 12rem;
+  padding: 0;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.page-list__dry-list li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-xs);
+  font-size: var(--text-xs);
+}
+
+.page-list__dry-list li.skip {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 替换的逐行对照。用 `del` / `ins` 这两个语义标签而不是两种颜色的 span：
+   读屏能念出「删除 / 插入」，颜色只是给眼睛的第二重提示 */
+.page-list__dry-lines {
+  padding: 0 0 0 var(--space-md);
+  margin: var(--space-xs) 0 0;
+  list-style: none;
+  border-left: 1px solid var(--border);
+}
+
+.page-list__dry-no {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-lines del {
+  color: var(--fg-muted);
+}
+
+.page-list__dry-lines ins {
+  color: var(--success);
+  text-decoration: none;
+}
+
+.page-list__rename {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.page-list__keep {
+  flex-direction: row;
+  gap: var(--space-md);
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.page-list__hint {
+  padding: 0 var(--space-lg) var(--space-md);
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+
+
+.page-list ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.page-list li {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+/* 行内的次要动作**压暗**、而不是隐形。
+ *
+ * 原先是 `opacity: 0`，只在 `li:hover` / `li:focus-within` 时恢复。代价有两层：
+ * 一是「⋯」本来就是右键菜单唯一的可见孪生入口（右键看不见），它自己隐形就等于没有入口
+ * ——用户会以为「没有这个功能」；二是任何不在 `li` 里的用法（批量条那三颗）
+ * 永远没有恢复规则，于是**永久不可见却仍能点、仍能 Tab 停留**，那是真 bug。
+ *
+ * 0.55 足够看出「这里有个按钮」，又不与标题抢注意力；悬停或键盘聚焦时补满。
+ */
+.page-list button.page-list__icon,
+.page-list button.page-list__danger {
+  flex: none;
+  width: auto;
+  padding: 0 var(--space-md);
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  opacity: var(--icon-idle);
+}
+
+.page-list li:hover .page-list__icon:not(:disabled),
+.page-list li:hover .page-list__danger:not(:disabled),
+.page-list li:focus-within .page-list__icon:not(:disabled),
+.page-list li:focus-within .page-list__danger:not(:disabled),
+.page-list__batch:hover .page-list__icon:not(:disabled),
+.page-list__batch:focus-within .page-list__icon:not(:disabled) {
+  opacity: 1;
+}
+
+/* 禁用的幽灵按钮要比「压暗」更暗。
+ *
+ * 基座的 `button:disabled { opacity: 0.5 }` 在这里被压暗那条（特异性更高）盖掉，
+ * 于是 0.55 与 0.5 几乎看不出区别——目录里到头的「↑」看着和能点的一模一样，
+ * 点下去没反应。压暗表示「次要」，这一档表示「现在不能用」，两者必须分得开。
+ */
+.page-list button.page-list__icon:disabled,
+.page-list button.page-list__danger:disabled {
+  opacity: 0.25;
+}
+
+/* 列表里的删除入口始终满亮：压暗表示「次要」，而不可逆的动作不是次要的
+   （颜色由全局的 `.page-list__danger` 给，这里只管不被压暗） */
+.page-list button.page-list__danger {
+  opacity: 1;
+}
+
+
+
+.page-list button {
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+}
+
+/* 上面那条是给列表条目的；标题行、搜索框、表单里的按钮仍是普通按钮 */
+.page-list__head button,
+.page-list__search button,
+.page-list__new-actions button {
+  flex: none;
+  width: auto;
+  text-align: center;
+}
+
+.page-list__head button.btn--primary,
+.page-list__new-actions button.btn--primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+
+.page-list button.active {
+  color: inherit;
+  background: var(--bg-subtle);
+  border-left: 2px solid var(--accent);
+}
+
+.page-list__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,0 +1,671 @@
+.layouts,
+.build,
+.deploy,
+/*
+ * 设置页：左边一列分段导航，右边一列表单。
+ *
+ * 不跟 .build / .deploy 共用那条 auto-fit 多列：那条是「同时铺多张面板」时的排法，
+ * 而设置页一次只显示一段。共用的后果是导航、说明、表单被排成三列、
+ * 保存条掉到左下角——按钮离开了它要保存的表单。
+ */
+.settings {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 10.5rem minmax(0, 1fr);
+  /* 高度交给内层：右列自己滚，导航留在原处不跟着走 */
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+/* 分段导航竖排：八段横排会在窄窗口折成两行，占掉一整条纵向空间 */
+.settings__nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-lg) var(--space-md);
+  overflow: auto;
+  border-right: 1px solid var(--border);
+}
+
+.settings__nav-item {
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--text-sm);
+  text-align: left;
+  /* 选中态用左边框而不是填充：填充是动作的语言，这里是导航（6.4） */
+  border-left: 2px solid transparent;
+  border-radius: 0;
+}
+
+.settings__nav-item.active {
+  color: var(--fg);
+  font-weight: 600;
+  background: var(--bg);
+  border-left-color: var(--accent);
+}
+
+/* 右列：段标题 + 说明 + 表单 + 保存条，从上到下一条视线 */
+.settings__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--space-lg) var(--space-2xl) 0;
+  overflow: auto;
+}
+
+.settings__head {
+  /* 分段名只出现一次：导航里选中的那条 + 这里的标题，面板内不再重复写 h3 */
+  max-width: 44rem;
+}
+
+.settings__head h3 {
+  margin: 0;
+}
+
+.settings__hint {
+  margin: var(--space-xs) 0 var(--space-lg);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 配置源码框：等宽字体、不自动换行——TOML 的对齐是有意义的，软换行会读错缩进 */
+.settings__source {
+  min-height: 24rem;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  /* 与正文编辑区同档：手写 TOML 的地方不该比旁边的说明文字还小 */
+  font-size: var(--text-base);
+  white-space: pre;
+  overflow: auto;
+  resize: vertical;
+}
+
+
+/* 表单不铺满整个宽屏：一行输入框拉到 80rem 宽，眼睛要从标签走很远才到值 */
+.settings__panel {
+  max-width: 44rem;
+  margin-bottom: var(--space-lg);
+}
+
+/*
+ * 保存条常驻底部。
+ *
+ * 「构建」那一段有九个输入框加四个勾选，保存按钮跟着内容滚走的话，
+ * 填到一半时主动作已经不在视野里了。
+ */
+.settings__save {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  max-width: 44rem;
+  padding: var(--space-lg) 0;
+  margin-top: auto;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+}
+
+/* 窄窗口回到单列：导航横排在上面，右列变成下面一整块 */
+@media (max-width: 60rem) {
+  .settings {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .settings__nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding: var(--space-md) var(--space-lg);
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .settings__nav-item {
+    /* 横排时左边框读不出「选中」，改回底边框，与标签栏一致 */
+    border-left-color: transparent;
+    border-bottom: 2px solid transparent;
+  }
+
+  .settings__nav-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+}
+
+
+
+.layouts {
+  grid-template-columns: 16rem 14rem minmax(0, 1fr);
+}
+
+.build,
+.deploy {
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+}
+
+.layouts__list,
+.layouts__tree,
+.build__stats {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.layouts__list li {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) 0;
+}
+
+.layouts__list label {
+  flex-direction: row;
+  gap: var(--space-md);
+  margin: 0;
+}
+
+.layouts__column--wide {
+  display: flex;
+  flex-direction: column;
+}
+
+.layouts__actions,
+.deploy__actions,
+.build__actions {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: var(--space-xl);
+}
+
+.layouts__impact,
+.build__muted {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+/* 列表空态：说明「接下来做什么」，与列表项拉开层级，不与标题争视线。
+   跨面板共用一个类名（而不是每块各写一份 xxx__empty）：空态的写法只该有一种 */
+.empty-hint {
+  margin: 0 0 var(--space-lg);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+
+.build__panel,
+.deploy__panel,
+.settings__panel,
+.layouts__column {
+  padding: var(--space-xl) var(--space-2xl);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.build__panel > h3:first-child,
+.deploy__panel > h3:first-child,
+.settings__panel > h3:first-child,
+.layouts__column > h3:first-child {
+  margin-top: 0;
+}
+
+
+.build__stats li {
+  padding: var(--space-xs) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.build__head {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: baseline;
+}
+
+.build__head h3 {
+  flex: 1;
+}
+
+.build__outputs h4 {
+  margin: var(--space-xl) 0 var(--space-sm);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.build__outputs ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.build__outputs li {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+}
+
+.build__output {
+  display: flex;
+  flex: 1;
+  gap: var(--space-lg);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  overflow: hidden;
+  border: none;
+  background: none;
+  text-align: left;
+}
+
+.build__output-url {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build__output.active {
+  background: var(--accent-soft);
+  border-radius: var(--radius-sm);
+}
+
+.build__output-open {
+  padding: var(--space-sm) var(--space-md);
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+}
+
+.preview__target {
+  overflow: hidden;
+  max-width: 16rem;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview__auto {
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+
+
+.settings__checkbox {
+  flex-direction: row;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+/* 设置页的分段导航：一次只显示一段，别让人在长表单里滚着找 */
+/* 导航的排布与选中态定义在上面的「设置页」一节（竖排 + 左边框），
+   这里只留焦点环——它与排布无关，两种排法下都一样 */
+.settings__nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* 一个分类维度一组字段，用卡片圈起来才看得出是「一条」 */
+.settings__row {
+  padding: var(--space-lg) var(--space-xl);
+  margin-bottom: var(--space-lg);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.settings__row .page-list__danger {
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--text-sm);
+}
+
+/* 菜单一行两格：名称与地址并排，按钮另起一行 */
+.settings__menu-row {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.settings__menu-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 目录输入框吃掉剩余宽度，按钮跟在同一行 */
+.settings__import-row {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.settings__import-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 迁移清单可能上百条，给个高度上限，别把整页撑开 */
+.settings__import-list {
+  max-height: 16rem;
+  padding: var(--space-md) var(--space-lg);
+  margin: 0;
+  overflow: auto;
+  list-style: none;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+}
+
+.settings__import-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: baseline;
+  padding: var(--space-md) 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings__import-list li:last-child {
+  border-bottom: none;
+}
+
+/* 会被跳过的条目压暗，扫一眼就知道哪些不会动 */
+.settings__import-list li.skip {
+  color: var(--fg-muted);
+}
+
+
+
+/* ---------------------------------------------------------------- 发布节奏 */
+
+.calendar {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--space-2xl);
+  padding: var(--space-2xl);
+  align-content: start;
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+.calendar__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.calendar__month {
+  min-width: 8rem;
+  text-align: center;
+}
+
+.calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* 行容器只为 `role="row"` 而存在：`display: contents` 让格子照旧落进外层七列网格，
+   语义补齐而布局一动不动 */
+.calendar__row {
+  display: contents;
+}
+
+
+.calendar__weekday {
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-subtle);
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.calendar__cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-height: 5.5rem;
+  padding: var(--space-md);
+  background: var(--bg);
+}
+
+/* 格子现在能被方向键走到，落点必须看得见。用内描边而不是 outline：
+   格子之间只有 1px 缝，outline 会被相邻格子盖掉一半 */
+.calendar__cell:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+
+/* 跨月的格子压暗，但仍然显示条目——月初月末的稿子常常就在那几格 */
+.calendar__cell.outside {
+  background: var(--bg-subtle);
+}
+
+.calendar__cell.outside .calendar__day {
+  color: var(--fg-muted);
+}
+
+.calendar__cell.today {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.calendar__day {
+  font-size: var(--text-xs);
+  color: var(--fg-muted);
+}
+
+.calendar__entry {
+  display: block;
+  width: 100%;
+  padding: var(--space-xs) var(--space-md);
+  border: none;
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  color: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  /* 一格里可能挤几篇，标题截断也比撑破格子好 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.calendar__entry:hover {
+  border-left-width: 5px;
+}
+
+/* 草稿与定时都还不在线上，用虚边与压暗区分「已经发出去的」 */
+.calendar__entry.draft,
+.calendar__entry.scheduled {
+  border-left-style: dashed;
+  color: var(--fg-muted);
+}
+
+.calendar__list {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendar__list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: baseline;
+}
+
+.calendar__date {
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: var(--text-sm);
+}
+
+.calendar__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline dotted;
+  cursor: pointer;
+}
+
+
+/* 主题包默认折叠：它换的是整套外观，用得不频繁，
+   而它一展开就把上面的继承结构树顶出视野 */
+.layouts__theme {
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--border);
+}
+
+.layouts__theme > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.layouts__theme > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* 右键菜单：位置由脚本按鼠标算，外观直接复用菜单栏的下拉（同一套形状只画一次） */
+.context-menu {
+  position: fixed;
+  z-index: var(--z-context);
+}
+
+/* ---------------------------------------------------------------- SEO 体检 */
+
+.seo {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: var(--space-2xl);
+  padding: var(--space-2xl);
+  align-content: start;
+  overflow: auto;
+  background: var(--bg-subtle);
+}
+
+.seo__score strong {
+  font-size: var(--text-xl);
+}
+
+.seo__issues {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.seo__issue {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) minmax(0, 1fr) auto;
+  gap: var(--space-lg);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--space-md) var(--space-md);
+  border: none;
+  background: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+}
+
+.seo__issue:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+/* 站点级问题不能点开某一篇，弱化提示 */
+.seo__issue--site {
+  cursor: default;
+  color: var(--fg-muted);
+}
+
+.seo__issue-title {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seo__issue-message {
+  min-width: 0;
+}
+
+.seo__issue-code {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.seo__media {
+  padding: 0;
+  margin: var(--space-sm) 0 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.seo__media li {
+  padding: var(--space-xs) 0;
+}
+
+.seo__media label {
+  flex-direction: row;
+  gap: var(--space-md);
+  align-items: baseline;
+  margin: 0;
+}
+
+.seo__media code {
+  overflow: hidden;
+  max-width: 32rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 死链一行要装下目标、原文写法与多个出处，竖排才不会挤成一团 */
+.seo__link {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.seo__link-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: baseline;
+  color: var(--fg-muted);
+}
+
+/* 出处是跳转而不是动作，用链接样式：一行里可能并排好几个 */
+.seo__ref {
+  padding: 0;
+  color: var(--accent);
+  font: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+}

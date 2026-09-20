@@ -1,0 +1,163 @@
+/*
+ * 全局唯一的浮层。项目里其他确认交互都做成就地元素，这里例外：
+ * 命令面板本身就是「暂时盖住一切、只回答一个问题」的东西。
+ * z-index 比 toast 低——执行命令后的结果提示必须压在面板之上。
+ */
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dropdown);
+  display: flex;
+  justify-content: center;
+  padding-top: 12vh;
+  background: rgb(0 0 0 / 35%);
+}
+
+.palette__box {
+  display: flex;
+  flex-direction: column;
+  width: min(40rem, 90vw);
+  max-height: 60vh;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dialog);
+}
+
+.palette__input {
+  padding: var(--space-xl) var(--space-xl);
+  font-size: var(--text-lg);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+}
+
+/* 输入框是浮层里唯一的输入点，焦点环画在内侧：画在外侧会压住面板边框，
+   但完全去掉（原先是 outline: none）就违了 6.6「可聚焦元素必须有可见焦点态」 */
+.palette__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+.palette__list {
+  overflow-y: auto;
+}
+
+.palette__group {
+  position: sticky;
+  top: 0;
+  display: flex;
+  gap: var(--space-lg);
+  align-items: baseline;
+  padding: var(--space-md) var(--space-xl) var(--space-sm);
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  background: var(--bg-subtle);
+}
+
+.palette__more {
+  color: var(--fg-muted);
+}
+
+.palette__item {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--space-md) var(--space-xl);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.palette__item.active {
+  background: var(--bg-subtle);
+}
+
+.palette__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__hint {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__empty,
+.palette__foot {
+  padding: var(--space-lg) var(--space-xl);
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.palette__foot {
+  border-top: 1px solid var(--border);
+}
+
+/* ---------------------------------------------------------------- 通知 */
+
+
+.toasts {
+  position: fixed;
+  right: 1rem;
+  bottom: 2.4rem;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+  max-width: min(30rem, 60vw);
+}
+
+.toast {
+  display: flex;
+  gap: var(--space-lg);
+  align-items: flex-start;
+  padding: var(--space-lg) var(--space-xl);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--fg-muted);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-raised);
+  font-size: var(--text-sm);
+}
+
+.toast--success {
+  border-left-color: var(--success);
+}
+
+.toast--error {
+  border-left-color: var(--danger);
+}
+
+.toast--info {
+  border-left-color: var(--accent);
+}
+
+.toast__text {
+  flex: 1;
+  word-break: break-word;
+}
+
+.toast__close {
+  padding: 0 var(--space-md);
+  background: none;
+  border: none;
+  line-height: 1;
+}

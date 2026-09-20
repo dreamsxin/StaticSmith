@@ -55,7 +55,8 @@ npm run build                                       # 打包（tauri-build 需�
 - `src/` —— 前端。`store.ts`（唯一的状态与动作）、`api.ts`（IPC 类型声明）、
   `ui.ts`（布局、标签页、编辑器命令注册点）、`commands.ts`（菜单与命令面板的唯一命令表）、
   `grouping.ts` / `manuscript.ts` / `skips.ts` / `text.ts`（纯逻辑，好测的都在这里）、
-  `components/`、`styles.css`（唯一的样式文件，`.vue` 里没有 `<style>`）
+  `components/`、`styles.css`（只是一串 `@import`，规则按功能分在 `styles/` 下的
+  十二个文件里；`.vue` 里没有 `<style>`）
 
 ## 4. 改动落在哪里：同步点清单
 
@@ -144,9 +145,14 @@ npm run build                                       # 打包（tauri-build 需�
   后者是给 textarea 的 `@input` 准备的（用户打字），从代码里调它会绕过原生撤销栈，
   于是工具条、查找替换、整节挪动按 `Ctrl+Z` 撤掉的是上一次打的字。这个 bug 真出现过。
   `writeRange` 底下是 `document.execCommand('insertText')`——废弃，但唯一能进撤销栈的 API。
+- **样式表是按 `@import` 顺序拼起来的**：`src/styles.css` 只有一串 `@import`，规则在
+  `src/styles/` 下的十二个文件里。**那串 `@import` 的顺序就是级联顺序**，重排它等于
+  悄悄改样式；把散在两个文件里的同名块（`welcome`、`page-list`）并到一处也会动顺序，
+  那要真机看过才敢做。`styles.test.ts` 顺着这串 `@import` 读文件再拼接，
+  所以护栏管的是最终生效的那份。
 - **改文件时的锚点必须是文件里唯一的字符串**。这个仓库的注释密度很高，
   拿 `/**`、`function` 这类到处都有的片段当替换锚点，会一次改掉几十处
-  （真发生过：`store.ts` 从 1604 行涨到 4935 行）。动 `store.ts`、`styles.css`、
+  （真发生过：`store.ts` 从 1604 行涨到 4935 行）。动 `store.ts`、`styles/*.css`、
   `PageList.vue` 这几个大文件前先确认锚点唯一。
 - **推送常被 `Connection reset by ... port 22` 拦住**，等 20–90 秒重试即可，不是仓库问题。
 - 界面**忙态是计数器不是布尔**（`store.busy`）：复合动作要在入口用 `busySpan()` 占一格，
