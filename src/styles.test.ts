@@ -17,6 +17,24 @@ import { describe, expect, it } from 'vitest'
  * 那样断言全对着空字符串通过，护栏是假的（`node:fs` 的类型声明见 `vite-env.d.ts`）。
  */
 const css = readFileSync(fileURLToPath(new URL('./styles.css', import.meta.url)), 'utf8')
+
+/**
+ * 取出某个属性的所有取值（连行号），用来判断「它走没走令牌」。
+ *
+ * 不用「`^prop:\s*(?!var\()`」那种否定前瞻：`\s*` 会回退成零宽，
+ * 于是 `box-shadow: var(...)` 也被判成裸值——第一版就是这么写的，
+ * 三条断言全是绿的，护栏是假的。先取值、再判断，这种坑绕不开也看得见。
+ */
+const valuesOf = (prop: string) =>
+  css
+    .split('\n')
+    .map((line, index) => [index + 1, line.trim()] as const)
+    .map(([at, line]) => [at, new RegExp(`^${prop}:\\s*(.+);$`).exec(line)?.[1]] as const)
+    .filter((entry): entry is readonly [number, string] => entry[1] !== undefined)
+
+const bare = (prop: string, allowed: RegExp) =>
+  valuesOf(prop).filter(([, value]) => !allowed.test(value))
+
 describe('styles.css 的硬约定', () => {
   /**
    * 事故：批量条的「全选当前」「清空」「删除…」三颗按钮永久不可见。
@@ -122,23 +140,6 @@ describe('styles.css 的硬约定', () => {
    * 圆角允许 `0`：那不是一个档，是「明确不要圆角」（贴边的列表项、全宽输入）。
    */
   it('圆角、阴影、层级不许出现裸值', () => {
-    /**
-     * 取出某个属性的所有取值（连行号），用来判断「它走没走令牌」。
-     *
-     * 不用「`^prop:\s*(?!var\()`」那种否定前瞻：`\s*` 会回退成零宽，
-     * 于是 `box-shadow: var(...)` 也被判成裸值——第一版就是这么写的，
-     * 三条断言全是绿的，护栏是假的。先取值、再判断，这种坑绕不开也看得见。
-     */
-    const valuesOf = (prop: string) =>
-      css
-        .split('\n')
-        .map((line, index) => [index + 1, line.trim()] as const)
-        .map(([at, line]) => [at, new RegExp(`^${prop}:\\s*(.+);$`).exec(line)?.[1]] as const)
-        .filter((entry): entry is readonly [number, string] => entry[1] !== undefined)
-
-    const bare = (prop: string, allowed: RegExp) =>
-      valuesOf(prop).filter(([, value]) => !allowed.test(value))
-
     // 先确认这份清单真的抓到了东西：空清单会让下面三条断言「全绿而无用」，
     // 而那正是第一版犯的错（值都取成了 undefined，filter 自然是空的）
     expect(valuesOf('border-radius').length).toBeGreaterThan(20)
@@ -170,5 +171,42 @@ describe('styles.css 的硬约定', () => {
 
     expect(values).toEqual([...values].sort((a, b) => a - b))
     expect(new Set(values).size).toBe(order.length)
+  })
+
+  /**
+   * 字号必须走刻度。
+   *
+   * 盘点出的实情：11 个取值，其中 6 个（0.8 / 0.78 / 0.75 / 0.74 / 0.72 / 0.7rem）
+   * 全挤在 11.2–12.8px 这 1.6px 的带宽里——肉眼分不出差别，却谁也不敢动，
+   * 因为不知道哪一处是有意的。更糟的是 `body` 是 14px 而「小字」是 12.8px，
+   * 于是**没写 font-size 的按钮反而比写了的标签大**：视觉层级是反的。
+   *
+   * `em` 不在此列：`kbd` 用 `0.85em` 是刻意的相对——它嵌在句子里，要跟着周围的字走。
+   */
+  it('字号不许出现裸值，一律走 --text-* 刻度', () => {
+    // 自检：清单空了下面那条断言就「全绿而无用」
+    expect(valuesOf('font-size').length).toBeGreaterThan(80)
+    expect(bare('font-size', /^(var\(--text-|inherit$|[\d.]+em$)/)).toEqual([])
+    // `font` 简写里也藏过一个 14px（body）：它是全局默认，最该是令牌
+    expect(css).toMatch(/font:\s*var\(--text-base\)\//)
+  })
+
+  /** 刻度要成套且拉开距离：档与档之间看不出差别，就等于没有层级。 */
+  it('字号刻度五档齐全、严格递增，且不随主题变', () => {
+    const order = ['--text-xs', '--text-sm', '--text-base', '--text-lg', '--text-xl']
+    const values = order.map((token) => {
+      const found = new RegExp(`${token}:\\s*([\\d.]+)rem`).exec(css)
+      expect(found, token).not.toBeNull()
+      // 深色模式不该重定义字号：字号是结构，不是配色
+      expect(css.match(new RegExp(`${token}:`, 'g')), token).toHaveLength(1)
+      return Number(found![1])
+    })
+
+    expect(values).toEqual([...values].sort((a, b) => a - b))
+    expect(new Set(values).size).toBe(order.length)
+    // 相邻两档至少差 1px（16px 基准下 0.0625rem），否则用户分不出「主」和「次」
+    for (let i = 1; i < values.length; i += 1) {
+      expect(values[i] - values[i - 1], order[i]).toBeGreaterThanOrEqual(0.0625)
+    }
   })
 })

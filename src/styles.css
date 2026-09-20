@@ -4,11 +4,13 @@
  * 文件顺序：令牌 → reset 与原子类 → 起始页 → 外框 → 菜单栏 → 命令面板 → 通知
  * → 内容区 → 其他面板 → 发布节奏 → SEO 体检 → 右键菜单。
  *
- * 四类令牌，规则一样：**每个都必须成对给值**（浅色在 `:root`，深色在
- * `prefers-color-scheme` 分支里覆盖），界面里不许出现裸值。理由与取舍见
- * docs/ui-design.md 6.11（色彩）与 6.2（形状与层级）。
+ * 五类令牌，界面里不许出现裸值（`src/styles.test.ts` 守着）。色彩与阴影**必须成对给值**
+ * （浅色在 `:root`，深色在 `prefers-color-scheme` 分支里覆盖）；排版、形状、层级是结构，
+ * 不随主题变。理由与取舍见 docs/ui-design.md 6.11（色彩）与 6.2（排版、形状与层级）。
  *
  * - 色彩：`--fg` / `--bg` / `--accent` / `--danger` …
+ * - 排版：`--text-xs|sm|base|lg|xl`——11 / 12 / 14 / 16 / 24px，相邻至少差 1px。
+ *   曾经散着 11 个取值，其中 6 个挤在 1.6px 的带宽里，差别看不出来却谁也不敢动。
  * - 形状：`--radius-sm|md|lg|pill`——小片 / 控件 / 容器与浮层 / 只读标注的药丸。
  *   形状是**动作的语言**：控件与容器不能同一个圆角，否则「能点的」和「装东西的」
  *   长得一样。曾经散着 3 / 4 / 6 / 8 / 10 / 999px 六种，没人说得清哪种归哪类。
@@ -48,6 +50,28 @@
    * 可见孪生入口。悬停或键盘聚焦时补到 1。
    */
   --icon-idle: 0.55;
+
+  /*
+   * 字号刻度。五档，单位 rem，不随主题变（字号是结构，不是配色）。
+   *
+   * 原先是 11 个取值，其中 6 个（0.8 / 0.78 / 0.75 / 0.74 / 0.72 / 0.7rem）全挤在
+   * 11.2–12.8px 这 1.6px 的带宽里：肉眼分不出差别，也没人敢动——不知道哪一处是有意的。
+   * 更糟的是 `body` 是 14px 而「小字」是 12.8px，于是**没写 font-size 的按钮反而比
+   * 写了的标签大**，视觉层级是反的。
+   *
+   * 收成五档，相邻至少差 1px，每档说清用在哪：
+   *
+   * - `xs`（11px）：计数、徽标、代码片段、层级标注——最次要，只在需要时才去读
+   * - `sm`（12px）：次要信息与密集列表（说明、时间、提示行）
+   * - `base`（14px）：正文与控件，`body` 就是它。没写 font-size 的地方都落在这档
+   * - `lg`（16px）：区块标题（`h3`、浮层标题、面板头）
+   * - `xl`（24px）：页面级标题（起始页品牌、体检总分）
+   */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.75rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.5rem;
 
   /* 形状：小片 / 控件 / 容器与浮层 / 只读标注 */
   --radius-sm: 4px;
@@ -125,7 +149,7 @@ body,
 body {
   color: var(--fg);
   background: var(--bg);
-  font: 14px/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  font: var(--text-base)/1.6 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
 }
 
 /* 按钮与输入框的边界是「这里能点 / 能输入」的唯一线索，所以用 --border-strong
@@ -236,7 +260,7 @@ h1,
 h2,
 h3 {
   margin: 1rem 0 0.5rem;
-  font-size: 1rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -296,13 +320,13 @@ h3 {
 
 .card h2 {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--text-lg);
 }
 
 .card__desc {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   line-height: 1.55;
 }
 
@@ -311,7 +335,7 @@ h3 {
   width: 100%;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .card--fill {
@@ -326,7 +350,7 @@ h3 {
   border: 1px solid var(--border);
   border-left: 3px solid var(--warn);
   border-radius: var(--radius-md);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* ---------------------------------------------------------------- 起始页 */
@@ -350,14 +374,14 @@ h3 {
 
 .welcome__brand h1 {
   margin: 0;
-  font-size: 1.5rem;
+  font-size: var(--text-xl);
   letter-spacing: 0.01em;
 }
 
 .welcome__brand p {
   margin: 0.2rem 0 0;
   color: var(--fg-muted);
-  font-size: 1rem;
+  font-size: var(--text-lg);
 }
 
 .welcome__columns {
@@ -397,7 +421,7 @@ h3 {
   padding: 0;
   margin-bottom: 0.375rem;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   letter-spacing: 0.08em;
 }
 
@@ -431,14 +455,14 @@ h3 {
 }
 
 .preset__title {
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
 .preset__desc {
   grid-column: 2;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 /* 新建站点的表单：起始页卡片里内嵌，对话框里也是它。 */
@@ -459,13 +483,13 @@ h3 {
 
 .dialog__title {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--text-lg);
 }
 
 .dialog__desc {
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   line-height: 1.6;
 }
 
@@ -511,13 +535,13 @@ h3 {
 .snapshot__when {
   flex: 1;
   color: var(--fg-muted);
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
   text-align: right;
 }
 
 .snapshot__id {
   color: var(--fg-muted);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
 }
 
 /* 未保存的改动会被这次回退作废，这句要比其它说明更显眼。 */
@@ -536,7 +560,7 @@ h3 {
 .snapshot__changes {
   max-height: 11rem;
   margin: 0.3rem 0 0.6rem;
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
 }
 
 .snapshot__changes li {
@@ -617,7 +641,7 @@ h3 {
 /* 级别标签给缩进兜底：H4 与 H5 只差一档缩进，眼睛分不清。 */
 .outline__level {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -650,12 +674,12 @@ h3 {
   gap: 0.5rem;
   align-items: baseline;
   margin: 0;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .shortcuts__scope-hint {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 400;
 }
 
@@ -674,7 +698,7 @@ h3 {
   grid-template-columns: 9.5rem minmax(0, 1fr) minmax(0, 1.1fr);
   gap: 0.5rem;
   align-items: baseline;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .shortcuts__keys {
@@ -683,7 +707,7 @@ h3 {
 
 .shortcuts__note {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 /* 站内链接候选：地址压暗跟在标题后面——挑的时候看标题，确认的时候看地址。 */
@@ -691,7 +715,7 @@ h3 {
   max-width: 45%;
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -699,7 +723,7 @@ h3 {
 /* 草稿不进产物，链过去就是死链。标出来但不禁用：先写互链再补那一篇是常见顺序。 */
 .link__draft {
   color: var(--warn);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 
@@ -757,7 +781,7 @@ h3 {
   padding: 0;
   background: none;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -765,7 +789,7 @@ h3 {
 .welcome__recent time {
   flex: none;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -854,7 +878,7 @@ h3 {
   color: var(--fg-muted);
   border-top: 1px solid var(--border);
   border-bottom: none;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .app__mark {
@@ -870,7 +894,7 @@ h3 {
 
 .app__title {
   flex: none;
-  font-size: 1rem;
+  font-size: var(--text-lg);
 }
 
 .app__root {
@@ -878,7 +902,7 @@ h3 {
   padding: 0;
   background: none;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -906,7 +930,7 @@ h3 {
   background: none;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .app__menu-title:hover:not(:disabled),
@@ -944,7 +968,7 @@ h3 {
   background: none;
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-align: left;
 }
 
@@ -976,7 +1000,7 @@ h3 {
 
 .app__menu-hint {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -1021,7 +1045,7 @@ h3 {
 .app__tabs-group {
   padding-right: 0.1rem;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-weight: 400;
   letter-spacing: 0.08em;
   white-space: nowrap;
@@ -1035,7 +1059,7 @@ h3 {
   align-self: center;
   padding-right: 0.4rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   /* 窄窗口下先截断说明，别把标签挤走 */
   overflow: hidden;
   white-space: nowrap;
@@ -1049,7 +1073,7 @@ h3 {
   align-items: center;
   max-width: 22rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1061,7 +1085,7 @@ h3 {
 .app__tab {
   padding: 0.35rem 0.6rem;
   color: var(--fg);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   background: none;
   border: none;
@@ -1103,7 +1127,7 @@ h3 {
   margin: 0;
   background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .app__status-dirty {
@@ -1208,7 +1232,7 @@ h3 {
 
 .palette__input {
   padding: 0.7rem 0.9rem;
-  font-size: 1rem;
+  font-size: var(--text-lg);
   background: var(--bg);
   border: none;
   border-bottom: 1px solid var(--border);
@@ -1235,7 +1259,7 @@ h3 {
   padding: 0.35rem 0.9rem 0.2rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   background: var(--bg-subtle);
 }
 
@@ -1274,7 +1298,7 @@ h3 {
   max-width: 45%;
   overflow: hidden;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1284,7 +1308,7 @@ h3 {
   padding: 0.5rem 0.9rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 .palette__foot {
@@ -1316,7 +1340,7 @@ h3 {
   border-left: 3px solid var(--fg-muted);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-raised);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .toast--success {
@@ -1377,13 +1401,13 @@ kbd {
 .page-list__head h2 {
   flex: none;
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--text-lg);
 }
 
 .page-list__count {
   flex: 1;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1404,7 +1428,7 @@ kbd {
   flex: 1;
   min-width: 0;
   padding-left: 1.7rem;
-  font-size: 0.8rem;
+  font-size: var(--text-base);
 }
 
 /*
@@ -1419,7 +1443,7 @@ kbd {
   align-items: center;
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .page-list__filter-label {
@@ -1431,7 +1455,7 @@ kbd {
   flex: 1;
   min-width: 0;
   padding: 0.15rem 0.3rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 正在筛选时给个视觉提示：否则「列表怎么少了一半」会被当成 bug */
@@ -1447,7 +1471,7 @@ kbd {
   left: 0.95rem;
   transform: translateY(-50%);
   opacity: 0.55;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   pointer-events: none;
 }
 
@@ -1484,7 +1508,7 @@ kbd {
 .page-list__empty {
   padding: 0.6rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .page-list__new {
@@ -1495,21 +1519,21 @@ kbd {
 
 .page-list__new h3 {
   margin: 0 0 0.4rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .page-list__new label {
   gap: 0.15rem;
   margin-bottom: 0.4rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 路径与栏目是互斥的两种写法，说明必须紧跟在下面，不能等出错了才讲。 */
 .page-list__new-hint {
   margin: -0.1rem 0 0.5rem;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -1542,7 +1566,7 @@ kbd {
   width: 100%;
   padding: 0.1rem 0.3rem;
   color: var(--fg-muted);
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   background: none;
   border: 0;
   text-align: left;
@@ -1573,7 +1597,7 @@ kbd {
 
 .page-list__outline-level {
   flex: none;
-  font-size: 0.6rem;
+  font-size: var(--text-xs);
   opacity: 0.6;
 }
 
@@ -1621,7 +1645,7 @@ kbd {
   margin: 0.8rem 0 0.25rem;
   color: var(--fg-muted);
   text-transform: uppercase;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   letter-spacing: 0.04em;
 }
 
@@ -1667,7 +1691,7 @@ kbd {
   align-items: center;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .page-list__batch-row {
@@ -1680,7 +1704,7 @@ kbd {
 .page-list__batch-note {
   margin: 0;
   color: var(--warn);
-  font-size: 0.75rem;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -1697,7 +1721,7 @@ kbd {
 
 .deploy__confirm-head {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--text-base);
 }
 
 .deploy__files {
@@ -1706,7 +1730,7 @@ kbd {
   margin: 0;
   overflow-y: auto;
   color: var(--fg-muted);
-  font-size: 0.74rem;
+  font-size: var(--text-xs);
 }
 
 
@@ -1714,7 +1738,7 @@ kbd {
 .page-list__batch-row input[type='text'] {
   flex: 1;
   min-width: 0;
-  font-size: 0.8rem;
+  font-size: var(--text-base);
 }
 
 /* 勾选框只在多选态出现，别在平时占掉标题的宽度 */
@@ -1747,7 +1771,7 @@ kbd {
   flex-direction: column;
   gap: 0.05rem;
   padding: 0.2rem 0.1rem;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 .page-list__dry-list li.skip {
@@ -1798,14 +1822,14 @@ kbd {
   align-items: center;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 .page-list__hint {
   padding: 0 0.5rem 0.3rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 
@@ -1911,7 +1935,7 @@ kbd {
 
 .badge {
   padding: 0 0.35rem;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   border-radius: var(--radius-pill);
 }
 
@@ -2043,7 +2067,7 @@ kbd {
   margin: 0;
   background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 读不出来的那一篇：与「未保存改动」同一条位置，但用错误色——
@@ -2055,7 +2079,7 @@ kbd {
   border-bottom: 1px solid var(--danger);
   border-left: 3px solid var(--danger);
   color: var(--danger);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 「读不出来」那一组：摆在栏目之前，用左边一条竖线与正常分组区分开 */
@@ -2077,7 +2101,7 @@ kbd {
 .editor__toolbar button {
   min-width: 2rem;
   padding: 0.15rem 0.4rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .editor__toolbar button.active {
@@ -2103,13 +2127,13 @@ kbd {
 
 .editor__find button {
   padding: 0.15rem 0.4rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .editor__find-count,
 .editor__find-case {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 .editor__find-case {
@@ -2132,11 +2156,11 @@ kbd {
   gap: 0.15rem;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .editor__prop input[type='text'] {
-  font-size: 0.8rem;
+  font-size: var(--text-base);
 }
 
 /* 标题、描述、标签值都长，占满整行才不至于处处截断 */
@@ -2182,7 +2206,7 @@ kbd {
   overflow: hidden;
   max-width: 9rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.6;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2211,7 +2235,7 @@ kbd {
 
 .editor__hint {
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .editor__area,
@@ -2245,7 +2269,10 @@ kbd {
   margin: 0;
   padding: 0.75rem;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.8rem;
+  /* 正文与模板是这个软件里盯得最久的区域，走 base 而不是 sm：刻度里 sm 的语义是
+     「次要与密集信息」，正文不属于次要。镜像与 textarea 共用这条规则，
+     字号必须一字不差，否则着色会整体错位 */
+  font-size: var(--text-base);
   line-height: 1.6;
   tab-size: 2;
   white-space: pre-wrap;
@@ -2371,7 +2398,7 @@ kbd {
 .page-list__snippet {
   margin: 0 0 0.375rem 0.625rem;
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -2407,7 +2434,7 @@ kbd {
 }
 
 .editor__guide-hint {
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   color: var(--fg-muted);
 }
 
@@ -2420,7 +2447,7 @@ kbd {
   padding: 0.35rem 0.5rem;
   color: var(--fg-muted);
   border-top: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .preview__frame {
@@ -2467,7 +2494,7 @@ kbd {
 
 .settings__nav-item {
   padding: 0.25rem 0.625rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-align: left;
   /* 选中态用左边框而不是填充：填充是动作的语言，这里是导航（6.4） */
   border-left: 2px solid transparent;
@@ -2502,14 +2529,15 @@ kbd {
 .settings__hint {
   margin: 0.125rem 0 0.625rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 配置源码框：等宽字体、不自动换行——TOML 的对齐是有意义的，软换行会读错缩进 */
 .settings__source {
   min-height: 24rem;
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
-  font-size: 0.8rem;
+  /* 与正文编辑区同档：手写 TOML 的地方不该比旁边的说明文字还小 */
+  font-size: var(--text-base);
   white-space: pre;
   overflow: auto;
   resize: vertical;
@@ -2619,7 +2647,7 @@ kbd {
 .layouts__impact,
 .build__muted {
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 列表空态：说明「接下来做什么」，与列表项拉开层级，不与标题争视线。
@@ -2627,7 +2655,7 @@ kbd {
 .empty-hint {
   margin: 0 0 0.5rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -2668,7 +2696,7 @@ kbd {
 .build__outputs h4 {
   margin: 0.75rem 0 0.25rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -2720,7 +2748,7 @@ kbd {
   overflow: hidden;
   max-width: 16rem;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2731,7 +2759,7 @@ kbd {
   align-items: center;
   margin: 0;
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -2762,7 +2790,7 @@ kbd {
 
 .settings__row .page-list__danger {
   padding: 0.2rem 0.5rem;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 /* 菜单一行两格：名称与地址并排，按钮另起一行 */
@@ -2799,7 +2827,7 @@ kbd {
   background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .settings__import-list li {
@@ -2867,7 +2895,7 @@ kbd {
   padding: 0.3rem 0.5rem;
   background: var(--bg-subtle);
   color: var(--fg-muted);
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -2903,7 +2931,7 @@ kbd {
 }
 
 .calendar__day {
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
   color: var(--fg-muted);
 }
 
@@ -2916,7 +2944,7 @@ kbd {
   border-radius: var(--radius-sm);
   background: var(--bg-subtle);
   color: inherit;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   text-align: left;
   /* 一格里可能挤几篇，标题截断也比撑破格子好 */
   overflow: hidden;
@@ -2954,7 +2982,7 @@ kbd {
 .calendar__date {
   color: var(--fg-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .calendar__link {
@@ -2978,7 +3006,7 @@ kbd {
 
 .layouts__theme > summary {
   cursor: pointer;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
   font-weight: 500;
 }
 
@@ -3006,7 +3034,7 @@ kbd {
 }
 
 .seo__score strong {
-  font-size: 1.5rem;
+  font-size: var(--text-xl);
 }
 
 .seo__issues {
@@ -3051,14 +3079,14 @@ kbd {
 
 .seo__issue-code {
   color: var(--fg-muted);
-  font-size: 0.7rem;
+  font-size: var(--text-xs);
 }
 
 .seo__media {
   padding: 0;
   margin: 0.25rem 0 0;
   list-style: none;
-  font-size: 0.8rem;
+  font-size: var(--text-sm);
 }
 
 .seo__media li {
