@@ -138,8 +138,10 @@ npm run build                                       # 打包（tauri-build 需�
 - **`import css from './styles.css?raw'` 在 vitest 里是空串**（Vitest 把所有 `.css`
   请求换成空串），断言会对着空字符串通过，护栏是假的。`src/styles.test.ts` 因此用
   `node:fs`，类型声明手写在 `src/vite-env.d.ts`（这个前端刻意没装 `@types/node`）。
-- **`actions.setRaw()` 绕过 textarea 的原生撤销栈**：工具条与「整节挪动」都走它，
-  所以那些动作按不了 `Ctrl+Z`。这是已知欠账，别在上面继续叠功能。
+- **改正文只能走 `ContentEditor.vue` 的 `writeRange()`**，别直接调 `actions.setRaw()`：
+  后者是给 textarea 的 `@input` 准备的（用户打字），从代码里调它会绕过原生撤销栈，
+  于是工具条、查找替换、整节挪动按 `Ctrl+Z` 撤掉的是上一次打的字。这个 bug 真出现过。
+  `writeRange` 底下是 `document.execCommand('insertText')`——废弃，但唯一能进撤销栈的 API。
 - **改文件时的锚点必须是文件里唯一的字符串**。这个仓库的注释密度很高，
   拿 `/**`、`function` 这类到处都有的片段当替换锚点，会一次改掉几十处
   （真发生过：`store.ts` 从 1604 行涨到 4935 行）。动 `store.ts`、`styles.css`、

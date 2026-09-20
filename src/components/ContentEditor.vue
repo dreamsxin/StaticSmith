@@ -194,16 +194,63 @@ function fieldValue(event: Event): string {
 
 // ---------------------------------------------------------------- 选区编辑
 
+/**
+ * 正文的唯一写入通道：换掉 `[start, end)` 这一段。
+ *
+ * 为什么不各处直接调 `actions.setRaw()`：那条路是给 textarea 的 `@input` 准备的
+ * （用户自己打字）。从代码里调它等于**绕过 textarea 的原生撤销栈**——工具条加粗完按
+ * `Ctrl+Z`，撤掉的是上一次打的字，刚才那次加粗撤不回来；「整节挪动」更糟，
+ * 挪错了没有退路。在一个写作工具里这比少个功能伤得多。
+ *
+ * `document.execCommand('insertText')` 早被标为废弃，但它是**唯一**能把改动记进原生
+ * 撤销栈的 API（`setRangeText` 与直接赋值 `value` 都会把栈清空）。它只作用于当前选区，
+ * 所以先把选区摆到要替换的范围上；成功后浏览器自己派发 `input`，状态经那条路更新，
+ * 这里不再调 `setRaw`。
+ *
+ * 拿不到 textarea 或这个 API 不灵时退回直接写：撤销没了，但至少还能编辑——
+ * 编不了字比撤不回来严重。
+ */
+function writeRange(start: number, end: number, text: string) {
+  const el = textarea.value
+  if (el && typeof document.execCommand === 'function') {
+    el.focus()
+    el.setSelectionRange(start, end)
+    // 换成空串（把查找到的词删掉）走 delete：insertText 传空串在有些实现里什么都不做
+    const done = text
+      ? document.execCommand('insertText', false, text)
+      : document.execCommand('delete')
+    if (done) return
+  }
+  const raw = store.currentRaw
+  actions.setRaw(raw.slice(0, start) + text + raw.slice(end))
+}
+
 /** 用新文本替换选区，并把光标落在 `cursor` 指定的绝对位置。 */
 function replaceSelection(text: string, cursorStart: number, cursorEnd: number) {
   const el = textarea.value
   if (!el) return
-  const raw = store.currentRaw
-  actions.setRaw(raw.slice(0, el.selectionStart) + text + raw.slice(el.selectionEnd))
+  writeRange(el.selectionStart, el.selectionEnd, text)
   requestAnimationFrame(() => {
     el.setSelectionRange(cursorStart, cursorEnd)
     el.focus()
   })
+}
+
+/**
+ * 在光标处插入一段文本。
+ *
+ * 站内链接、插图、媒体库三处都要这个动作，各写一遍的结果是三份略有出入的
+ * 「没有 textarea 时怎么办」——所以合成一份：没有 textarea（正文没在看）时追加到末尾。
+ */
+function insertAtCursor(snippet: string) {
+  const el = textarea.value
+  if (!el) {
+    const at = store.currentRaw.length
+    writeRange(at, at, snippet)
+    return
+  }
+  const caret = el.selectionStart + snippet.length
+  replaceSelection(snippet, caret, caret)
 }
 
 /** 包裹选区。没有选区时插入标记并把光标放中间，方便直接输入。 */
@@ -229,7 +276,7 @@ function prefixLines(prefix: string) {
     .map((line) => (line.startsWith(prefix) ? line.slice(prefix.length) : prefix + line))
     .join('\n')
 
-  actions.setRaw(raw.slice(0, lineStart) + replaced + raw.slice(end))
+  writeRange(lineStart, end, replaced)
   requestAnimationFrame(() => {
     el.setSelectionRange(lineStart, lineStart + replaced.length)
     el.focus()
@@ -264,12 +311,7 @@ function insertInternalLink(page: LinkTarget) {
   const text = selected && !selected.includes('\n') ? selected : page.title || page.source
   const format = store.project?.config.build.source_format ?? 'markdown'
   const snippet = linkSnippet(text, page.url, format)
-  if (el) {
-    const caret = el.selectionStart + snippet.length
-    replaceSelection(snippet, caret, caret)
-  } else {
-    actions.setRaw(store.currentRaw + snippet)
-  }
+  insertAtCursor(snippet)
 }
 
 // ---------------------------------------------------------------- 资源插入
@@ -283,14 +325,7 @@ async function insertFiles(files: File[]) {
   for (const file of files) {
     const url = await actions.saveAsset(file)
     if (!url) continue
-    const el = textarea.value
-    const snippet = markdownFor(file, url)
-    if (el) {
-      const caret = el.selectionStart + snippet.length
-      replaceSelection(snippet, caret, caret)
-    } else {
-      actions.setRaw(store.currentRaw + snippet)
-    }
+    insertAtCursor(markdownFor(file, url))
   }
 }
 
@@ -341,14 +376,7 @@ const assetBase = computed(() => store.previewServer)
 
 function insertAsset(url: string) {
   const name = url.split('/').pop() ?? '资源'
-  const snippet = IMAGE_EXT.test(url) ? `![${name}](${url})` : `[${name}](${url})`
-  const el = textarea.value
-  if (el) {
-    const caret = el.selectionStart + snippet.length
-    replaceSelection(snippet, caret, caret)
-  } else {
-    actions.setRaw(store.currentRaw + snippet)
-  }
+  insertAtCursor(IMAGE_EXT.test(url) ? `![${name}](${url})` : `[${name}](${url})`)
 }
 
 
@@ -516,8 +544,7 @@ function replaceCurrent() {
     selectMatch(0)
     return
   }
-  const raw = store.currentRaw
-  actions.setRaw(raw.slice(0, at) + findReplace.value + raw.slice(at + findQuery.value.length))
+  writeRange(at, at + findQuery.value.length, findReplace.value)
   // 替换后原地还在同一个序号上，下一处自然接上；越界时回到第一处
   requestAnimationFrame(() => selectMatch(findIndex.value))
 }
@@ -538,7 +565,7 @@ function replaceAllInFile() {
     out += raw.slice(at, start) + findReplace.value
     at = start + findQuery.value.length
   }
-  actions.setRaw(out + raw.slice(at))
+  writeRange(0, raw.length, out + raw.slice(at))
   findIndex.value = -1
   actions.notify('success', `这一篇里替换了 ${matches.length} 处（还没保存）`)
 }
@@ -606,7 +633,7 @@ const editorCommands: EditorCommands = {
   moveHeading: (offset: number, delta: -1 | 1) => {
     const moved = moveHeading(store.currentRaw, offset, delta)
     if (!moved) return
-    actions.setRaw(moved.text)
+    writeRange(0, store.currentRaw.length, moved.text)
     // 光标跟着这一节走，否则挪完之后光标还停在原来那个位置的别人家里
     requestAnimationFrame(() => jumpTo(moved.offset))
   },
