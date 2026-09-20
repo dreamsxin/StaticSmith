@@ -27,14 +27,15 @@ import { outputKindLabel } from '../labels'
 import { parseOutline, peerIndex } from '../manuscript'
 import {
   canDropBeside,
+  canDropIntoSection,
   groupBySection,
   moved,
   movedSection,
   siblingsOf,
   worstSeoBySource,
 } from '../grouping'
-import type { Criteria, Filter } from '../grouping'
-import type { PageSummary, SearchHit } from '../api'
+import type { Criteria, Filter, MovablePage } from '../grouping'
+import type { PageSummary, SearchHit, BatchPreview } from '../api'
 
 
 const keyword = ref('')
@@ -443,16 +444,34 @@ const currentOutline = computed(() => {
 /**
  * 正被拖着的那一篇，以及落点。
  *
- * 只在**同一栏目内**拖：跨栏目等于改归属，那要补旧地址、改写站内引用，
- * 得先干跑再确认（批量条里的「移动到栏目」就是那条路）。所以拖到别的栏目上
- * 不给落点提示，松手也什么都不做——不做，比做一半更好解释。
+ * 两种落点，两件不同的事：
+ * - 落在**一行**上（`dropTarget`）= 同栏目内排序，直接落盘（顺序是可逆的）
+ * - 落在**栏目**上（`dropSection`）= 改归属，先干跑再确认（要补旧地址、
+ *   还要改写别人文章里指向它的链接，背着人改文件比不改更糟）
+ *
+ * 跨栏目**不**接「插到某一行前后」：那一次拖拽同时改归属和顺序，
+ * 一句话说不清会发生什么，而这个工具没有跨文件撤销栈。
  */
 const dragging = ref<string | null>(null)
 const dropTarget = ref<{ source: string; side: 'before' | 'after' } | null>(null)
+const dropSection = ref<string | null>(null)
+/** 拖到栏目上之后的干跑结果，确认前不落盘。 */
+const pendingMove = ref<{
+  source: string
+  section: string
+  preview: BatchPreview
+} | null>(null)
+
+function draggedPage(): MovablePage | undefined {
+  return store.project?.pages.find((p) => p.source === dragging.value)
+}
 
 function hoverRow(page: PageSummary, side: 'before' | 'after') {
-  const from = store.project?.pages.find((p) => p.source === dragging.value)
+  const from = draggedPage()
   dropTarget.value = canDropBeside(from, page) ? { source: page.source, side } : null
+  // 行在栏目里面，`dragover` 会冒泡到栏目上：进了某一行就别再高亮整个栏目，
+  // 否则「插到这一行」和「搬进这个栏目」两个提示会同时亮着
+  if (dropTarget.value) dropSection.value = null
 }
 
 async function dropOnRow(page: PageSummary) {
@@ -464,9 +483,39 @@ async function dropOnRow(page: PageSummary) {
   await actions.movePageTo(source, target.source, target.side)
 }
 
+/** 拖过某个栏目：只有真能搬进去时才给落点态，不然不给任何提示。 */
+function hoverSection(section: string) {
+  dropSection.value = canDropIntoSection(draggedPage(), section) ? section : null
+}
+
+/**
+ * 松手在栏目上：**不落盘**，先问 core「会发生什么」，把清单摆出来等确认。
+ *
+ * 干跑与执行都走批量那条路（`batchPreview` / `batchMove`，单元素数组）：
+ * 一处定义，也就没有「拖拽搬动和批量搬动行为不一致」的可能。
+ */
+async function dropOnSection(section: string) {
+  const source = dragging.value
+  const target = dropSection.value
+  endDrag()
+  if (!source || target !== section) return
+  const preview = await actions.batchPreview([source], { kind: 'move', to_section: section })
+  if (!preview) return
+  pendingMove.value = { source, section, preview }
+}
+
+/** 确认后才写盘。保留旧地址（生成重定向页）——搬走一篇不该让别人的链接变死链。 */
+async function confirmMove() {
+  const pending = pendingMove.value
+  if (!pending) return
+  pendingMove.value = null
+  await actions.batchMove([pending.source], pending.section, true)
+}
+
 function endDrag() {
   dragging.value = null
   dropTarget.value = null
+  dropSection.value = null
 }
 
 
@@ -581,14 +630,64 @@ async function copyText(text: string) {
     <BrokenList :items="store.project?.broken_sources ?? []" />
 
     <!-- 栏目按树排（子栏目紧跟父栏目），缩进用 --depth 表达：层数不定，
-         写成 --depth-1/2/3 这类固定类名迟早不够用 -->
+         写成 --depth-1/2/3 这类固定类名迟早不够用。
+         整个分组是拖放目标：把一篇拖到别的栏目上 = 改归属，松手先弹干跑 -->
     <div
       v-for="group in groups"
       :key="group.section"
       class="page-list__group"
-      :class="{ 'page-list__group--nested': group.depth > 0 }"
+      :class="{
+        'page-list__group--nested': group.depth > 0,
+        'page-list__group--drop': dropSection === group.section,
+      }"
       :style="{ '--depth': group.depth }"
+      @dragover.prevent="hoverSection(group.section)"
+      @dragleave="dropSection = null"
+      @drop.prevent="dropOnSection(group.section)"
     >
+
+      <!-- 干跑结果：改归属要补旧地址、还要改写别人文章里指向它的链接，先说清再落盘 -->
+      <div v-if="pendingMove?.section === group.section" class="page-list__dry">
+        <p class="page-list__batch-head">
+          将把 <code>{{ pendingMove.source }}</code> 搬进
+          <code>{{ pendingMove.section }}</code>
+        </p>
+        <ul class="page-list__dry-list">
+          <li
+            v-for="change in pendingMove.preview.changes"
+            :key="change.source"
+            :class="{ skip: !change.changes }"
+          >
+            <code>{{ change.source }}</code>
+            <span>{{ change.effect }}</span>
+          </li>
+        </ul>
+        <p v-if="pendingMove.preview.refs.length" class="page-list__batch-note">
+          另会把 {{ pendingMove.preview.refs.length }} 篇里的
+          {{ pendingMove.preview.refs.reduce((sum, item) => sum + item.hits, 0) }}
+          处站内链接改到新地址：{{
+            pendingMove.preview.refs.map((item) => item.source).join('、')
+          }}
+        </p>
+        <p v-if="pendingMove.preview.refs_manual.length" class="page-list__batch-note">
+          另有 {{ pendingMove.preview.refs_manual.length }} 篇里的
+          {{ pendingMove.preview.refs_manual.reduce((sum, item) => sum + item.hits, 0) }}
+          处<strong>相对链接</strong>（<code>../a/</code> 这类）指向它，改写不到，需要手工改：{{
+            pendingMove.preview.refs_manual.map((item) => item.source).join('、')
+          }}
+        </p>
+        <div class="page-list__batch-row">
+          <button
+            type="button"
+            class="btn--primary"
+            :disabled="store.busy || pendingMove.preview.affected === 0"
+            @click="confirmMove"
+          >
+            确认搬动
+          </button>
+          <button type="button" @click="pendingMove = null">取消</button>
+        </div>
+      </div>
 
       <SectionHeader
         :section="group.section"

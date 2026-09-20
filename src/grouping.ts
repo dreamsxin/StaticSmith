@@ -255,17 +255,44 @@ export function dropSide(clientY: number, top: number, height: number): 'before'
 }
 
 /**
- * 能不能把 `from` 拖到 `to` 旁边。
+ * 能不能把 `from` 拖到 `to` 旁边（**同栏目内排序**）。
  *
- * **只允许同一栏目内拖。** 跨栏目等于改归属，那要补旧地址、改写站内引用，得先干跑再确认
- * （批量条里的「移动到栏目」就是那条路）。所以拖到别的栏目上不给落点提示，松手也什么都不做
- * ——不做，比做一半更好解释。拖到自己身上同理。
+ * 跨栏目在这条路上仍然不接：那一次拖拽会同时改归属和顺序，
+ * 一句话说不清「会发生什么」，而这个工具没有跨文件撤销栈。
+ * 改归属走 `canDropIntoSection`——落在**栏目**上，先干跑再确认。
+ * 拖到自己身上同理不接。
  */
 export function canDropBeside(
   from: GroupablePage | undefined,
   to: GroupablePage,
 ): from is GroupablePage {
   return !!from && from.source !== to.source && from.section === to.section
+}
+
+/** 拖动时会看一眼「是不是索引页」，那是唯一比 `GroupablePage` 多要的一个字段。 */
+export interface MovablePage extends GroupablePage {
+  /** 栏目的索引页（`_index.md`）。它的地址就是栏目名 */
+  readonly is_index?: boolean
+}
+
+/**
+ * 能不能把 `from` 拖进 `section` 这个栏目（**改归属**）。
+ *
+ * 这是「像编辑一本书」缺的最后一块：把一章从一部分挪到另一部分。落盘前必须干跑，
+ * 因为它要补旧地址、还要改写**别人文章里**指向它的链接——背着人改文件比不改更糟。
+ * 所以拖到栏目上只是发起确认，不直接写。
+ *
+ * 两种情况不接：
+ * - 拖回自己所在的栏目：等于没动，不该弹一个干跑让人确认「什么都不会变」
+ * - 栏目索引页：它的地址就是栏目名，搬它要走「栏目改名」。core 也会拒
+ *   （`batch::MoveDecision::Blocked`），界面先别给出「能拖」的假象——
+ *   判断与执行共用一份规矩，否则迟早出现「能拖、松手没反应」
+ */
+export function canDropIntoSection(
+  from: MovablePage | undefined,
+  section: string,
+): from is MovablePage {
+  return !!from && !from.is_index && from.section !== section
 }
 
 /** 某个栏目的父栏目路径。顶层栏目的父是根目录（空串）。 */

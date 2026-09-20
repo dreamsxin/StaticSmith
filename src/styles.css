@@ -1651,6 +1651,18 @@ kbd {
   padding: 0 0.5rem 0 calc(0.5rem + var(--depth, 0) * 0.85rem);
 }
 
+/*
+ * 拖到这个栏目上时的落点态。
+ *
+ * 用 inset 阴影而不是 border：加边框会把整列推动 2px，一排栏目挨着时看着像在抖。
+ * 底色用 --accent-soft 而不是实心主色：这是「可以放这里」，不是「已经选中」。
+ */
+.page-list__group--drop {
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 /* 子栏目挂一条竖线：只靠留白，缩进一级时看不出父子关系 */
 .page-list__group--nested > h3 {
   position: relative;

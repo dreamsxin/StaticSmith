@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   canDropBeside,
+  canDropIntoSection,
   dropSide,
   groupBySection,
   matchesFilter,
@@ -404,16 +405,30 @@ describe('reorderTo 与 dropSide', () => {
     expect(dropSide(15, 0, 30)).toBe('after')
   })
 
-  it('只允许同栏目内拖：跨栏目是「移动到栏目」，那条路要先干跑再确认', () => {
+  it('同栏目内才排序：跨栏目不是排序，是改归属，走另一条路', () => {
     const a = page('posts/a.md')
     const b = page('posts/b.md')
     const other = page('notes/c.md')
 
     expect(canDropBeside(a, b)).toBe(true)
+    // 跨栏目不给「插在这一行前后」的落点：那一次拖拽同时改了归属和顺序，
+    // 说不清会发生什么。改归属走 canDropIntoSection（落在栏目上）
     expect(canDropBeside(a, other)).toBe(false)
     // 拖到自己身上不算落点，也别发写操作
     expect(canDropBeside(a, a)).toBe(false)
     expect(canDropBeside(undefined, b)).toBe(false)
+  })
+
+  it('拖到别的栏目上才是「改归属」：同栏目与索引页都不接', () => {
+    const a = page('posts/a.md')
+
+    expect(canDropIntoSection(a, 'notes')).toBe(true)
+    // 拖回自己所在的栏目等于没动，不该弹干跑
+    expect(canDropIntoSection(a, 'posts')).toBe(false)
+    expect(canDropIntoSection(undefined, 'notes')).toBe(false)
+    // 栏目索引页的地址就是栏目名，搬它要走「栏目改名」——core 也会拒，
+    // 界面先别给出「能拖」的假象（判断与执行共用一份规矩）
+    expect(canDropIntoSection({ ...page('posts/_index.md'), is_index: true }, 'notes')).toBe(false)
   })
 })
 
