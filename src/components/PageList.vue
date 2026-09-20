@@ -489,6 +489,20 @@ function hoverSection(section: string) {
 }
 
 /**
+ * 拖出某个栏目时撤掉落点态。
+ *
+ * 要看 `relatedTarget`：拖进分组里的**子元素**（某一行）时，浏览器也会给分组派发
+ * 一次 `dragleave`——不判断的话落点态会在整个分组里一闪一闪。
+ * 落点态是「松手会发生什么」的唯一提示，闪烁等于没有提示。
+ */
+function leaveSection(event: DragEvent) {
+  const box = event.currentTarget as HTMLElement | null
+  const into = event.relatedTarget as Node | null
+  if (box && into && box.contains(into)) return
+  dropSection.value = null
+}
+
+/**
  * 松手在栏目上：**不落盘**，先问 core「会发生什么」，把清单摆出来等确认。
  *
  * 干跑与执行都走批量那条路（`batchPreview` / `batchMove`，单元素数组）：
@@ -642,7 +656,7 @@ async function copyText(text: string) {
       }"
       :style="{ '--depth': group.depth }"
       @dragover.prevent="hoverSection(group.section)"
-      @dragleave="dropSection = null"
+      @dragleave="leaveSection"
       @drop.prevent="dropOnSection(group.section)"
     >
 
