@@ -521,6 +521,12 @@ impl Builder {
             .graph
             .affected_templates(changed_templates.iter().map(String::as_str));
 
+        // 配置是**全站输入**：菜单、站点标题、`[extra]` 出现在每一页的头尾里。
+        // 它变了就得整站重算——增量原先只看模板哈希与页面自身状态，于是改完导航
+        // 点「生成」页面上还是旧菜单。那种「保存成功了但看不到」最难自查。
+        let config_changed = self.index.meta(Self::CONFIG_SIGNATURE)?.as_deref()
+            != Some(self.config_signature().as_str());
+
         let publishable: Vec<&Page> = self.published_pages();
         let existing: Vec<String> = publishable.iter().map(|p| p.source.clone()).collect();
         let orphaned_pages: Vec<String> = self
@@ -533,6 +539,7 @@ impl Builder {
 
         let pages = match mode {
             BuildMode::Full => existing.clone(),
+            BuildMode::Incremental if config_changed => existing.clone(),
             BuildMode::Incremental => {
                 let mut chosen: BTreeSet<String> = BTreeSet::new();
                 // 有页面重渲染、新增或消失的栏目：它们的列表页内容跟着变了。
@@ -574,6 +581,21 @@ impl Builder {
             total_pages: publishable.len(),
             orphaned_pages,
         })
+    }
+
+    /// 索引里存「上次构建用的全站配置指纹」的键。
+    const CONFIG_SIGNATURE: &'static str = "config_signature";
+
+    /// 全站配置的指纹：模板能看到的全站数据里，**除 `pages` 之外**的那一份。
+    ///
+    /// 直接序列化 [`Builder::site_wide_context`] 而不是手挑字段，理由与
+    /// [`Builder::taxonomy_signature`] 一样：第一版手挑过，漏了 `site.title`、`menu`、
+    /// `[extra]`，改了它们页面不重算。整份算进来还能自动跟上以后新增的键。
+    ///
+    /// 传空的分类数据：那一半的变化由 `taxonomy_signature` 管（它把词条成员也算进去），
+    /// 这里只回答「配置变没变」。两者都基于同一个上下文函数，不会各说一套。
+    fn config_signature(&self) -> String {
+        util::hash_str(&self.site_wide_context(&[]).into_json().to_string())
     }
 
     /// 单个页面是否需要重新渲染。
@@ -723,6 +745,11 @@ impl Builder {
             .collect();
         self.index.replace_templates(&hashes, &deps)?;
         phases.index_ms = index_started.elapsed().as_millis() as u64;
+
+        // 记下这次用的全站配置指纹。写在这里（而不是 `plan` 里）是因为 `plan` 必须没有
+        // 副作用——界面上的「会生成哪些页」按钮会反复调它。
+        self.index
+            .set_meta(Self::CONFIG_SIGNATURE, &self.config_signature())?;
 
         let duration_ms = started.elapsed().as_millis() as u64;
         self.index

@@ -88,6 +88,45 @@ fn navigation_comes_from_the_config_menu() {
     assert!(!index.contains("源码"), "配置里的菜单已删除");
 }
 
+/// 配置是**全站输入**：改了它，增量生成必须把每一页都重算。
+///
+/// 这里钉的是一个真出现过的 bug：改完导航菜单点「生成」，页面上导航还是旧的——
+/// 因为增量只看模板哈希与页面自身状态，配置不在其中。分类页当时是对的
+/// （它的指纹整份序列化了全站上下文），于是表现成「标签页变了、文章页没变」，
+/// 这种半对的结果比全错更难察觉。
+#[test]
+fn changing_the_config_menu_rebuilds_every_page() {
+    let dir = new_project();
+    let mut builder = Builder::open(dir.path()).unwrap();
+    builder.build(BuildMode::Full).unwrap();
+
+    // 只动配置里的菜单，内容一个字都没改
+    let config_path = dir.path().join("staticsmith.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        &config_path,
+        format!("{config}\n[[menu]]\nname = \"文档中心\"\nurl = \"/about/\"\nweight = 9\n"),
+    )
+    .unwrap();
+
+    let mut builder = Builder::open(dir.path()).unwrap();
+    let plan = builder.plan(BuildMode::Incremental).unwrap();
+    assert_eq!(
+        plan.pages.len(),
+        plan.total_pages,
+        "改菜单牵动全站，不该只重算一部分: {:?}",
+        plan.pages
+    );
+
+    builder.build(BuildMode::Incremental).unwrap();
+    let post = read(dir.path(), "posts/hello-staticsmith/index.html");
+    assert!(post.contains("文档中心"), "文章页的导航应跟着配置更新");
+
+    // 配置没再变时不能永远全量重算，否则「增量」名存实亡
+    let plan = builder.plan(BuildMode::Incremental).unwrap();
+    assert!(plan.is_empty(), "配置没变就该回到空跑: {:?}", plan.pages);
+}
+
 #[test]
 fn second_incremental_build_is_a_no_op() {
     let dir = new_project();
