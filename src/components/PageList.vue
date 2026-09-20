@@ -6,7 +6,7 @@
  * 标题行说明这一栏是内容并给出新建入口，搜索行只负责过滤，剩下才是列表。
  * 之前搜索框与「＋」并排且没有任何标识，很容易被当成「新建内容的名称输入框」。
  */
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import SectionHeader from './SectionHeader.vue'
 import ReplacePanel from './ReplacePanel.vue'
@@ -29,6 +29,7 @@ import { parseOutline, peerIndex } from '../manuscript'
 import {
   canDropBeside,
   canDropIntoSection,
+  edgeScrollStep,
   groupBySection,
   moved,
   movedSection,
@@ -527,11 +528,64 @@ async function confirmMove() {
   await actions.batchMove([pending.source], pending.section, true)
 }
 
+/**
+ * 拖动中的自动滚动。
+ *
+ * 目录一长，把一篇拖到**屏幕外**的栏目上原先根本做不到：手一直按着，列表不动，
+ * 只能松手、滚、再拖一次。多少 px 一帧由 `edgeScrollStep` 算（那里有取舍与测试），
+ * 这里只管两件 DOM 的事：滚哪个元素、什么时候停。
+ *
+ * 滚动条不在 `.page-list` 自己身上（它没有 `overflow`），所以要往上找第一个真能滚的
+ * 祖先——写死一个类名的话，将来布局一改就悄悄失效。
+ */
+let scrolling = 0
+let pointerY = 0
+
+function scrollParent(from: HTMLElement | null): HTMLElement | null {
+  for (let node = from; node; node = node.parentElement) {
+    const style = getComputedStyle(node)
+    if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
+      return node
+    }
+  }
+  return null
+}
+
+function stopScrolling() {
+  if (scrolling) cancelAnimationFrame(scrolling)
+  scrolling = 0
+}
+
+function dragOverList(event: DragEvent) {
+  // `dragover` 每几十毫秒来一次，滚动却要按帧走：这里只更新坐标，动画自己跑
+  pointerY = event.clientY
+  if (scrolling) return
+  const box = scrollParent(event.currentTarget as HTMLElement)
+  if (!box) return
+
+  const tick = () => {
+    const rect = box.getBoundingClientRect()
+    const step = edgeScrollStep(pointerY, rect.top, rect.height)
+    // 松手了或指针离开边缘带就停：让它空转会一直占着一帧的预算
+    if (!dragging.value || step === 0) {
+      stopScrolling()
+      return
+    }
+    box.scrollTop += step
+    scrolling = requestAnimationFrame(tick)
+  }
+  scrolling = requestAnimationFrame(tick)
+}
+
 function endDrag() {
   dragging.value = null
   dropTarget.value = null
   dropSection.value = null
+  stopScrolling()
 }
+
+// 拖动中卸载侧栏几乎不会发生，但 rAF 泄漏是「看不见的」那类问题
+onBeforeUnmount(stopScrolling)
 
 
 
@@ -550,7 +604,8 @@ async function copyText(text: string) {
 </script>
 
 <template>
-  <nav class="page-list" aria-label="内容">
+  <!-- 拖动中贴到上下边缘时自动滚：目录一长，屏幕外的栏目原先根本拖不到 -->
+  <nav class="page-list" aria-label="内容" @dragover.prevent="dragOverList">
     <header class="page-list__head">
       <h2>内容</h2>
       <span class="page-list__count">

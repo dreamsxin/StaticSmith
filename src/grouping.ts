@@ -255,6 +255,38 @@ export function dropSide(clientY: number, top: number, height: number): 'before'
 }
 
 /**
+ * 拖到列表上下边缘时，每一帧该滚多少（负数向上，`0` 表示别动）。
+ *
+ * 不做这个的后果：目录一长，把一篇拖到屏幕外的栏目上就**根本做不到**——
+ * 手一直按着，列表不动，只能松手、滚、再拖一次。
+ *
+ * 两条取舍写在参数默认值里：
+ * - `band`（48px）只在贴边那一小条里才滚。带太宽会让人没法安静地停在靠边的那一行
+ * - `max`（18px/帧）是上限。指针拖到容器**外面**也不再加速——越界就一路窜到底，
+ *   等于把「拖过头」变成「重来一次」
+ *
+ * 抽成纯函数的理由同 `dropSide`：`clientY` 与元素矩形在测试环境里都是 0，
+ * 留在组件里这段只能靠肉眼。
+ */
+export function edgeScrollStep(
+  clientY: number,
+  top: number,
+  height: number,
+  band = 48,
+  max = 18,
+): number {
+  const fromTop = clientY - top
+  const fromBottom = top + height - clientY
+  const near = Math.min(fromTop, fromBottom)
+  if (near >= band) return 0
+  // 指针拖到容器**外面**时 `near` 是负数，算出来的速度更大——被 `max` 截住，
+  // 所以「拖过头」不会一路窜到底。这一层封顶是刻意的，别改成按距离线性外推
+  const speed = Math.min(max, Math.max(1, Math.round((max * (band - near)) / band)))
+  // 容器矮到两条带重叠时，靠哪边近就往哪边滚
+  return fromTop <= fromBottom ? -speed : speed
+}
+
+/**
  * 能不能把 `from` 拖到 `to` 旁边（**同栏目内排序**）。
  *
  * 跨栏目在这条路上仍然不接：那一次拖拽会同时改归属和顺序，

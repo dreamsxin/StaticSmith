@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   canDropBeside,
   canDropIntoSection,
+  edgeScrollStep,
   dropSide,
   groupBySection,
   matchesFilter,
@@ -429,6 +430,28 @@ describe('reorderTo 与 dropSide', () => {
     // 栏目索引页的地址就是栏目名，搬它要走「栏目改名」——core 也会拒，
     // 界面先别给出「能拖」的假象（判断与执行共用一份规矩）
     expect(canDropIntoSection({ ...page('posts/_index.md'), is_index: true }, 'notes')).toBe(false)
+  })
+  it('拖到列表边缘要自动滚：不然屏幕外的栏目根本拖不到', () => {
+    // 容器：top = 100，高 400（所以下边缘在 500）
+    const step = (y: number) => edgeScrollStep(y, 100, 400)
+
+    // 中间不滚：一点风吹草动就滚起来会让人没法停在想要的那一行
+    expect(step(300)).toBe(0)
+    // 边缘带（默认 48px）以内才动，越靠边越快
+    expect(step(140)).toBeLessThan(0)
+    expect(step(110)).toBeLessThan(step(140))
+    expect(step(460)).toBeGreaterThan(0)
+    expect(step(490)).toBeGreaterThan(step(460))
+    // 压在边线上就是最大速度；拖出容器之外不该再加速（否则一下窜到底）
+    expect(step(100)).toBe(step(60))
+    expect(step(500)).toBe(step(560))
+    expect(step(100)).toBe(-step(500))
+  })
+
+  it('容器很矮时上下两条带会叠在一起：按更近的那边走', () => {
+    // 高 40，比两条带加起来还窄
+    expect(edgeScrollStep(105, 100, 40)).toBeLessThan(0)
+    expect(edgeScrollStep(135, 100, 40)).toBeGreaterThan(0)
   })
 })
 
